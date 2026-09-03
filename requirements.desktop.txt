@@ -1,0 +1,19 @@
+# JY investing 개인 데스크톱 구성: 포트폴리오·시장·백테스트에 필요한 의존성만 설치한다.
+fastapi
+uvicorn[standard]
+orjson
+python-multipart
+python-dotenv
+requests
+boto3
+motor
+pymongo
+numpy
+pandas
+openpyxl
+yfinance
+pykrx
+matplotlib
+scikit-learn
+scipy
+apscheduler

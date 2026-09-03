@@ -1,0 +1,45 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=Asia/Seoul \
+    LANG=ko_KR.UTF-8 \
+    LANGUAGE=ko_KR:ko \
+    LC_ALL=ko_KR.UTF-8
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      bash \
+      curl \
+      fonts-nanum \
+      locales \
+      tzdata \
+    && sed -i '/ko_KR.UTF-8/s/^# //g' /etc/locale.gen \
+    && locale-gen \
+    && ln -fs /usr/share/zoneinfo/$TZ /etc/localtime \
+    && dpkg-reconfigure -f noninteractive tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.desktop.txt .
+RUN --mount=type=cache,target=/root/.cache/pip pip install -r requirements.desktop.txt
+
+# 앱 코드(app/)보다 훨씬 드물게 바뀌는 정적 리소스를 먼저 배치해, 코드만 바뀐
+# 재빌드에서는 이 레이어들이 캐시에서 재사용되고 mermaid.min.js도 다시
+# 다운로드하지 않는다. COPY app/ 은 디렉터리를 병합하므로 이후에 실행돼도
+# 여기서 받은 app/frontend/vendor/mermaid.min.js는 지워지지 않는다.
+RUN mkdir -p app/frontend/vendor \
+    && python -c "import pathlib, urllib.request; pathlib.Path('app/frontend/vendor/mermaid.min.js').write_bytes(urllib.request.urlopen('https://cdn.jsdelivr.net/npm/mermaid@11.16.0/dist/mermaid.min.js', timeout=90).read())" \
+    && test -s app/frontend/vendor/mermaid.min.js
+COPY docs/ ./docs/
+COPY image/ ./image/
+COPY hyundai-results/ ./hyundai-results/
+COPY lean-results/ ./lean-results/
+
+COPY app/ ./app/
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=10 \
+    CMD curl --fail http://localhost:8000/api/health || exit 1
+
+CMD ["uvicorn", "app.backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

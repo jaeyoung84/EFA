@@ -1,0 +1,47 @@
+name: jy-investing-desktop
+
+# 개인 데스크톱에서 포트폴리오·시장·전략 화면을 빠르게 실행하는 경량 구성입니다.
+# 문서 AI(RAG), Ollama, Qdrant, Meilisearch가 필요하면 기존 docker-compose.yml을 사용합니다.
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.desktop
+    image: jy-investing-backend:desktop
+    container_name: jy_investing_backend
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    environment:
+      MONGODB_URL: mongodb://mongo:27017
+      MONGODB_DB: ${MONGODB_DB:-jy_investing}
+      # 경량 실행에서는 RAG 서버 의존성을 만들지 않는다.
+      RAG_EMBEDDING_PROVIDER: hash
+      RAG_LLM_API_KEY: ""
+      RAG_LLM_MODEL: ""
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 25s
+
+  mongo:
+    image: mongo:7
+    container_name: jy_investing_mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: ${MONGODB_DB:-jy_investing}
+    volumes:
+      - jy_investing_mongo_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping').ok\"" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  jy_investing_mongo_data:
