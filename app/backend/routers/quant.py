@@ -1,15 +1,48 @@
 from __future__ import annotations
 
+import base64
+import io
+from pathlib import Path
+
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 router = APIRouter()
+_matplotlib_font_configured = False
+
+
+def configure_matplotlib_korean_font(plt) -> None:
+    global _matplotlib_font_configured
+    if _matplotlib_font_configured:
+        return
+    import matplotlib.font_manager as fm
+
+    for font_path in (
+        Path("/usr/share/fonts/truetype/nanum/NanumGothic.ttf"),
+        Path("/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf"),
+        Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+    ):
+        if font_path.exists():
+            fm.fontManager.addfont(str(font_path))
+            plt.rcParams["font.family"] = fm.FontProperties(fname=str(font_path)).get_name()
+            break
+    plt.rcParams["axes.unicode_minus"] = False
+    _matplotlib_font_configured = True
+
+
+def _calc_rsi(series: "pd.Series", period: int = 14) -> "pd.Series":
+    delta = series.diff()
+    gain = delta.clip(lower=0).rolling(period).mean()
+    loss = (-delta.clip(upper=0)).rolling(period).mean()
+    rs = gain / loss.replace(0, 1e-9)
+    return 100 - (100 / (1 + rs))
 
 
 class BacktestRequest(BaseModel):
     fast_ma: int = Field(default=20, ge=5, le=60)
     slow_ma: int = Field(default=60, ge=20, le=200)
     n_days: int = Field(default=1260, ge=252, le=5040)
+    volatility: float = Field(default=0.20, ge=0.05, le=0.8)
 
 
 class PortfolioRequest(BaseModel):
@@ -27,6 +60,8 @@ class PipelineRequest(BaseModel):
     ticker: str = Field(default="SPY")
     fast_ma: int = Field(default=20, ge=5, le=60)
     slow_ma: int = Field(default=60, ge=20, le=200)
+    n_days: int = Field(default=1260, ge=252, le=2520)
+    n_estimators: int = Field(default=50, ge=10, le=500)
 
 
 class FinancialKnowledgeRequest(BaseModel):
@@ -103,7 +138,7 @@ def quant_backtest(req: BacktestRequest) -> dict[str, object]:
 
     rng = np.random.default_rng(42)
     dt = 1 / 252
-    mu, sigma = 0.08, 0.20
+    mu, sigma = 0.08, req.volatility
     daily_r = rng.normal((mu - 0.5 * sigma**2) * dt, sigma * np.sqrt(dt), req.n_days)
     prices = pd.Series(
         100 * np.exp(np.cumsum(daily_r)),
@@ -604,7 +639,7 @@ def quant_pipeline(req: PipelineRequest) -> dict[str, object]:
     from sklearn.metrics import accuracy_score
 
     rng = np.random.default_rng(42)
-    n = 1260
+    n = req.n_days
     daily_r = rng.normal(0.0003, 0.015, n)
     prices = pd.Series(
         100 * np.exp(np.cumsum(daily_r)),
@@ -635,7 +670,7 @@ def quant_pipeline(req: PipelineRequest) -> dict[str, object]:
     tscv = TimeSeriesSplit(n_splits=3)
     accs = []
     for tr_i, te_i in tscv.split(feat_df):
-        rf = RandomForestClassifier(n_estimators=50, random_state=42, n_jobs=-1)
+        rf = RandomForestClassifier(n_estimators=req.n_estimators, random_state=42, n_jobs=-1)
         rf.fit(feat_df.iloc[tr_i], tgt.iloc[tr_i])
         accs.append(accuracy_score(tgt.iloc[te_i], rf.predict(feat_df.iloc[te_i])))
     ml_acc = float(np.mean(accs))

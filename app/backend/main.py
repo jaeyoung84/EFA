@@ -96,10 +96,10 @@ def configure_matplotlib_korean_font(plt) -> None:
 
 
 app = FastAPI(
-    title="Python Education Cloud API",
+    title="JY investing API",
     version="2.0.0",
     description=(
-        "주식 투자 입문 가이드"
+        "JY investing 개인 퀀트 리서치 및 포트폴리오 API"
     ),
     default_response_class=DEFAULT_RESPONSE_CLASS,
 )
@@ -125,6 +125,8 @@ try:
     from .routers.rag import router as rag_router
     from .routers.lex import router as lex_router
     from .routers.auth import router as auth_router
+    from .routers.portfolio import router as portfolio_router
+    from .routers.strategy import router as strategy_router
     from . import pattern_detection
 except ImportError:  # Allows `uvicorn main:app` from app/backend.
     from routers.ml import router as ml_router  # type: ignore
@@ -136,6 +138,8 @@ except ImportError:  # Allows `uvicorn main:app` from app/backend.
     from routers.rag import router as rag_router  # type: ignore
     from routers.lex import router as lex_router  # type: ignore
     from routers.auth import router as auth_router  # type: ignore
+    from routers.portfolio import router as portfolio_router  # type: ignore
+    from routers.strategy import router as strategy_router  # type: ignore
     import pattern_detection  # type: ignore
 app.include_router(ml_router)
 app.include_router(quant_router)
@@ -143,8 +147,25 @@ app.include_router(lean_router)
 app.include_router(vocabulary_exam_router)
 app.include_router(lex_router)
 app.include_router(auth_router)
+app.include_router(portfolio_router)
+app.include_router(strategy_router)
 # Routers registered below are also included before the schema is first requested;
 # the OpenAPI factory is installed at the bottom of this module.
+
+try:
+    from .scheduler import start_scheduler, stop_scheduler
+except ImportError:
+    from scheduler import start_scheduler, stop_scheduler  # type: ignore
+
+
+@app.on_event("startup")
+async def _start_background_scheduler() -> None:
+    start_scheduler()
+
+
+@app.on_event("shutdown")
+async def _stop_background_scheduler() -> None:
+    stop_scheduler()
 
 @app.middleware("http")
 async def no_cache_static_assets(request, call_next):
