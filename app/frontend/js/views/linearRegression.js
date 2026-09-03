@@ -1,5 +1,6 @@
 import { apiPost, withLoading, renderMetrics, renderImage, renderError } from '../api.js';
 import { cloudResourceCard } from './cloudAiResources.js';
+import { dataSourceNote } from './dataSourceNote.js';
 
 export function linearRegressionView(container) {
   container.innerHTML = `
@@ -9,6 +10,7 @@ export function linearRegressionView(container) {
         선형 및 다항 회귀 분석. degree=1이 선형, 2+ 이면 다항 회귀입니다.<br/>
         Linear and polynomial regression. degree=1 is linear; higher degree fits curved data.
       </p>
+      ${dataSourceNote('synthetic')}
       <div class="form-row">
         <div class="form-group">
           <label>다항 차수 / Poly Degree</label>

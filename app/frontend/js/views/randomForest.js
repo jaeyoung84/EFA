@@ -1,5 +1,6 @@
 import { apiPost, withLoading, renderMetrics, renderError } from '../api.js';
 import { cloudResourceCard } from './cloudAiResources.js';
+import { dataSourceNote } from './dataSourceNote.js';
 
 export function randomForestView(container) {
   container.innerHTML = `
@@ -9,6 +10,7 @@ export function randomForestView(container) {
         앙상블 트리 분류기로 고객 이탈 예측을 수행합니다.<br/>
         Ensemble tree classifier for churn prediction.
       </p>
+      ${dataSourceNote('synthetic', '이 화면은 예제로 만든 합성 고객 이탈 데이터를 사용합니다. 실제 기업 데이터가 아닙니다.')}
       <div class="form-row">
         <div class="form-group">
           <label>테스트 비율 / Test Size</label>

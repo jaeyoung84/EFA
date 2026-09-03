@@ -1,4 +1,5 @@
 import { api } from '../api.js';
+import { dataSourceNote } from './dataSourceNote.js';
 
 const MARKET_LABELS = { kospi: 'KOSPI', kosdaq: 'KOSDAQ' };
 
@@ -62,6 +63,7 @@ export function sectorCloudView(container) {
         </div>
         <div class="sector-cloud-actions"><span id="sector-cloud-stamp">조회 전</span><button type="button" id="sector-cloud-refresh"><i class="fa-solid fa-rotate-right"></i> 새로고침</button></div>
       </header>
+      ${dataSourceNote('real')}
       <div class="sector-cloud-tabs" role="tablist" aria-label="시장 선택">
         <button type="button" role="tab" data-sector-market="kospi" class="active" aria-selected="true">KOSPI</button>
         <button type="button" role="tab" data-sector-market="kosdaq" aria-selected="false">KOSDAQ</button>

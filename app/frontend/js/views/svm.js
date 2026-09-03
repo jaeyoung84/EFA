@@ -1,5 +1,6 @@
 import { apiPost, withLoading, renderMetrics, renderImage, renderError } from '../api.js';
 import { cloudResourceCard } from './cloudAiResources.js';
+import { dataSourceNote } from './dataSourceNote.js';
 
 export function svmView(container) {
   container.innerHTML = `
@@ -9,6 +10,7 @@ export function svmView(container) {
         서포트 벡터 머신 분류기. 커널(rbf/linear/poly)과 C 값을 조절해 결과를 비교하세요.<br/>
         Support Vector Machine classifier. Adjust kernel and C parameter to compare results.
       </p>
+      ${dataSourceNote('synthetic')}
       <div class="form-row">
         <div class="form-group">
           <label>커널 / Kernel</label>

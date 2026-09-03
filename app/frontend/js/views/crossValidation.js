@@ -1,5 +1,6 @@
 import { apiPost, withLoading, renderMetrics, renderImage, renderError } from '../api.js';
 import { cloudResourceCard } from './cloudAiResources.js';
+import { dataSourceNote } from './dataSourceNote.js';
 
 export function crossValidationView(container) {
   container.innerHTML = `
@@ -9,6 +10,7 @@ export function crossValidationView(container) {
         K-Fold 교차 검증으로 모델의 안정적인 성능을 측정합니다.<br/>
         K-Fold cross-validation measures stable model performance by averaging across multiple folds.
       </p>
+      ${dataSourceNote('synthetic')}
       <div class="form-row">
         <div class="form-group">
           <label>샘플 수 / Samples</label>

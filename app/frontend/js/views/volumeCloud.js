@@ -1,4 +1,5 @@
 import { api } from '../api.js';
+import { dataSourceNote } from './dataSourceNote.js';
 
 const MARKET_LABELS = { us: '미국', kr: '한국 KOSPI 20' };
 
@@ -74,6 +75,7 @@ export function volumeCloudView(container) {
         </div>
         <div class="volume-cloud-actions"><span id="volume-cloud-stamp">조회 전</span><button type="button" id="volume-cloud-refresh"><i class="fa-solid fa-rotate-right"></i> 새로고침</button></div>
       </header>
+      ${dataSourceNote('real')}
       <div class="volume-cloud-tabs" role="tablist" aria-label="시장 선택">
         <button type="button" role="tab" data-market="us" class="active" aria-selected="true">미국 · Magnificent Seven</button>
         <button type="button" role="tab" data-market="kr" aria-selected="false">한국 · KOSPI 20</button>

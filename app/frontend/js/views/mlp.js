@@ -1,5 +1,6 @@
 import { apiPost, withLoading, renderMetrics, renderImage, renderError } from '../api.js';
 import { cloudResourceCard } from './cloudAiResources.js';
+import { dataSourceNote } from './dataSourceNote.js';
 
 export function mlpView(container) {
   container.innerHTML = `
@@ -9,6 +10,7 @@ export function mlpView(container) {
         다층 퍼셉트론(MLP) 신경망 분류기. 은닉층 크기와 반복 횟수를 조절하세요.<br/>
         Multi-Layer Perceptron classifier. Adjust hidden layer sizes and max iterations.
       </p>
+      ${dataSourceNote('synthetic')}
       <div class="form-row">
         <div class="form-group">
           <label>은닉층 / Hidden Layers (쉼표 구분)</label>

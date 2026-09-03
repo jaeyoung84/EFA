@@ -1,4 +1,5 @@
 import { apiGet, withLoading, renderImage, renderError } from '../api.js';
+import { dataSourceNote } from './dataSourceNote.js';
 
 export function decisionBoundaryView(container) {
   container.innerHTML = `
@@ -8,6 +9,7 @@ export function decisionBoundaryView(container) {
         로지스틱 회귀 모델이 2D 공간을 어떻게 나누는지 시각화합니다.<br/>
         Visualizes how a Logistic Regression model partitions 2D feature space.
       </p>
+      ${dataSourceNote('synthetic')}
       <button class="run" id="dbRun">▶ 이미지 생성 / Generate</button>
       <div id="dbArea"></div>
     </section>

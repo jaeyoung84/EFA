@@ -201,6 +201,9 @@ export function financialStatementView(container) {
         재무상태(대차대조표) · 손익계산(손익계산서) · 현금흐름 · 밸류에이션 멀티플 · 유동성 · 기준금리 · 시장금리 · 투자자 심리를 한 화면에서 연결해 읽습니다.
       </p>
     </div>
+    <p style="margin:0 0 20px;padding:10px 13px;background:#0ea5e914;border:1px solid #0ea5e955;border-radius:9px;color:#0284c7;font-size:.78rem;line-height:1.6;">
+      <i class="fa-solid fa-graduation-cap"></i> 이 화면은 재무제표를 읽는 방법을 설명하는 학습용 개념 자료입니다(고정 예시 이미지). 실제 기업의 최신 수치는 "기업 파이낸셜 분석"·"DART 재무 AI 분석" 화면에서 확인하세요.
+    </p>
 
     <div class="statement-grid">
       ${statementCards.map(card => `

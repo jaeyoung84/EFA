@@ -1,4 +1,5 @@
 import { api } from '../api.js';
+import { dataSourceNote } from './dataSourceNote.js';
 
 function pageShell(title, desc, bodyHtml) {
   return `
@@ -6,6 +7,7 @@ function pageShell(title, desc, bodyHtml) {
       <h1 style="font-size:1.25rem; font-weight:700; color:var(--text); margin-bottom:6px;">${title}</h1>
       <p style="font-size:0.875rem; color:#94a3b8; line-height:1.6;">${desc}</p>
     </div>
+    ${dataSourceNote('synthetic')}
     ${bodyHtml}
   `;
 }

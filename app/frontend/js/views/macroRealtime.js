@@ -1,4 +1,5 @@
 import { api } from '../api.js';
+import { dataSourceNote } from './dataSourceNote.js';
 
 const TICKER_OPTIONS = [
   { value: "^TNX",     label: "미국 10년물 금리 (^TNX)" },
@@ -48,6 +49,7 @@ export function macroRealtimeView(container) {
         Yahoo Finance에서 금리·유가·환율·주가지수 등 거시경제 지표를 실시간으로 가져와 추세, 상관관계, 수익률을 분석합니다.
       </p>
     </div>
+    ${dataSourceNote('real')}
 
     <div style="background:#1e293b; border-radius:12px; padding:24px; border:1px solid #334155; margin-bottom:16px;">
       <!-- 종목 선택 -->

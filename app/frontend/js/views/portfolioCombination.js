@@ -1,4 +1,5 @@
 import { api } from '../api.js';
+import { dataSourceNote } from './dataSourceNote.js';
 
 const EXAMPLES = [
   ['AAPL', 'JNJ'],
@@ -73,6 +74,7 @@ export function portfolioCombinationView(container) {
           <p>두 종목을 골라 함께 담았을 때의 분산 효과를 신호등으로 확인하세요.</p>
         </div>
       </div>
+      ${dataSourceNote('real')}
 
       <aside class="composition-guide" aria-label="포트폴리오 조합 안내">
         <div class="composition-guide-icon"><i class="fa-solid fa-seedling"></i></div>

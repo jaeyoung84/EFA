@@ -1,4 +1,5 @@
 import { api } from '../api.js';
+import { dataSourceNote } from './dataSourceNote.js';
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -38,6 +39,7 @@ export function dartRegionSearchView(container) {
         이후 검색은 캐시를 사용해 즉시 응답합니다.
       </p>
     </div>
+    ${dataSourceNote('dart')}
 
     <section class="dart-search-panel">
       <!-- 지역 프리셋 -->

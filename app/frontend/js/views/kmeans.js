@@ -1,5 +1,6 @@
 import { apiPost, withLoading, renderMetrics, renderImage, renderError } from '../api.js';
 import { cloudResourceCard } from './cloudAiResources.js';
+import { dataSourceNote } from './dataSourceNote.js';
 
 export function kmeansView(container) {
   container.innerHTML = `
@@ -9,6 +10,7 @@ export function kmeansView(container) {
         비지도 학습으로 데이터를 K개 군집으로 나눕니다. Elbow 그래프로 최적 K를 찾을 수 있습니다.<br/>
         Unsupervised learning that groups data into K clusters. Use the elbow plot to find the optimal K.
       </p>
+      ${dataSourceNote('synthetic')}
       <div class="form-row">
         <div class="form-group">
           <label>샘플 수 / Samples</label>

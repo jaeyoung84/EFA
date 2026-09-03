@@ -1,4 +1,5 @@
 import { apiFetch } from '../api.js';
+import { dataSourceNote } from './dataSourceNote.js';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -291,6 +292,7 @@ export function dartFinancialAnalysisView(container) {
         DART에서 기업을 검색해 재무제표를 불러오고, 재무 건전성·KOSPI/KOSDAQ 구분·투자 관점의 지표를 자동으로 정리합니다.
       </p>
     </div>
+    ${dataSourceNote('dart', '이 화면은 OpenDART 공시 데이터를 사용하는 실제 데이터입니다. 요약·해설 문구는 AI가 생성한 참고용 정리이므로, 투자 판단 전 원본 공시로 다시 확인하세요.')}
 
     <!-- Search panel -->
     <div style="background:#1e293b; border:1px solid #334155; border-radius:12px; padding:20px; margin-bottom:20px;">

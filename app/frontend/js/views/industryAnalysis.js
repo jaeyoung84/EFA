@@ -1,4 +1,5 @@
 import { api } from '../api.js';
+import { dataSourceNote } from './dataSourceNote.js';
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -22,6 +23,7 @@ function tabShell(tabs) {
         Porter 5 Forces · 산업별 KPI · Peer Comparison · 뉴스/공시 메모 · PEST · 생애주기로 산업 경쟁력을 분석합니다.
       </p>
     </div>
+    ${dataSourceNote('real', 'Peer Comparison·섹터 주가 비교 탭은 Yahoo Finance 실제 데이터를 사용합니다. Porter 5 Forces·PEST·SWOT·산업별 KPI는 사용자가 입력한 점수·메모를 정리하는 분석 프레임워크입니다.')}
     <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:20px; border-bottom:1px solid #334155; padding-bottom:0;">
       ${tabs.map((t, i) => `
         <button class="ia-tab" data-tab="${i}"

@@ -1,5 +1,6 @@
 import { api } from '../api.js';
 import { cloudResourceCard } from './cloudAiResources.js';
+import { dataSourceNote } from './dataSourceNote.js';
 
 export function cnnTimeseriesView(container) {
   container.innerHTML = `
@@ -9,6 +10,7 @@ export function cnnTimeseriesView(container) {
         1D Convolutional Neural Network으로 시계열 데이터의 패턴을 학습하고 다음 N 스텝을 예측합니다.
       </p>
     </div>
+    ${dataSourceNote('synthetic')}
     <div style="background:#1e293b; border-radius:12px; padding:24px; border:1px solid #334155;">
       <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:16px; margin-bottom:20px;">
         <div>
