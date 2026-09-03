@@ -341,10 +341,10 @@ function draw(ctx, st) {
 function allocBarsHTML(alloc) {
   return alloc.map(a => `
     <div style="margin-bottom:10px;">
-      <div style="display:flex;justify-content:space-between;font-size:0.82rem;color:#374151;margin-bottom:4px;">
+      <div style="display:flex;justify-content:space-between;font-size:0.82rem;color:var(--text);margin-bottom:4px;">
         <span>${a.label}</span><span style="font-weight:700;">${a.pct}%</span>
       </div>
-      <div style="height:10px;background:#e5e7eb;border-radius:5px;overflow:hidden;">
+      <div style="height:10px;background:var(--border);border-radius:5px;overflow:hidden;">
         <div style="width:${a.pct}%;height:100%;background:${a.color};border-radius:5px;transition:width 0.6s ease;"></div>
       </div>
     </div>`).join('');
@@ -353,50 +353,50 @@ function allocBarsHTML(alloc) {
 function renderResult(resultEl, stratId) {
   const s = STRATEGIES[stratId];
   resultEl.innerHTML = `
-    <div style="border:2px solid #059669;border-radius:14px;background:#fff;padding:22px 24px;animation:fadeInUp 0.4s ease;">
+    <div style="border:2px solid #059669;border-radius:14px;background:var(--surface);padding:22px 24px;animation:fadeInUp 0.4s ease;">
       <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px;">
         <div style="font-size:2.8rem;line-height:1;">${s.emoji}</div>
         <div>
           <div style="font-size:1.25rem;font-weight:760;color:#059669;">${s.name}</div>
-          <div style="font-size:0.82rem;color:#6b7280;margin-top:3px;">나의 투자 성향 결과</div>
+          <div style="font-size:0.82rem;color:var(--text-muted);margin-top:3px;">나의 투자 성향 결과</div>
         </div>
       </div>
 
-      <p style="font-size:0.88rem;color:#374151;line-height:1.65;margin:0 0 20px;padding:12px 14px;background:#f0fdf4;border-left:3px solid #059669;border-radius:0 8px 8px 0;">
+      <p style="font-size:0.88rem;color:var(--text);line-height:1.65;margin:0 0 20px;padding:12px 14px;background:rgba(0,227,150,.12);border-left:3px solid #059669;border-radius:0 8px 8px 0;">
         ${s.desc}
       </p>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
         <div>
-          <div style="font-size:0.72rem;font-weight:760;color:#6b7280;letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px;">자산 배분 비율</div>
+          <div style="font-size:0.72rem;font-weight:760;color:var(--text-muted);letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px;">자산 배분 비율</div>
           ${allocBarsHTML(s.alloc)}
         </div>
         <div>
-          <div style="font-size:0.72rem;font-weight:760;color:#6b7280;letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px;">전략 요약</div>
+          <div style="font-size:0.72rem;font-weight:760;color:var(--text-muted);letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px;">전략 요약</div>
           <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:0.84rem;align-items:start;">
-            <span style="color:#6b7280;">기대 수익</span><span style="font-weight:700;color:#131722;">${s.expected}</span>
-            <span style="color:#6b7280;">위험 수준</span><span style="font-weight:700;">${s.risk}</span>
-            <span style="color:#6b7280;">투자 기간</span><span style="font-weight:700;color:#131722;">${s.horizon}</span>
+            <span style="color:var(--text-muted);">기대 수익</span><span style="font-weight:700;color:var(--text);">${s.expected}</span>
+            <span style="color:var(--text-muted);">위험 수준</span><span style="font-weight:700;">${s.risk}</span>
+            <span style="color:var(--text-muted);">투자 기간</span><span style="font-weight:700;color:var(--text);">${s.horizon}</span>
           </div>
 
           <div style="margin-top:16px;">
-            <div style="font-size:0.72rem;font-weight:760;color:#6b7280;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px;">추천 상품 예시</div>
-            <ul style="margin:0;padding:0 0 0 16px;font-size:0.82rem;color:#374151;line-height:1.8;">
+            <div style="font-size:0.72rem;font-weight:760;color:var(--text-muted);letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px;">추천 상품 예시</div>
+            <ul style="margin:0;padding:0 0 0 16px;font-size:0.82rem;color:var(--text);line-height:1.8;">
               ${s.products.map(p => `<li>${p}</li>`).join('')}
             </ul>
           </div>
 
           <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:6px;">
-            ${s.tags.map(t => `<span style="font-size:0.75rem;padding:3px 10px;border-radius:20px;background:#eff6ff;color:#2962ff;font-weight:600;">#${t}</span>`).join('')}
+            ${s.tags.map(t => `<span style="font-size:0.75rem;padding:3px 10px;border-radius:20px;background:rgba(56,189,248,.12);color:var(--primary);font-weight:600;">#${t}</span>`).join('')}
           </div>
         </div>
       </div>
 
-      <div style="padding:12px 14px;background:#fffbeb;border-radius:8px;font-size:0.83rem;color:#92400e;line-height:1.5;">
+      <div style="padding:12px 14px;background:rgba(240,185,11,.14);border-radius:8px;font-size:0.83rem;color:#92400e;line-height:1.5;">
         ${s.tip}
       </div>
 
-      <p style="font-size:0.75rem;color:#9ca3af;margin:14px 0 0;line-height:1.5;">
+      <p style="font-size:0.75rem;color:var(--text-subtle);margin:14px 0 0;line-height:1.5;">
         <i class="fa-solid fa-triangle-exclamation"></i> 이 결과는 학습 목적의 참고용이며 실제 투자 권유가 아닙니다. 투자 전 전문가와 상담하세요.
       </p>
     </div>`;
@@ -425,37 +425,37 @@ export function investmentTreeView(container) {
         from { opacity:0; transform:translateY(12px); }
         to   { opacity:1; transform:translateY(0); }
       }
-      #tree-canvas { display:block; cursor:default; border-radius:10px; border:1px solid #e2e8f0; }
+      #tree-canvas { display:block; cursor:default; border-radius:10px; border:1px solid var(--border); }
     </style>
 
     <div style="margin-bottom:18px;">
-      <h1 style="font-size:1.18rem;font-weight:760;color:#131722;margin:0 0 5px;">
+      <h1 style="font-size:1.18rem;font-weight:760;color:var(--text);margin:0 0 5px;">
         <i class="fa-solid fa-sitemap"></i> 투자 성향 분석 — 의사결정 트리
       </h1>
-      <p style="font-size:0.87rem;color:#475569;margin:0;line-height:1.6;">
+      <p style="font-size:0.87rem;color:var(--text);margin:0;line-height:1.6;">
         파란 노드를 클릭해 답을 선택하세요. 선택 경로에 따라 나의 투자 전략이 결정됩니다.
       </p>
     </div>
 
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
       <button id="btn-restart"
-        style="display:flex;align-items:center;gap:6px;padding:7px 14px;border:1px solid #d1d5db;border-radius:7px;background:#fff;font-size:0.82rem;font-weight:600;color:#374151;cursor:pointer;">
+        style="display:flex;align-items:center;gap:6px;padding:7px 14px;border:1px solid var(--border);border-radius:7px;background:var(--surface);font-size:0.82rem;font-weight:600;color:var(--text);cursor:pointer;">
         <i class="fa-solid fa-rotate-left"></i> 다시 시작
       </button>
       <button id="btn-back"
-        style="display:flex;align-items:center;gap:6px;padding:7px 14px;border:1px solid #d1d5db;border-radius:7px;background:#fff;font-size:0.82rem;font-weight:600;color:#374151;cursor:pointer;">
+        style="display:flex;align-items:center;gap:6px;padding:7px 14px;border:1px solid var(--border);border-radius:7px;background:var(--surface);font-size:0.82rem;font-weight:600;color:var(--text);cursor:pointer;">
         <i class="fa-solid fa-chevron-left"></i> 한 단계 뒤로
       </button>
       <div id="tree-breadcrumb"
-        style="font-size:0.83rem;color:#64748b;flex:1;min-width:200px;">
+        style="font-size:0.83rem;color:var(--text-muted);flex:1;min-width:200px;">
         첫 번째 질문에 답해보세요 →
       </div>
     </div>
 
     <!-- Legend -->
-    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;font-size:0.78rem;color:#64748b;">
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;font-size:0.78rem;color:var(--text-muted);">
       <span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#2962ff;margin-right:5px;vertical-align:middle;"></span>현재 질문</span>
-      <span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#eff6ff;border:1.5px solid #2962ff;margin-right:5px;vertical-align:middle;"></span>선택 가능 (클릭)</span>
+      <span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:rgba(56,189,248,.12);border:1.5px solid #2962ff;margin-right:5px;vertical-align:middle;"></span>선택 가능 (클릭)</span>
       <span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#f59e0b;margin-right:5px;vertical-align:middle;"></span>선택됨</span>
       <span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#059669;margin-right:5px;vertical-align:middle;"></span>최종 결과</span>
     </div>

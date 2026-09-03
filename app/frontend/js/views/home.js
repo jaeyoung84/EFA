@@ -1,3 +1,6 @@
+import { authRequest, isAuthenticated } from '../auth.js';
+import { portfolioInsights, portfolioValuation } from './portfolioHoldings.js';
+
 const HOME_MARKETS = [
   { id: 'kospi', name: 'KOSPI', ticker: '^KS11', color: '#0078d4' },
   { id: 'kosdaq', name: 'KOSDAQ', ticker: '^KQ11', color: '#8b5cf6' },
@@ -404,7 +407,43 @@ function formatQuoteValue(value, region) {
 export function homeView(container) {
   container.innerHTML = `
     <div class="home-dashboard" id="home-dashboard">
-      <div class="home-market-grid">${HOME_MARKETS.map(chartCard).join('')}</div>
+      <section class="jy-hero" aria-labelledby="jy-dashboard-title">
+        <div>
+          <span class="jy-kicker">DAILY INVESTMENT BRIEF</span>
+          <h1 id="jy-dashboard-title">오늘의 투자 대시보드</h1>
+          <p>시장 흐름, 포트폴리오 위험, 전략 신호를 한눈에 확인하세요.</p>
+        </div>
+        <div class="jy-data-status"><span class="jy-live-dot"></span><strong>시장 데이터</strong><small>Yahoo Finance · 지연 시세</small></div>
+      </section>
+
+      <section class="jy-overview-grid" aria-label="투자 현황 요약">
+        <article class="jy-overview-card is-primary">
+          <span>장부 기준 자산</span><strong data-jy-book-value>연결 전</strong><small data-jy-holding-summary>포트폴리오 등록이 필요합니다</small>
+          <button type="button" data-jy-route="portfolio-holdings">내 보유자산 <i class="fa-solid fa-arrow-right"></i></button>
+        </article>
+        <article class="jy-overview-card"><span>KOSPI</span><strong data-jy-market="kospi">조회 중</strong><small data-jy-change="kospi">시장 데이터를 불러옵니다</small></article>
+        <article class="jy-overview-card"><span>NASDAQ</span><strong data-jy-market="nasdaq">조회 중</strong><small data-jy-change="nasdaq">시장 데이터를 불러옵니다</small></article>
+        <article class="jy-overview-card"><span>전략 상태</span><strong>2개 검증 완료</strong><small>현대차 · 삼성전자 LEAN 결과</small><button type="button" data-jy-route="quant-lean">결과 확인 <i class="fa-solid fa-arrow-right"></i></button></article>
+      </section>
+
+      <section class="jy-decision-grid">
+        <article class="jy-panel">
+          <header><div><span class="jy-section-label">ACTION CENTER</span><h2>오늘 확인할 항목</h2></div><span class="jy-count">3</span></header>
+          <button class="jy-action-row" type="button" data-jy-route="risk"><i class="fa-solid fa-shield-halved"></i><span><strong>포트폴리오 위험 점검</strong><small>VaR·CVaR로 예상 손실 범위를 확인하세요.</small></span><i class="fa-solid fa-chevron-right"></i></button>
+          <button class="jy-action-row" type="button" data-jy-route="quant-lean"><i class="fa-solid fa-flask-vial"></i><span><strong>검증 전략 리뷰</strong><small>LEAN 백테스트 성과와 낙폭을 비교하세요.</small></span><i class="fa-solid fa-chevron-right"></i></button>
+          <button class="jy-action-row" type="button" data-jy-route="today-gainers"><i class="fa-solid fa-arrow-trend-up"></i><span><strong>시장 강도 탐색</strong><small>오늘 거래가 집중된 상승 종목을 살펴보세요.</small></span><i class="fa-solid fa-chevron-right"></i></button>
+        </article>
+        <article class="jy-panel jy-signal-panel">
+          <header><div><span class="jy-section-label">SYSTEM STATUS</span><h2>데이터와 신호</h2></div></header>
+          <dl><div><dt>실시간 주문</dt><dd class="is-neutral">연결 안 됨</dd></div><div><dt>포트폴리오</dt><dd class="is-neutral" data-jy-portfolio-status>등록 전</dd></div><div><dt>집중도</dt><dd data-jy-concentration>-</dd></div><div><dt>백테스트</dt><dd class="is-positive">사용 가능</dd></div></dl>
+          <p><i class="fa-solid fa-circle-info"></i> 자동주문 전 단계입니다. 현재 제공되는 신호는 투자 판단을 돕는 연구 결과입니다.</p>
+        </article>
+      </section>
+
+      <section class="jy-market-section">
+        <header class="jy-section-head"><div><span class="jy-section-label">MARKET PULSE</span><h2>주요 시장 흐름</h2><p>가격, MA20, MACD로 중기 흐름을 빠르게 비교합니다.</p></div><button type="button" data-jy-route="world-markets">전체 시장 보기 <i class="fa-solid fa-arrow-right"></i></button></header>
+        <div class="home-market-grid">${HOME_MARKETS.map(chartCard).join('')}</div>
+      </section>
       <section class="home-quote-dashboard" aria-labelledby="home-quote-title">
         <header class="home-quote-dashboard-head">
           <div>
@@ -424,6 +463,36 @@ export function homeView(container) {
       </section>
       ${chartModal()}
     </div>`;
+
+  container.querySelectorAll('[data-jy-route]').forEach((button) => {
+    button.addEventListener('click', () => window.navigate(button.dataset.jyRoute));
+  });
+
+  async function loadPersonalPortfolio() {
+    if (!isAuthenticated()) return;
+    try {
+      const data = await authRequest('/api/portfolio');
+      const value = container.querySelector('[data-jy-book-value]');
+      const summary = container.querySelector('[data-jy-holding-summary]');
+      value.textContent = `₩${Math.round(data.book_value_krw || 0).toLocaleString('ko-KR')}`;
+      summary.textContent = `${data.holding_count || 0}개 종목 · 현금 ₩${Math.round(data.cash_krw || 0).toLocaleString('ko-KR')}`;
+      try {
+        const valuation = await portfolioValuation(data);
+        if (valuation.available) {
+          value.textContent = `₩${Math.round(valuation.value_krw).toLocaleString('ko-KR')}`;
+          summary.textContent = `${valuation.profit_krw >= 0 ? '+' : '-'}₩${Math.round(Math.abs(valuation.profit_krw)).toLocaleString('ko-KR')} · ${valuation.return_pct >= 0 ? '+' : ''}${valuation.return_pct.toFixed(2)}% · 지연 시세`;
+        }
+        const insight = portfolioInsights(data, valuation);
+        const portfolioStatus = container.querySelector('[data-jy-portfolio-status]');
+        const concentration = container.querySelector('[data-jy-concentration]');
+        if (portfolioStatus && data.updated_at) { portfolioStatus.textContent = `${data.holding_count || 0}개 종목`; portfolioStatus.className = 'is-positive'; }
+        if (concentration && insight.max_position) concentration.textContent = `${insight.concentration} · 최대 ${insight.max_position.weight_pct.toFixed(0)}%`;
+      } catch { /* 장부 기준 금액을 유지한다. */ }
+    } catch {
+      // 인증 세션이나 저장소가 잠시 unavailable여도 시장 대시보드는 유지한다.
+    }
+  }
+  loadPersonalPortfolio();
 
   const charts = new Map();
   const macdCharts = new Map();
@@ -490,6 +559,13 @@ export function homeView(container) {
       change.className = isUp ? 'is-up' : 'is-down';
       source.textContent = data.is_simulated ? '시뮬레이션 데이터' : 'Yahoo Finance · 15분 지연';
       source.classList.toggle('is-simulated', Boolean(data.is_simulated));
+      const overviewValue = container.querySelector(`[data-jy-market="${id}"]`);
+      const overviewChange = container.querySelector(`[data-jy-change="${id}"]`);
+      if (overviewValue) overviewValue.textContent = last.c.toLocaleString(undefined, { maximumFractionDigits: 2 });
+      if (overviewChange) {
+        overviewChange.textContent = `${isUp ? '+' : '-'}${Math.abs(changePercent).toFixed(2)}% · ${data.is_simulated ? '가상 데이터' : '지연 시세'}`;
+        overviewChange.className = isUp ? 'is-up' : 'is-down';
+      }
       footLabel.innerHTML = `<i class="fa-solid fa-chart-line"></i> ${barsFootLabel(period)}`;
 
       const series = computeChartSeries(ohlcv, data.display_from || null);

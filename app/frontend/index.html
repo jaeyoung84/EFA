@@ -3,16 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>주식상식 웹앱 — EDUMGT</title>
+  <title>JY investing — Personal Quant System</title>
   <link rel="preload" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" />
   <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
-  <link rel="stylesheet" href="styles.css?v=26" />
+  <link rel="stylesheet" href="styles.css?v=28" />
 </head>
 <body>
 
   <!-- ── 모바일 오버레이 ── -->
-  <div id="overlay" class="overlay" onclick="closeSidebar()"></div>
+  <div id="overlay" class="overlay" onclick="closeMainnav()"></div>
 
   <!-- ── 엔터프라이즈 안내 모달 ── -->
   <div id="enterprise-modal-overlay" class="enterprise-modal-overlay" hidden>
@@ -32,13 +34,13 @@
   ═══════════════════════════════════════════ -->
   <header class="topbar">
     <button
-      id="sidebar-toggle"
-      class="topbar-toggle"
+      id="mainnav-toggle"
+      class="topbar-toggle mainnav-toggle-mobile"
       type="button"
-      onclick="toggleSidebar()"
+      onclick="toggleMainnav()"
       aria-label="메뉴 열기"
-      aria-controls="sidebar"
-      aria-expanded="true"
+      aria-controls="mainnav"
+      aria-expanded="false"
     >
       <i class="fa-solid fa-bars"></i>
     </button>
@@ -54,14 +56,14 @@
         </svg>
       </span>
       <span class="brand-text">
-        <span class="brand-name">EDUMGT</span>
-        <small class="brand-sub">주식상식 웹앱</small>
+        <span class="brand-name">JY investing</span>
+        <small class="brand-sub">PERSONAL QUANT</small>
       </span>
     </button>
 
     <form class="global-search" id="global-search" role="search">
       <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-      <input id="global-search-input" type="search" autocomplete="off" placeholder="학습 내용 검색" aria-label="학습 문서 검색" />
+      <input id="global-search-input" type="search" autocomplete="off" placeholder="종목·리서치 검색" aria-label="종목 및 리서치 검색" />
       <button type="submit" aria-label="검색"><i class="fa-solid fa-arrow-right"></i></button>
       <div class="global-search-results" id="global-search-results" hidden aria-live="polite"></div>
     </form>
@@ -94,115 +96,80 @@
   </header>
 
   <!-- ═══════════════════════════════════════════
+       TOP MENU BAR (인베스팅닷컴 스타일 — 좌측 사이드바 대신 상단 가로 메뉴 + 드롭다운)
+       우선순위 순서: 대시보드 → 포트폴리오 → 전략 연구소 → 종목 탐색 → 리서치 자료실 → 설정·운영
+  ═══════════════════════════════════════════ -->
+  <nav id="mainnav" class="mainnav" aria-label="메인 메뉴">
+    <div class="mainnav-inner">
+      <a class="mainnav-item nav-item nav-home" data-view="home"><i class="fa-solid fa-table-cells-large"></i><span>대시보드</span></a>
+
+      <div class="mainnav-group" data-group="portfolio">
+        <button class="mainnav-item mainnav-trigger" aria-haspopup="true" aria-expanded="false"><i class="fa-solid fa-briefcase"></i><span>포트폴리오</span><i class="fa-solid fa-chevron-down mainnav-chev"></i></button>
+        <div class="mainnav-dropdown">
+          <a class="nav-item" data-view="portfolio-holdings"><i class="fa-solid fa-wallet"></i>내 보유자산</a>
+          <a class="nav-item" data-view="portfolio-risk"><i class="fa-solid fa-shield-halved"></i>실제 보유자산 리스크</a>
+          <a class="nav-item" data-view="portfolio-combination"><i class="fa-solid fa-circle-nodes"></i>자산 조합</a>
+          <a class="nav-item" data-view="portfolio"><i class="fa-solid fa-scale-balanced"></i>비중 최적화</a>
+          <a class="nav-item" data-view="portfolio-guide"><i class="fa-solid fa-compass"></i>포트폴리오 추천</a>
+          <a class="nav-item" data-view="portfolio-regime"><i class="fa-solid fa-gauge-high"></i>위험 성향</a>
+          <a class="nav-item" data-view="portfolio-simulation"><i class="fa-solid fa-chart-area"></i>자산 시뮬레이션</a>
+          <a class="nav-item" data-view="risk"><i class="fa-solid fa-shield-halved"></i>리스크 분석</a>
+        </div>
+      </div>
+
+      <div class="mainnav-group" data-group="strategy">
+        <button class="mainnav-item mainnav-trigger" aria-haspopup="true" aria-expanded="false"><i class="fa-solid fa-flask-vial"></i><span>전략 연구소</span><i class="fa-solid fa-chevron-down mainnav-chev"></i></button>
+        <div class="mainnav-dropdown">
+          <a class="nav-item" data-view="strategy-backtest"><i class="fa-solid fa-chart-line"></i>실제 가격 백테스트</a>
+          <a class="nav-item" data-view="my-strategies"><i class="fa-solid fa-folder-open"></i>내 전략</a>
+          <a class="nav-item" data-view="quant-lean"><i class="fa-solid fa-chart-simple"></i>LEAN 리포트</a>
+          <a class="nav-item" data-view="backtest"><i class="fa-solid fa-clock-rotate-left"></i>전략 백테스트</a>
+          <a class="nav-item" data-view="pipeline"><i class="fa-solid fa-code-branch"></i>퀀트 파이프라인</a>
+          <a class="nav-item" data-view="cross-validation"><i class="fa-solid fa-shuffle"></i>교차 검증</a>
+          <a class="nav-item" data-view="chart-drawing"><i class="fa-solid fa-pencil"></i>차트 드로잉</a>
+        </div>
+      </div>
+
+      <div class="mainnav-group" data-group="market">
+        <button class="mainnav-item mainnav-trigger" aria-haspopup="true" aria-expanded="false"><i class="fa-solid fa-magnifying-glass-chart"></i><span>종목 탐색</span><i class="fa-solid fa-chevron-down mainnav-chev"></i></button>
+        <div class="mainnav-dropdown">
+          <a class="nav-item" data-view="world-markets"><i class="fa-solid fa-earth-asia"></i>시장 현황</a>
+          <a class="nav-item" data-view="asset-classes"><i class="fa-solid fa-layer-group"></i>자산군 차트</a>
+          <a class="nav-item" data-view="today-gainers"><i class="fa-solid fa-arrow-trend-up"></i>오늘의 상승 종목</a>
+          <a class="nav-item" data-view="today-sobujang"><i class="fa-solid fa-microchip"></i>소부장 종목</a>
+          <a class="nav-item" data-view="technical-chart"><i class="fa-solid fa-chart-simple"></i>기술적 분석</a>
+          <a class="nav-item" data-view="company-financial"><i class="fa-solid fa-building-columns"></i>기업 재무</a>
+          <a class="nav-item" data-view="dart-company-search"><i class="fa-solid fa-file-lines"></i>DART 기업 검색</a>
+          <a class="nav-item" data-view="industry-analysis"><i class="fa-solid fa-industry"></i>산업 분석</a>
+        </div>
+      </div>
+
+      <div class="mainnav-group" data-group="research">
+        <button class="mainnav-item mainnav-trigger" aria-haspopup="true" aria-expanded="false"><i class="fa-solid fa-book-open"></i><span>리서치 자료실</span><i class="fa-solid fa-chevron-down mainnav-chev"></i></button>
+        <div class="mainnav-dropdown">
+          <a class="nav-item" data-view="macro-realtime"><i class="fa-solid fa-globe"></i>거시경제</a>
+          <a class="nav-item" data-view="valuation"><i class="fa-solid fa-calculator"></i>밸류에이션</a>
+          <a class="nav-item" data-view="financial-statement"><i class="fa-solid fa-table-list"></i>재무제표</a>
+          <a class="nav-item" data-view="learn-11"><i class="fa-solid fa-book"></i>투자 학습 문서</a>
+          <a class="nav-item" data-view="rag-chat"><i class="fa-solid fa-comments"></i>문서 검색 AI</a>
+          <a class="nav-item" data-view="quiz-home"><i class="fa-solid fa-circle-question"></i>학습 점검</a>
+        </div>
+      </div>
+
+      <div class="mainnav-group mainnav-group-utility" data-group="settings">
+        <button class="mainnav-item mainnav-trigger" aria-haspopup="true" aria-expanded="false"><i class="fa-solid fa-gear"></i><span>설정·운영</span><i class="fa-solid fa-chevron-down mainnav-chev"></i></button>
+        <div class="mainnav-dropdown mainnav-dropdown-end">
+          <a class="nav-item" data-view="server-resources"><i class="fa-solid fa-server"></i>시스템 상태</a>
+          <a class="nav-item" data-view="tax-accounting"><i class="fa-solid fa-receipt"></i>세무·회계</a>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ═══════════════════════════════════════════
        LAYOUT SHELL
   ═══════════════════════════════════════════ -->
   <div class="layout">
-
-    <!-- ── LEFT SIDEBAR ── -->
-    <aside id="sidebar" class="sidebar" aria-label="메인 메뉴">
-
-      <nav class="sidebar-nav">
-
-        <!-- 대시보드 -->
-        <a class="nav-item nav-home" data-view="home">
-          <i class="fa-solid fa-house"></i><span>대시보드</span>
-        </a>
-        <!-- ─────── 기초학습 ─────── -->
-        <div class="nav-section">
-          <button class="nav-section-hdr" onclick="toggleNav('review')">
-            <span><i class="fa-solid fa-book-bookmark"></i>기초학습</span>
-            <i class="fa-solid fa-chevron-down nav-chev" id="chev-review"></i>
-          </button>
-          <div class="nav-children" id="nav-review">
-            <a class="nav-item" data-view="learn-10-1"><i class="fa-solid fa-circle-dot"></i>법인과 회사 구조 1: 시작하기</a>
-            <a class="nav-item" data-view="learn-10-2"><i class="fa-solid fa-circle-dot"></i>법인과 회사 구조 2: 운영·자금</a>
-            <a class="nav-item" data-view="learn-10-3"><i class="fa-solid fa-circle-dot"></i>법인과 회사 구조 3: 세무·회계</a>
-            <a class="nav-item" data-view="learn-11"><i class="fa-solid fa-circle-dot"></i>거시경제와 주식시장</a>
-          </div>
-        </div>
-
-        <!-- ─────── 학습 ─────── -->
-        <div class="nav-section">
-          <button class="nav-section-hdr" onclick="toggleNav('learn')">
-            <span><i class="fa-solid fa-book-open-reader"></i>학습</span>
-            <i class="fa-solid fa-chevron-down nav-chev" id="chev-learn"></i>
-          </button>
-          <div class="nav-children" id="nav-learn">
-            <a class="nav-item" data-view="learn-03"><i class="fa-solid fa-circle-dot"></i>주식 1</a>
-            <a class="nav-item" data-view="learn-05"><i class="fa-solid fa-circle-dot"></i>주식 2</a>
-            <a class="nav-item" data-view="learn-04"><i class="fa-solid fa-circle-dot"></i>주식 3</a>
-            <a class="nav-item" data-view="learn-06"><i class="fa-solid fa-circle-dot"></i>주식 4</a>
-            <a class="nav-item" data-view="learn-07"><i class="fa-solid fa-circle-dot"></i>주식 5</a>
-          </div>
-        </div>
-
-        <!-- ─────── 퀴즈 ─────── -->
-        <div class="nav-section">
-          <button class="nav-section-hdr" onclick="toggleNav('quiz')">
-            <span><i class="fa-solid fa-circle-question"></i>퀴즈</span>
-            <i class="fa-solid fa-chevron-down nav-chev" id="chev-quiz"></i>
-          </button>
-          <div class="nav-children" id="nav-quiz">
-            <a class="nav-item" data-view="quiz-home"><i class="fa-solid fa-calendar-check"></i>문항 관리/응시</a>
-            <a class="nav-item" data-view="vocabulary-exam"><i class="fa-solid fa-spell-check"></i>단어장 30문제 시험</a>
-            <div class="nav-group-label">주식 모듈별 20문항</div>
-            <a class="nav-item" data-view="quiz-day-1"><i class="fa-solid fa-list-check"></i>주식 1</a>
-            <a class="nav-item" data-view="quiz-day-2"><i class="fa-solid fa-list-check"></i>주식 2</a>
-            <a class="nav-item" data-view="quiz-day-3"><i class="fa-solid fa-list-check"></i>주식 3</a>
-            <a class="nav-item" data-view="quiz-day-4"><i class="fa-solid fa-list-check"></i>주식 4</a>
-            <a class="nav-item" data-view="quiz-day-5"><i class="fa-solid fa-list-check"></i>주식 5</a>
-          </div>
-        </div>
-
-        <!-- ─────── 데이터 시각화 ─────── -->
-        <div class="nav-section">
-          <button class="nav-section-hdr" onclick="toggleNav('visualization')">
-            <span><i class="fa-solid fa-chart-pie"></i>데이터 시각화</span>
-            <i class="fa-solid fa-chevron-down nav-chev" id="chev-visualization"></i>
-          </button>
-          <div class="nav-children" id="nav-visualization">
-            <a class="nav-item" data-view="server-resources"><i class="fa-solid fa-server"></i>서버 리소스</a>
-            <a class="nav-item" data-view="world-markets"><i class="fa-solid fa-earth-americas"></i>세계증시현황</a>
-            <a class="nav-item" data-view="asset-classes"><i class="fa-solid fa-layer-group"></i>다양한 기초자산 차트</a>
-            <a class="nav-item" data-view="today-gainers"><i class="fa-solid fa-arrow-trend-up"></i>금일 상승종목</a>
-            <a class="nav-item" data-view="today-sobujang"><i class="fa-solid fa-microchip"></i>금일 소부장 종목</a>
-            <a class="nav-item" data-view="global-capital-map"><i class="fa-solid fa-globe"></i>세계 거대자금 지도</a>
-            <a class="nav-item" data-view="volume-cloud"><i class="fa-solid fa-cloud"></i>거래량 클라우드</a>
-            <a class="nav-item" data-view="sector-cloud"><i class="fa-solid fa-cloud-arrow-up"></i>섹터별 클라우드</a>
-          </div>
-        </div>
-
-        <!-- ─────── 포트폴리오 ─────── -->
-        <div class="nav-section">
-          <button class="nav-section-hdr" onclick="toggleNav('portfolio')">
-            <span><i class="fa-solid fa-briefcase"></i>포트폴리오</span>
-            <i class="fa-solid fa-chevron-down nav-chev" id="chev-portfolio"></i>
-          </button>
-          <div class="nav-children" id="nav-portfolio">
-            <a class="nav-item" data-view="portfolio-combination"><i class="fa-solid fa-traffic-light"></i>포트폴리오 조합</a>
-            <a class="nav-item" data-view="portfolio-guide"><i class="fa-solid fa-compass"></i>포트폴리오 추천</a>
-            <a class="nav-item" data-view="portfolio-regime"><i class="fa-solid fa-chart-diagram"></i>자산배분 위험선호도(R1~R5)</a>
-            <a class="nav-item" data-view="portfolio-simulation"><i class="fa-solid fa-chart-area"></i>포트폴리오 시뮬레이션</a>
-          </div>
-        </div>
-        <div class="nav-section">
-          <button class="nav-section-hdr" onclick="toggleNav('quant')">
-            <span><i class="fa-solid fa-chart-simple"></i>Quant</span>
-            <i class="fa-solid fa-chevron-down nav-chev" id="chev-quant"></i>
-          </button>
-          <div class="nav-children" id="nav-quant">
-            <a class="nav-item" data-view="quant-lean"><i class="fa-solid fa-flask"></i>LEAN 백테스트 리포트</a>
-          </div>
-        </div>
-        <a class="nav-item" data-view="chart-drawing">
-          <i class="fa-solid fa-pencil"></i><span>드로잉 차트</span>
-        </a>
-        <a class="nav-item" data-view="rag-chat">
-          <i class="fa-solid fa-comments"></i><span>RAG</span>
-        </a>
-
-      </nav>
-    </aside>
 
     <!-- ── MAIN CONTENT ── -->
     <div class="content-wrap">
@@ -211,8 +178,8 @@
       </main>
 
       <footer class="site-footer">
-        <span class="footer-logo">EDUMGT</span>
-        <span class="footer-line">주식상식 웹앱 · (주)에듀엠지티 · 대표이사 김대표 · 사업자등록번호 000-00-00000 · info@edumgt.co.kr · © 2025 All rights reserved</span>
+        <span class="footer-logo">JY investing</span>
+        <span class="footer-line">Personal Quant System · Research, validate and manage risk.</span>
       </footer>
     </div>
 
@@ -232,7 +199,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/apexcharts@3.54.0/dist/apexcharts.min.js"></script>
   <script src="vendor/mermaid.min.js?v=11.16.0"></script>
-  <script type="module" src="js/app.js?v=35"></script>
-  <script src="js/sidebarUI.js?v=3"></script>
+  <script type="module" src="js/app.js?v=36"></script>
+  <script src="js/sidebarUI.js?v=4"></script>
 </body>
 </html>

@@ -33,15 +33,15 @@ const SCENARIO_ADJUST = { slow: -0.03, normal: 0, fast: 0.03 };
 export function financialKnowledgeView(container) {
   container.innerHTML = `
     <div style="margin-bottom:18px;">
-      <h1 style="font-size:1.18rem; font-weight:760; color:#131722; margin:0 0 6px;">
+      <h1 style="font-size:1.18rem; font-weight:760; color:var(--text); margin:0 0 6px;">
         <i class="fa-solid fa-layer-group"></i> 쉬운 자산배분 체험
       </h1>
-      <p style="font-size:0.9rem; color:#475569; line-height:1.6; margin:0;">
+      <p style="font-size:0.9rem; color:var(--text); line-height:1.6; margin:0;">
         금융 지식이 적어도 괜찮아요. <strong>100만원</strong>을 투자 성향에 맞게 나누고, 결과를 간단히 확인해요.
       </p>
     </div>
 
-    <section style="border:1px solid #d9e1ec; border-radius:8px; padding:16px; background:#fff;">
+    <section style="border:1px solid var(--border); border-radius:8px; padding:16px; background:var(--surface);">
       <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin-bottom:12px;">
         <div>
           <label class="param-label">투자 금액 (원)</label>
@@ -80,17 +80,17 @@ export function financialKnowledgeView(container) {
       <div id="fk-result" style="margin-top:16px;"></div>
     </section>
 
-    <section style="border:1px solid #d9e1ec; border-radius:8px; padding:16px; background:#fff; margin-top:14px;">
-      <h2 style="font-size:1rem; color:#131722; margin:0 0 8px;">
+    <section style="border:1px solid var(--border); border-radius:8px; padding:16px; background:var(--surface); margin-top:14px;">
+      <h2 style="font-size:1rem; color:var(--text); margin:0 0 8px;">
         <i class="fa-solid fa-scale-balanced"></i> ETF 2종 비교 (선택 조건 중심)
       </h2>
-      <p style="font-size:0.8rem; color:#64748b; margin:0 0 12px; line-height:1.5;">
+      <p style="font-size:0.8rem; color:var(--text-muted); margin:0 0 12px; line-height:1.5;">
         수익률, 괴리율(ETF 시장 가격과 실제 자산값의 차이), 추적오차(지수를 따라간 정도의 차이), 펀드보수(보유 기간에 드는 운영 비용)를 함께 비교하고 거래 수수료 차이도 함께 확인합니다.
       </p>
 
       <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:12px;">
-        <div style="border:1px solid #e5edf5; border-radius:8px; padding:12px; background:#f8fafc;">
-          <div style="font-size:0.82rem; font-weight:700; color:#2962ff; margin-bottom:8px;">ETF A</div>
+        <div style="border:1px solid #e5edf5; border-radius:8px; padding:12px; background:var(--surface-soft);">
+          <div style="font-size:0.82rem; font-weight:700; color:var(--primary); margin-bottom:8px;">ETF A</div>
           <label class="param-label">이름</label>
           <input id="etf-a-name" class="param-input" value="ETF A" />
           <label class="param-label">최근 1년 수익률 (%)</label>
@@ -105,7 +105,7 @@ export function financialKnowledgeView(container) {
           <input id="etf-a-commission" type="number" class="param-input" value="0.03" step="0.01" min="0" />
         </div>
 
-        <div style="border:1px solid #e5edf5; border-radius:8px; padding:12px; background:#f8fafc;">
+        <div style="border:1px solid #e5edf5; border-radius:8px; padding:12px; background:var(--surface-soft);">
           <div style="font-size:0.82rem; font-weight:700; color:#7c3aed; margin-bottom:8px;">ETF B</div>
           <label class="param-label">이름</label>
           <input id="etf-b-name" class="param-input" value="ETF B" />
@@ -126,7 +126,7 @@ export function financialKnowledgeView(container) {
         <i class="fa-solid fa-arrows-left-right"></i> ETF 2종 비교하기
       </button>
       <div id="etf-compare-result" style="margin-top:12px;"></div>
-      <p style="font-size:0.74rem; color:#64748b; margin:10px 0 0;">
+      <p style="font-size:0.74rem; color:var(--text-muted); margin:10px 0 0;">
         ※ 기존 "산업 경쟁력 분석 → 섹터 주가 비교" 화면에서는 다중 ETF(섹터) 수익률·변동성 비교가 가능합니다.
       </p>
     </section>
@@ -167,7 +167,7 @@ export function financialKnowledgeView(container) {
       <div style="overflow-x:auto;">
         <table style="width:100%; border-collapse:collapse; font-size:0.82rem;">
           <thead>
-            <tr style="background:#f1f5f9;">
+            <tr style="background:var(--surface-soft);">
               <th style="padding:8px; border:1px solid #e5edf5; text-align:left;">항목</th>
               <th style="padding:8px; border:1px solid #e5edf5; text-align:right;">${escapeHtml(etfA.name)}</th>
               <th style="padding:8px; border:1px solid #e5edf5; text-align:right;">${escapeHtml(etfB.name)}</th>
@@ -188,10 +188,10 @@ export function financialKnowledgeView(container) {
           </tbody>
         </table>
       </div>
-      <div style="margin-top:10px; padding:10px; border:1px solid #d9e1ec; border-radius:8px; background:#f8fafc; font-size:0.8rem; color:#334155;">
+      <div style="margin-top:10px; padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--surface-soft); font-size:0.8rem; color:var(--text);">
         <strong>판정:</strong> ${winner === '동점' ? '두 ETF가 동점입니다.' : `${escapeHtml(winner)} 우위`}<br/>
         가중치: 수익률 ${Math.round(ETF_SCORE_WEIGHTS.ret * 100)}% · 괴리율 ${Math.round(ETF_SCORE_WEIGHTS.gap * 100)}% · 추적오차 ${Math.round(ETF_SCORE_WEIGHTS.te * 100)}% · 보수 ${Math.round(ETF_SCORE_WEIGHTS.fee * 100)}%<br/>
-        <span style="color:#64748b;">※ 거래 수수료는 매매 시점 비용, 펀드보수는 보유 기간 비용으로 분리해 해석하세요.</span>
+        <span style="color:var(--text-muted);">※ 거래 수수료는 매매 시점 비용, 펀드보수는 보유 기간 비용으로 분리해 해석하세요.</span>
       </div>
     `;
   }
@@ -207,17 +207,17 @@ function renderSummary(preset, money, years, expected, risk, futureMoney) {
         ['예상 변동성', `${toPct(risk)}`, '#d97706'],
         [`${years}년 후 예상`, `${formatWon(futureMoney)}`, '#7c3aed'],
       ].map(([label, value, color]) => `
-        <div style="background:#f8fafc; border:1px solid #e5edf5; border-left:3px solid ${color}; border-radius:8px; padding:10px;">
-          <div style="font-size:0.74rem; color:#64748b; margin-bottom:4px;">${label}</div>
-          <div style="font-size:0.95rem; color:#131722; font-weight:800;">${value}</div>
+        <div style="background:var(--surface-soft); border:1px solid #e5edf5; border-left:3px solid ${color}; border-radius:8px; padding:10px;">
+          <div style="font-size:0.74rem; color:var(--text-muted); margin-bottom:4px;">${label}</div>
+          <div style="font-size:0.95rem; color:var(--text); font-weight:800;">${value}</div>
         </div>
       `).join('')}
     </div>
-    <div style="border:1px solid #d9e1ec; border-radius:8px; padding:10px 12px; background:#fff; margin-bottom:12px;">
-      <div style="font-size:0.85rem; color:#131722; font-weight:700; margin-bottom:6px;">${preset.description}</div>
+    <div style="border:1px solid var(--border); border-radius:8px; padding:10px 12px; background:var(--surface); margin-bottom:12px;">
+      <div style="font-size:0.85rem; color:var(--text); font-weight:700; margin-bottom:6px;">${preset.description}</div>
       <div style="display:grid; gap:4px;">
         ${preset.checks.map((text) => `
-          <div style="font-size:0.8rem; color:#475569;"><i class="fa-regular fa-square-check"></i> ${text}</div>
+          <div style="font-size:0.8rem; color:var(--text);"><i class="fa-regular fa-square-check"></i> ${text}</div>
         `).join('')}
       </div>
     </div>
@@ -226,8 +226,8 @@ function renderSummary(preset, money, years, expected, risk, futureMoney) {
 
 function renderAllocations(weights, money, years, scenarioAdjust) {
   return `
-    <section style="border:1px solid #d9e1ec; border-radius:8px; padding:12px; background:#fff;">
-      <h2 style="font-size:0.95rem; color:#131722; margin:0 0 8px;">선택 금액(${formatWon(money)}) 자산배분 결과</h2>
+    <section style="border:1px solid var(--border); border-radius:8px; padding:12px; background:var(--surface);">
+      <h2 style="font-size:0.95rem; color:var(--text); margin:0 0 8px;">선택 금액(${formatWon(money)}) 자산배분 결과</h2>
       <div style="display:grid; gap:8px;">
         ${Object.entries(weights).map(([asset, weight]) => {
           const nowMoney = money * weight;
@@ -235,20 +235,20 @@ function renderAllocations(weights, money, years, scenarioAdjust) {
           const assetGrowthMultiplier = getGrowthMultiplier(assetExpected);
           const futureMoney = nowMoney * (assetGrowthMultiplier ** years);
           return `
-            <div style="border:1px solid #e5edf5; border-radius:8px; padding:10px; background:#f8fafc;">
+            <div style="border:1px solid #e5edf5; border-radius:8px; padding:10px; background:var(--surface-soft);">
               <div style="display:flex; justify-content:space-between; gap:8px; font-size:0.8rem; margin-bottom:4px;">
-                <strong style="color:#131722;">${asset}</strong>
-                <span style="color:#475569;">${toPct(weight)} · ${formatWon(nowMoney)}</span>
+                <strong style="color:var(--text);">${asset}</strong>
+                <span style="color:var(--text);">${toPct(weight)} · ${formatWon(nowMoney)}</span>
               </div>
-              <div style="height:6px; border-radius:99px; background:#e5edf5; overflow:hidden; margin-bottom:6px;">
+              <div style="height:6px; border-radius:99px; background:var(--surface-soft); overflow:hidden; margin-bottom:6px;">
                 <div style="height:100%; width:${Math.max(MIN_BAR_WIDTH_PERCENT, weight * 100)}%; background:#2962ff;"></div>
               </div>
-              <div style="font-size:0.76rem; color:#64748b;">${years}년 후 예상: ${formatWon(futureMoney)}</div>
+              <div style="font-size:0.76rem; color:var(--text-muted);">${years}년 후 예상: ${formatWon(futureMoney)}</div>
             </div>
           `;
         }).join('')}
       </div>
-      <p style="font-size:0.74rem; color:#64748b; margin:10px 0 0;">
+      <p style="font-size:0.74rem; color:var(--text-muted); margin:10px 0 0;">
         ※ 학습용 단순 시뮬레이션입니다. 실제 수익은 달라질 수 있어요.
       </p>
     </section>
@@ -321,7 +321,7 @@ function renderCompareRow(label, a, b, higherBetter) {
   const bBetter = higherBetter ? b > a : b < a;
   return `
     <tr>
-      <td style="padding:8px; border:1px solid #e5edf5; color:#334155;">${label}</td>
+      <td style="padding:8px; border:1px solid #e5edf5; color:var(--text);">${label}</td>
       <td style="padding:8px; border:1px solid #e5edf5; text-align:right; color:${aBetter ? '#089981' : '#334155'};">${Number(a).toFixed(2)}</td>
       <td style="padding:8px; border:1px solid #e5edf5; text-align:right; color:${bBetter ? '#089981' : '#334155'};">${Number(b).toFixed(2)}</td>
     </tr>
@@ -332,8 +332,8 @@ function renderScoreRow(label, a, b, highlight = false) {
   const aBetter = a > b;
   const bBetter = b > a;
   return `
-    <tr style="${highlight ? 'background:#eef2ff;' : ''}">
-      <td style="padding:8px; border:1px solid #e5edf5; color:#334155; font-weight:${highlight ? 700 : 500};">${label}</td>
+    <tr style="${highlight ? 'background:rgba(56,189,248,.1);' : ''}">
+      <td style="padding:8px; border:1px solid #e5edf5; color:var(--text); font-weight:${highlight ? 700 : 500};">${label}</td>
       <td style="padding:8px; border:1px solid #e5edf5; text-align:right; color:${aBetter ? '#089981' : '#334155'}; font-weight:${highlight ? 700 : 500};">${Number(a).toFixed(2)}</td>
       <td style="padding:8px; border:1px solid #e5edf5; text-align:right; color:${bBetter ? '#089981' : '#334155'}; font-weight:${highlight ? 700 : 500};">${Number(b).toFixed(2)}</td>
     </tr>

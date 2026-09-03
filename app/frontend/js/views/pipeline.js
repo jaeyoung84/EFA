@@ -22,11 +22,11 @@ export function pipelineView(container) {
       <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:16px; margin-bottom:20px;">
         <div>
           <label class="param-label">거래일 수</label>
-          <input id="pl-days" type="number" value="252" min="60" max="1260" class="param-input"/>
+          <input id="pl-days" type="number" value="1260" min="252" max="2520" class="param-input"/>
         </div>
         <div>
           <label class="param-label">단기 MA</label>
-          <input id="pl-short" type="number" value="20" min="5" max="50" class="param-input"/>
+          <input id="pl-short" type="number" value="20" min="5" max="60" class="param-input"/>
         </div>
         <div>
           <label class="param-label">장기 MA</label>
@@ -49,10 +49,10 @@ export function pipelineView(container) {
     result.innerHTML = '<p style="color:#94a3b8;">4단계 파이프라인 실행 중... (30초 내외)</p>';
     try {
       const data = await api.pipeline({
-        n_days:    +container.querySelector('#pl-days').value,
-        short_ma:  +container.querySelector('#pl-short').value,
-        long_ma:   +container.querySelector('#pl-long').value,
-        n_trees:   +container.querySelector('#pl-trees').value,
+        n_days:       +container.querySelector('#pl-days').value,
+        fast_ma:      +container.querySelector('#pl-short').value,
+        slow_ma:      +container.querySelector('#pl-long').value,
+        n_estimators: +container.querySelector('#pl-trees').value,
       });
       let html = '';
       if (data.image) html += `<img src="${data.image}" style="width:100%; border-radius:8px; margin-bottom:16px;"/>`;

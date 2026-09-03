@@ -4,7 +4,7 @@
  */
 const DESKTOP_BREAKPOINT = 1024;
 let _sidebarOpen = window.innerWidth > DESKTOP_BREAKPOINT;
-const MENU_SECTION_ORDER = ['review', 'learn', 'quiz', 'visualization', 'portfolio', 'quant'];
+const MENU_SECTION_ORDER = ['market', 'strategy', 'portfolio', 'research', 'settings'];
 
 // SPA와 정적 페이지가 같은 메뉴 순서를 유지하도록 실제 DOM 순서를 맞춘다.
 function orderSidebarSections() {
@@ -22,9 +22,6 @@ function orderSidebarSections() {
     if (section) nav.append(section);
   });
 
-  // RAG는 보조 기능이므로 모든 학습·분석 메뉴 다음, 메뉴의 마지막에 둔다.
-  const rag = nav.querySelector(':scope > .nav-item[data-view="rag-chat"]');
-  if (rag) nav.append(rag);
 }
 window._orderSidebarSections = orderSidebarSections;
 
@@ -137,82 +134,71 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') closeEnterpriseModal();
 });
 
-function syncSidebarToggle() {
-  const toggle = document.getElementById('sidebar-toggle');
+// ── 상단 메인 메뉴바(mainnav) — 좌측 사이드바를 대체한다 ──
+// 데스크톱: 항상 가로로 표시, 드롭다운은 CSS :hover/:focus-within으로 연다.
+// 모바일(<=1024px): 상단바 햄버거로 여닫는 세로 드롭다운 패널, 그룹은 탭해서 아코디언처럼 펼친다.
+function syncMainnavToggle() {
+  const toggle = document.getElementById('mainnav-toggle');
   if (!toggle) return;
   toggle.setAttribute('aria-expanded', String(_sidebarOpen));
   toggle.setAttribute('aria-label', _sidebarOpen ? '메뉴 닫기' : '메뉴 열기');
 }
 
-function toggleSidebar() {
-  _sidebarOpen ? closeSidebar() : openSidebar();
+function toggleMainnav() {
+  _sidebarOpen ? closeMainnav() : openMainnav();
 }
-function openSidebar() {
-  document.getElementById('sidebar').classList.add('open');
-  document.body.classList.remove('sidebar-collapsed');
-  if (window.innerWidth <= DESKTOP_BREAKPOINT) {
-    document.getElementById('overlay').classList.add('show');
-  }
+function openMainnav() {
+  document.getElementById('mainnav')?.classList.add('open');
+  document.getElementById('overlay')?.classList.add('show');
   _sidebarOpen = true;
-  syncSidebarToggle();
+  syncMainnavToggle();
 }
-function closeSidebar() {
-  document.getElementById('sidebar').classList.remove('open');
-  document.getElementById('overlay').classList.remove('show');
-  if (window.innerWidth > DESKTOP_BREAKPOINT) {
-    document.body.classList.add('sidebar-collapsed');
-  }
+function closeMainnav() {
+  document.getElementById('mainnav')?.classList.remove('open');
+  document.getElementById('overlay')?.classList.remove('show');
+  document.querySelectorAll('.mainnav-group.is-open').forEach((group) => group.classList.remove('is-open'));
   _sidebarOpen = false;
-  syncSidebarToggle();
+  syncMainnavToggle();
 }
-function toggleNav(id) {
-  const el = document.getElementById('nav-' + id);
-  const chev = document.getElementById('chev-' + id);
-  const open = el.classList.toggle('open');
-  if (chev) chev.style.transform = open ? 'rotate(180deg)' : '';
-}
-// auto-open a section (e.g. quiz/learn while that view is active)
-window._openNavSection = function(id) {
-  const el = document.getElementById('nav-' + id);
-  const chev = document.getElementById('chev-' + id);
-  if (el && !el.classList.contains('open')) {
-    el.classList.add('open');
-    if (chev) chev.style.transform = 'rotate(180deg)';
-  }
-};
-// close every section (used before opening only the section(s) currently in use)
-function closeAllNavSections() {
-  document.querySelectorAll('.nav-children').forEach((el) => {
-    el.classList.remove('open');
-    const chev = document.getElementById('chev-' + el.id.replace(/^nav-/, ''));
-    if (chev) chev.style.transform = '';
+window.toggleMainnav = toggleMainnav;
+window.closeMainnav = closeMainnav;
+window.openMainnav = openMainnav;
+
+// 모바일에서는 그룹 트리거를 탭하면 아코디언처럼 펼쳐진다(데스크톱은 :hover로 처리하므로 무시).
+document.querySelectorAll('.mainnav-trigger').forEach((trigger) => {
+  trigger.addEventListener('click', (event) => {
+    if (window.innerWidth > DESKTOP_BREAKPOINT) return;
+    event.preventDefault();
+    const group = trigger.closest('.mainnav-group');
+    if (!group) return;
+    const isOpen = group.classList.toggle('is-open');
+    trigger.setAttribute('aria-expanded', String(isOpen));
   });
+});
+// 모바일에서 실제 메뉴 항목을 선택하면 패널을 닫는다.
+document.querySelectorAll('.mainnav .nav-item[data-view]').forEach((link) => {
+  link.addEventListener('click', () => {
+    if (window.innerWidth <= DESKTOP_BREAKPOINT) closeMainnav();
+  });
+});
+
+// 현재 화면이 속한 상단 메뉴 그룹을 강조 표시한다(드롭다운을 계속 펼쳐두지는 않는다 — 호버/탭으로 여닫는 임시 패널이므로).
+window._openNavSection = function(id) {
+  document.querySelector(`.mainnav-group[data-group="${id}"]`)?.classList.add('is-active-group');
+};
+function clearActiveNavSections() {
+  document.querySelectorAll('.mainnav-group.is-active-group').forEach((group) => group.classList.remove('is-active-group'));
 }
-// close everything, then open only the section(s) relevant to the current view
 window._setActiveNavSections = function(ids) {
-  closeAllNavSections();
+  clearActiveNavSections();
   (ids || []).forEach((id) => window._openNavSection(id));
 };
 
 window.addEventListener('resize', () => {
-  const isMobile = window.innerWidth <= DESKTOP_BREAKPOINT;
-  document.getElementById('overlay').classList.remove('show');
-
-  if (isMobile) {
-    document.body.classList.remove('sidebar-collapsed');
-    document.getElementById('sidebar').classList.remove('open');
-    _sidebarOpen = false;
-  } else {
-    document.getElementById('sidebar').classList.toggle('open', !document.body.classList.contains('sidebar-collapsed'));
-    _sidebarOpen = !document.body.classList.contains('sidebar-collapsed');
+  if (window.innerWidth > DESKTOP_BREAKPOINT) {
+    closeMainnav();
   }
-
-  syncSidebarToggle();
 });
 
-if (window.innerWidth > DESKTOP_BREAKPOINT) {
-  document.getElementById('sidebar').classList.add('open');
-}
-orderSidebarSections();
 ensureSidebarChatbot();
-syncSidebarToggle();
+syncMainnavToggle();

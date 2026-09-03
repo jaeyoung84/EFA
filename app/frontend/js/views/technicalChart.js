@@ -4,10 +4,10 @@ import { cloudResourceCard } from './cloudAiResources.js';
 function tabShell(title, desc, tabs) {
   return `
     <div style="margin-bottom:18px;">
-      <h1 style="font-size:1.15rem;font-weight:700;color:#111;margin-bottom:5px;">
+      <h1 style="font-size:1.15rem;font-weight:700;color:var(--text);margin-bottom:5px;">
         <i class="fa-solid fa-chart-line"></i> ${title}
       </h1>
-      <p style="font-size:0.88rem;color:#757575;line-height:1.6;margin:0;">${desc}</p>
+      <p style="font-size:0.88rem;color:var(--text-muted);line-height:1.6;margin:0;">${desc}</p>
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:18px;border-bottom:2px solid #f0f0f0;padding-bottom:0;">
       ${tabs.map((t, i) => `
@@ -31,16 +31,16 @@ function activateTab(container, idx, renders) {
 }
 
 function card(title, icon, body, accent = '#0078d4') {
-  return `<div style="background:#fff;border-radius:10px;padding:20px;margin-bottom:16px;
+  return `<div style="background:var(--surface);border-radius:10px;padding:20px;margin-bottom:16px;
                       border:1px solid #e8e8e8;border-left:3px solid ${accent};box-shadow:0 1px 4px rgba(0,0,0,.05);">
-    <h3 style="font-size:0.95rem;font-weight:700;color:#111;margin:0 0 14px;">
+    <h3 style="font-size:0.95rem;font-weight:700;color:var(--text);margin:0 0 14px;">
       <i class="${icon}" style="color:${accent};margin-right:7px;"></i>${title}
     </h3>${body}</div>`;
 }
 
 function info(html, color = '#0078d4') {
   return `<div style="background:${color}0d;border:1px solid ${color}30;border-radius:7px;
-                      padding:11px 14px;font-size:0.85rem;color:#333;line-height:1.65;margin-bottom:14px;">${html}</div>`;
+                      padding:11px 14px;font-size:0.85rem;color:var(--text);line-height:1.65;margin-bottom:14px;">${html}</div>`;
 }
 
 function pill(label, color) {
@@ -69,7 +69,7 @@ class ApexCandleBuilder {
     this.prices = prices;
     this.height = height;
     this._series  = [{ name: 'OHLC', type: 'candlestick', data: prices.map(p => ({ x: p.date, y: [p.o, p.h, p.l, p.c] })) }];
-    this._colors  = ['#107c10'];
+    this._colors  = ['#f0304a'];
     this._widths  = [1];
     this._dashes  = [0];
     this._yAnno   = [];
@@ -112,7 +112,7 @@ class ApexCandleBuilder {
     return this;
   }
 
-  addArrow(xi, label, color = '#107c10', dir = 1) {
+  addArrow(xi, label, color = '#f0304a', dir = 1) {
     if (xi < 0 || xi >= this.prices.length) return this;
     const p = this.prices[xi];
     this._ptAnno.push({
@@ -147,7 +147,7 @@ class ApexCandleBuilder {
         background: '#fff', animations: { enabled: false }, fontFamily: APEX_FONT,
       },
       series: this._series,
-      plotOptions: { candlestick: { colors: { upward: '#107c10', downward: '#c50f1f' }, wick: { useFillColor: true } } },
+      plotOptions: { candlestick: { colors: { upward: '#f0304a', downward: '#3b82f6' }, wick: { useFillColor: true } } },
       colors: this._colors,
       stroke: { curve: 'smooth', width: this._widths, dashArray: this._dashes },
       xaxis: {
@@ -257,24 +257,24 @@ function renderStockSelect(content, state) {
   content.innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-bottom:20px;">
       ${companies.map((c, i) => `
-        <div class="stock-card" data-idx="${i}" style="background:#fff;border-radius:10px;padding:16px;
+        <div class="stock-card" data-idx="${i}" style="background:var(--surface);border-radius:10px;padding:16px;
              border:2px solid ${state.selected === i ? '#0078d4' : '#e8e8e8'};cursor:pointer;transition:all .12s;
              box-shadow:${state.selected === i ? '0 0 0 3px #0078d420' : 'none'};">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
             <div>
-              <div style="font-size:0.95rem;font-weight:700;color:#111;">${c.name}</div>
-              <div style="font-size:0.78rem;color:#9e9e9e;">${c.ticker}</div>
+              <div style="font-size:0.95rem;font-weight:700;color:var(--text);">${c.name}</div>
+              <div style="font-size:0.78rem;color:var(--text-subtle);">${c.ticker}</div>
             </div>
-            <span style="background:#e3f2fd;color:#0078d4;border-radius:5px;padding:2px 8px;font-size:0.75rem;font-weight:600;">${c.sector}</span>
+            <span style="background:rgba(56,189,248,.12);color:var(--primary);border-radius:5px;padding:2px 8px;font-size:0.75rem;font-weight:600;">${c.sector}</span>
           </div>
           <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;">${c.tags.map(t => pill(t, '#757575')).join('')}</div>
           <div style="display:flex;justify-content:space-between;align-items:center;">
-            <span style="font-size:0.8rem;color:#bdbdbd;">시뮬레이션 추세</span>
-            <span style="font-size:0.8rem;font-weight:600;color:${c.scenario === 'trend_up' ? '#107c10' : c.scenario === 'trend_down' ? '#c50f1f' : c.scenario === 'wave' ? '#a855f7' : '#f59e0b'};">
+            <span style="font-size:0.8rem;color:var(--text-subtle);">시뮬레이션 추세</span>
+            <span style="font-size:0.8rem;font-weight:600;color:${c.scenario === 'trend_up' ? '#f0304a' : c.scenario === 'trend_down' ? '#3b82f6' : c.scenario === 'wave' ? '#a855f7' : '#f59e0b'};">
               ${c.scenario === 'trend_up' ? '↑ 상승' : c.scenario === 'trend_down' ? '↓ 하락' : c.scenario === 'wave' ? '〜 파동' : '─ 횡보'}
             </span>
           </div>
-          ${state.selected === i ? `<div style="margin-top:8px;padding:4px 8px;background:#e3f2fd;border-radius:5px;font-size:0.78rem;color:#0078d4;font-weight:600;"><i class="fa-solid fa-check"></i> 선택됨 — 나머지 탭에서 분석 가능</div>` : ''}
+          ${state.selected === i ? `<div style="margin-top:8px;padding:4px 8px;background:rgba(56,189,248,.12);border-radius:5px;font-size:0.78rem;color:var(--primary);font-weight:600;"><i class="fa-solid fa-check"></i> 선택됨 — 나머지 탭에서 분석 가능</div>` : ''}
         </div>`).join('')}
     </div>
     <div id="stock-preview" style="${state.selected == null ? 'display:none' : ''}">
@@ -294,9 +294,9 @@ function renderStockPreview(c) {
   return card(`${c.name} — 분석 미리보기`, 'fa-solid fa-magnifying-glass-chart', `
     ${info(`<strong>${c.name} (${c.ticker})</strong>를 선택했습니다. 위 탭에서 추세, 이동평균, 캔들패턴, 지표, 파동 분석을 순서대로 실습하세요.`, '#0078d4')}
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;">
-      ${[['섹터', c.sector, '#0078d4'], ['추세 유형', c.scenario, '#a855f7'], ['기준가격', c.start.toLocaleString() + '원', '#107c10']].map(([l, v, col]) => `
-        <div style="background:#fafafa;border-radius:8px;padding:12px;text-align:center;border:1px solid #f0f0f0;">
-          <div style="font-size:0.75rem;color:#9e9e9e;margin-bottom:4px;">${l}</div>
+      ${[['섹터', c.sector, '#0078d4'], ['추세 유형', c.scenario, '#a855f7'], ['기준가격', c.start.toLocaleString() + '원', '#f0304a']].map(([l, v, col]) => `
+        <div style="background:var(--surface-soft);border-radius:8px;padding:12px;text-align:center;border:1px solid #f0f0f0;">
+          <div style="font-size:0.75rem;color:var(--text-subtle);margin-bottom:4px;">${l}</div>
           <div style="font-size:0.92rem;font-weight:700;color:${col};">${v}</div>
         </div>`).join('')}
     </div>`, '#0078d4');
@@ -309,30 +309,30 @@ function renderTrend(content, state) {
   const prices = genPrices(80, c.start, 7, c.scenario);
 
   content.innerHTML = card('추세분석 — 추세선 · 채널 · 강도', 'fa-solid fa-arrow-trend-up', `
-    ${info(`<strong>분석 기업: ${c.name}</strong> | 추세선 = 연속 저점/고점 연결 | 채널 = 추세선 + 평행선 | ADX > 25 = 강한 추세`, '#107c10')}
+    ${info(`<strong>분석 기업: ${c.name}</strong> | 추세선 = 연속 저점/고점 연결 | 채널 = 추세선 + 평행선 | ADX > 25 = 강한 추세`, '#f0304a')}
     <div id="cv-trend" style="width:100%;min-height:340px;"></div>
     <div id="trend-signal" style="margin-top:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;"></div>
     <div style="margin-top:16px;">
-      <div style="font-size:0.85rem;font-weight:700;color:#111;margin-bottom:10px;">추세 판단 기준</div>
+      <div style="font-size:0.85rem;font-weight:700;color:var(--text);margin-bottom:10px;">추세 판단 기준</div>
       <div style="overflow-x:auto;">
         <table style="width:100%;border-collapse:collapse;font-size:0.83rem;">
-          <tr style="background:#fafafa;">
-            <th style="padding:8px 10px;text-align:left;color:#757575;border-bottom:1px solid #f0f0f0;">구분</th>
-            <th style="padding:8px 10px;text-align:left;color:#757575;border-bottom:1px solid #f0f0f0;">조건</th>
-            <th style="padding:8px 10px;text-align:left;color:#757575;border-bottom:1px solid #f0f0f0;">매매 관점</th>
+          <tr style="background:var(--surface-soft);">
+            <th style="padding:8px 10px;text-align:left;color:var(--text-muted);border-bottom:1px solid #f0f0f0;">구분</th>
+            <th style="padding:8px 10px;text-align:left;color:var(--text-muted);border-bottom:1px solid #f0f0f0;">조건</th>
+            <th style="padding:8px 10px;text-align:left;color:var(--text-muted);border-bottom:1px solid #f0f0f0;">매매 관점</th>
           </tr>
           ${[['상승추세','HH·HL 연속, MA 정배열, ADX>25','추세선 저점 매수 / 채널 상단 이익실현'],
              ['하락추세','LH·LL 연속, MA 역배열, ADX>25','현물 보유자는 비중·손실 한도 점검 / 공매도는 별도 위험관리 필요'],
              ['횡보','가격이 박스권 내 등락, ADX<20','박스권 하단 매수, 상단 이익실현'],
              ['추세 전환','추세선 종가 이탈 + 거래량 폭증','포지션 축소 후 신추세 확인 대기']].map(([g, cd, m]) => `
             <tr style="border-bottom:1px solid #f5f5f5;">
-              <td style="padding:8px 10px;color:#111;font-weight:600;">${g}</td>
-              <td style="padding:8px 10px;color:#555;">${cd}</td>
-              <td style="padding:8px 10px;color:#0078d4;font-size:0.8rem;">${m}</td>
+              <td style="padding:8px 10px;color:var(--text);font-weight:600;">${g}</td>
+              <td style="padding:8px 10px;color:var(--text-muted);">${cd}</td>
+              <td style="padding:8px 10px;color:var(--primary);font-size:0.8rem;">${m}</td>
             </tr>`).join('')}
         </table>
       </div>
-    </div>`, '#107c10');
+    </div>`, '#f0304a');
 
   requestAnimationFrame(() => {
     const el = content.querySelector('#cv-trend');
@@ -342,23 +342,23 @@ function renderTrend(content, state) {
     const li1 = 10, li2 = 40, hi1 = 5, hi2 = 35;
     const inst = new ApexCandleBuilder(el, prices, 340)
       .addLine(ma20, '#0078d4', 'MA20')
-      .addLine(ma60, '#c50f1f', 'MA60')
-      .addTrendLine(li1, lows[li1],  li2, lows[li2],  '#107c10')
-      .addTrendLine(hi1, highs[hi1], hi2, highs[hi2], '#107c10', [4, 3])
+      .addLine(ma60, '#3b82f6', 'MA60')
+      .addTrendLine(li1, lows[li1],  li2, lows[li2],  '#f0304a')
+      .addTrendLine(hi1, highs[hi1], hi2, highs[hi2], '#f0304a', [4, 3])
       .render();
     trackChart(state, inst);
 
     const last = prices[prices.length - 1].c, m20 = ma20[ma20.length - 1], m60 = ma60[ma60.length - 1];
     const trend = last > m20 && m20 > m60 ? '상승추세' : last < m20 && m20 < m60 ? '하락추세' : '횡보/전환';
-    const tColor = trend === '상승추세' ? '#107c10' : trend === '하락추세' ? '#c50f1f' : '#f59e0b';
+    const tColor = trend === '상승추세' ? '#f0304a' : trend === '하락추세' ? '#3b82f6' : '#f59e0b';
     const hh = prices.slice(-20).every((_, i, a) => i === 0 || a[i].h >= a[i - 1].h * 0.97);
     content.querySelector('#trend-signal').innerHTML = [
-      ['현재 추세', trend, tColor], ['MA 배열', m20 > m60 ? '정배열(강세)' : '역배열(약세)', m20 > m60 ? '#107c10' : '#c50f1f'],
-      ['고저점 구조', hh ? 'HH·HL (상승)' : 'LH·LL (하락)', hh ? '#107c10' : '#c50f1f'],
-      ['현재가 vs MA20', last > m20 ? 'MA20 위' : 'MA20 아래', last > m20 ? '#107c10' : '#c50f1f'],
+      ['현재 추세', trend, tColor], ['MA 배열', m20 > m60 ? '정배열(강세)' : '역배열(약세)', m20 > m60 ? '#f0304a' : '#3b82f6'],
+      ['고저점 구조', hh ? 'HH·HL (상승)' : 'LH·LL (하락)', hh ? '#f0304a' : '#3b82f6'],
+      ['현재가 vs MA20', last > m20 ? 'MA20 위' : 'MA20 아래', last > m20 ? '#f0304a' : '#3b82f6'],
     ].map(([l, v, c]) => `
-      <div style="background:#fafafa;border-radius:8px;padding:12px;text-align:center;border:1px solid #f0f0f0;">
-        <div style="font-size:0.75rem;color:#9e9e9e;margin-bottom:4px;">${l}</div>
+      <div style="background:var(--surface-soft);border-radius:8px;padding:12px;text-align:center;border:1px solid #f0f0f0;">
+        <div style="font-size:0.75rem;color:var(--text-subtle);margin-bottom:4px;">${l}</div>
         <div style="font-size:0.9rem;font-weight:700;color:${c};">${v}</div>
       </div>`).join('');
   });
@@ -380,13 +380,13 @@ function renderMA(content, state) {
     const el = content.querySelector('#cv-ma');
     if (!el) return;
     const builder = new ApexCandleBuilder(el, prices, 320)
-      .addLine(ma5,  '#107c10', 'MA5')
+      .addLine(ma5,  '#f0304a', 'MA5')
       .addLine(ma20, '#0078d4', 'MA20')
-      .addLine(ma60, '#c50f1f', 'MA60');
+      .addLine(ma60, '#3b82f6', 'MA60');
     ma20.forEach((v, i) => {
       if (i < 1 || v == null || ma60[i] == null) return;
-      if (ma20[i - 1] < ma60[i - 1] && ma20[i] >= ma60[i]) builder.addArrow(i, '골든', '#107c10', 1);
-      if (ma20[i - 1] > ma60[i - 1] && ma20[i] <= ma60[i]) builder.addArrow(i, '데드', '#c50f1f', -1);
+      if (ma20[i - 1] < ma60[i - 1] && ma20[i] >= ma60[i]) builder.addArrow(i, '골든', '#f0304a', 1);
+      if (ma20[i - 1] > ma60[i - 1] && ma20[i] <= ma60[i]) builder.addArrow(i, '데드', '#3b82f6', -1);
     });
     trackChart(state, builder.render());
 
@@ -396,11 +396,11 @@ function renderMA(content, state) {
     const arr = m20 > m60 ? '정배열' : '역배열';
     content.querySelector('#ma-signals').innerHTML = `
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px;">
-        ${[['MA5', m5, '#107c10'], ['MA20', m20, '#0078d4'], ['MA60', m60, '#c50f1f'],
-           ['배열상태', arr, m20 > m60 ? '#107c10' : '#c50f1f'],
-           ['크로스', crossType, m20 > m60 ? '#107c10' : '#c50f1f']].map(([l, v, col]) => `
-          <div style="background:#fafafa;border:1px solid #f0f0f0;border-radius:8px;padding:11px;text-align:center;">
-            <div style="font-size:0.75rem;color:#9e9e9e;margin-bottom:4px;">${l}</div>
+        ${[['MA5', m5, '#f0304a'], ['MA20', m20, '#0078d4'], ['MA60', m60, '#3b82f6'],
+           ['배열상태', arr, m20 > m60 ? '#f0304a' : '#3b82f6'],
+           ['크로스', crossType, m20 > m60 ? '#f0304a' : '#3b82f6']].map(([l, v, col]) => `
+          <div style="background:var(--surface-soft);border:1px solid #f0f0f0;border-radius:8px;padding:11px;text-align:center;">
+            <div style="font-size:0.75rem;color:var(--text-subtle);margin-bottom:4px;">${l}</div>
             <div style="font-size:0.88rem;font-weight:700;color:${col};">${typeof v === 'number' ? Math.round(v).toLocaleString() + '원' : v}</div>
           </div>`).join('')}
       </div>
@@ -414,12 +414,12 @@ function renderMA(content, state) {
 function renderCandle(content, state) {
   destroyCharts(state);
   const patterns = [
-    { name: '망치봉 (Hammer)',    signal: '반등', color: '#107c10', desc: '하락 추세 말단에서 아래 꼬리가 몸통의 2배 이상. 매도세가 매수세에 밀린 증거.', cond: '하락 추세 + 지지선 근처 + 거래량 증가', target: '직전 저항선', stop: '망치봉 저가 이하' },
-    { name: '베어리쉬 엔걸핑',     signal: '하락', color: '#c50f1f', desc: '큰 음봉이 전날 양봉 몸통 전체를 감싸며 매도 압력 폭증 신호.', cond: '상승 추세 + 저항선 근처 + 거래량 증가', target: '직전 지지선', stop: '음봉 고가 이상' },
+    { name: '망치봉 (Hammer)',    signal: '반등', color: '#f0304a', desc: '하락 추세 말단에서 아래 꼬리가 몸통의 2배 이상. 매도세가 매수세에 밀린 증거.', cond: '하락 추세 + 지지선 근처 + 거래량 증가', target: '직전 저항선', stop: '망치봉 저가 이하' },
+    { name: '베어리쉬 엔걸핑',     signal: '하락', color: '#3b82f6', desc: '큰 음봉이 전날 양봉 몸통 전체를 감싸며 매도 압력 폭증 신호.', cond: '상승 추세 + 저항선 근처 + 거래량 증가', target: '직전 지지선', stop: '음봉 고가 이상' },
     { name: '도지 (Doji)',        signal: '전환', color: '#f59e0b', desc: '시가=종가. 매수·매도 균형. 추세 방향에 따라 전환 또는 조정 신호.', cond: '추세 말단 + 지지·저항 근처', target: '다음봉 방향 확인 후 진입', stop: '도지 고·저가 이탈' },
-    { name: '샛별 (Morning Star)', signal: '반등', color: '#107c10', desc: '음봉→소형봉→양봉 3캔들. 바닥 반전의 강한 신호.', cond: '하락 추세 말단 + 과매도', target: '38.2%~61.8% 되돌림', stop: '첫 음봉 저가' },
-    { name: '이브닝스타',          signal: '하락', color: '#c50f1f', desc: '양봉→소형봉→음봉. 상단 반전의 강한 신호. 샛별의 반대.', cond: '상승 추세 말단 + 과매수', target: '38.2% 되돌림', stop: '첫 양봉 고가' },
-    { name: '불리쉬 엔걸핑',       signal: '반등', color: '#107c10', desc: '큰 양봉이 전날 음봉 전체를 감쌈. 강한 매수 전환.', cond: '하락 추세 + 지지선', target: '직전 고점', stop: '음봉 저가' },
+    { name: '샛별 (Morning Star)', signal: '반등', color: '#f0304a', desc: '음봉→소형봉→양봉 3캔들. 바닥 반전의 강한 신호.', cond: '하락 추세 말단 + 과매도', target: '38.2%~61.8% 되돌림', stop: '첫 음봉 저가' },
+    { name: '이브닝스타',          signal: '하락', color: '#3b82f6', desc: '양봉→소형봉→음봉. 상단 반전의 강한 신호. 샛별의 반대.', cond: '상승 추세 말단 + 과매수', target: '38.2% 되돌림', stop: '첫 양봉 고가' },
+    { name: '불리쉬 엔걸핑',       signal: '반등', color: '#f0304a', desc: '큰 양봉이 전날 음봉 전체를 감쌈. 강한 매수 전환.', cond: '하락 추세 + 지지선', target: '직전 고점', stop: '음봉 저가' },
   ];
   const selectedPat = state.pat ?? 0;
   const p = patterns[selectedPat];
@@ -434,13 +434,13 @@ function renderCandle(content, state) {
         </button>`).join('')}
     </div>
     ${card(p.name, 'fa-solid fa-chart-candlestick', `
-      ${info(`<strong>신호:</strong> ${p.signal === '반등' ? '<i class="fa-solid fa-arrow-trend-up"></i> 매수 신호' : '<i class="fa-solid fa-arrow-trend-down"></i> 매도 신호'} &nbsp;|&nbsp; ${p.desc}`, p.signal === '반등' ? '#107c10' : '#c50f1f')}
+      ${info(`<strong>신호:</strong> ${p.signal === '반등' ? '<i class="fa-solid fa-arrow-trend-up"></i> 매수 신호' : '<i class="fa-solid fa-arrow-trend-down"></i> 매도 신호'} &nbsp;|&nbsp; ${p.desc}`, p.signal === '반등' ? '#f0304a' : '#3b82f6')}
       <div id="cv-candle" style="width:100%;min-height:280px;"></div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px;">
-        ${[['진입 조건', p.cond, '#0078d4'], ['목표가', p.target, '#107c10'], ['손절', p.stop, '#c50f1f']].map(([l, v, c]) => `
-          <div style="background:#fafafa;border-radius:8px;padding:12px;border-left:3px solid ${c};">
-            <div style="font-size:0.75rem;color:#9e9e9e;margin-bottom:4px;">${l}</div>
-            <div style="font-size:0.82rem;color:#111;line-height:1.5;">${v}</div>
+        ${[['진입 조건', p.cond, '#0078d4'], ['목표가', p.target, '#f0304a'], ['손절', p.stop, '#3b82f6']].map(([l, v, c]) => `
+          <div style="background:var(--surface-soft);border-radius:8px;padding:12px;border-left:3px solid ${c};">
+            <div style="font-size:0.75rem;color:var(--text-subtle);margin-bottom:4px;">${l}</div>
+            <div style="font-size:0.82rem;color:var(--text);line-height:1.5;">${v}</div>
           </div>`).join('')}
       </div>`, p.color)}`;
 
@@ -457,7 +457,7 @@ function renderCandle(content, state) {
     const mid = prices.length - 3;
     const inst = new ApexCandleBuilder(el, prices, 280)
       .addLine(ma20, '#0078d4')
-      .addArrow(mid, p.signal === '반등' ? '↑패턴' : '↓패턴', p.signal === '반등' ? '#107c10' : '#c50f1f', p.signal === '반등' ? 1 : -1)
+      .addArrow(mid, p.signal === '반등' ? '↑패턴' : '↓패턴', p.signal === '반등' ? '#f0304a' : '#3b82f6', p.signal === '반등' ? 1 : -1)
       .render();
     trackChart(state, inst);
   });
@@ -477,11 +477,11 @@ function renderIndicators(content, state) {
     <div id="cv-ind" style="width:100%;min-height:280px;"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
       <div>
-        <div style="font-size:0.82rem;font-weight:600;color:#555;margin-bottom:6px;">RSI (14)</div>
+        <div style="font-size:0.82rem;font-weight:600;color:var(--text-muted);margin-bottom:6px;">RSI (14)</div>
         <div id="cv-rsi" style="width:100%;min-height:110px;"></div>
       </div>
       <div>
-        <div style="font-size:0.82rem;font-weight:600;color:#555;margin-bottom:6px;">MACD (12,26,9)</div>
+        <div style="font-size:0.82rem;font-weight:600;color:var(--text-muted);margin-bottom:6px;">MACD (12,26,9)</div>
         <div id="cv-macd" style="width:100%;min-height:110px;"></div>
       </div>
     </div>
@@ -499,7 +499,7 @@ function renderIndicators(content, state) {
     const elRsi = content.querySelector('#cv-rsi');
     if (elRsi) trackChart(state, createMiniLine(elRsi,
       [{ data: rsi, color: '#8b5cf6', name: 'RSI' }],
-      { min: 0, max: 100, height: 110, refLines: [{ v: 70, c: '#c50f1f' }, { v: 30, c: '#107c10' }] }
+      { min: 0, max: 100, height: 110, refLines: [{ v: 70, c: '#3b82f6' }, { v: 30, c: '#f0304a' }] }
     ));
 
     const elMacd = content.querySelector('#cv-macd');
@@ -522,13 +522,13 @@ function renderIndicators(content, state) {
     const macdSigTxt = lastMacd > lastSig ? '골든크로스 ↑' : '데드크로스 ↓';
 
     content.querySelector('#ind-signal').innerHTML = [
-      ['RSI', lastRsi.toFixed(1), lastRsi > 70 ? '#c50f1f' : lastRsi < 30 ? '#107c10' : '#9e9e9e'],
-      ['RSI 신호', rsiSig, lastRsi > 70 ? '#c50f1f' : lastRsi < 30 ? '#107c10' : '#9e9e9e'],
-      ['MACD 신호', macdSigTxt, lastMacd > lastSig ? '#107c10' : '#c50f1f'],
-      ['BB 위치', `${bbPct}%`, +bbPct > 70 ? '#c50f1f' : +bbPct < 30 ? '#107c10' : '#9e9e9e'],
+      ['RSI', lastRsi.toFixed(1), lastRsi > 70 ? '#3b82f6' : lastRsi < 30 ? '#f0304a' : '#9e9e9e'],
+      ['RSI 신호', rsiSig, lastRsi > 70 ? '#3b82f6' : lastRsi < 30 ? '#f0304a' : '#9e9e9e'],
+      ['MACD 신호', macdSigTxt, lastMacd > lastSig ? '#f0304a' : '#3b82f6'],
+      ['BB 위치', `${bbPct}%`, +bbPct > 70 ? '#3b82f6' : +bbPct < 30 ? '#f0304a' : '#9e9e9e'],
     ].map(([l, v, c]) => `
-      <div style="background:#fafafa;border:1px solid #f0f0f0;border-radius:8px;padding:11px;text-align:center;">
-        <div style="font-size:0.75rem;color:#9e9e9e;margin-bottom:4px;">${l}</div>
+      <div style="background:var(--surface-soft);border:1px solid #f0f0f0;border-radius:8px;padding:11px;text-align:center;">
+        <div style="font-size:0.75rem;color:var(--text-subtle);margin-bottom:4px;">${l}</div>
         <div style="font-size:0.9rem;font-weight:700;color:${c};">${v}</div>
       </div>`).join('');
   });
@@ -551,10 +551,10 @@ function renderElliott(content, state) {
          ['5파','마지막 상승, 다이버전스','거래량 줄고 RSI 다이버전스','#a855f7'],
          ['abc조정','상승분 38.2~61.8% 되돌림','c파에서 새 진입 기회 탐색','#9e9e9e'],
         ].map(([wave, desc, tip, col]) => `
-        <div style="background:#fafafa;border-radius:8px;padding:12px;border-left:3px solid ${col};border:1px solid #f0f0f0;border-left-width:3px;">
+        <div style="background:var(--surface-soft);border-radius:8px;padding:12px;border-left:3px solid ${col};border:1px solid #f0f0f0;border-left-width:3px;">
           <div style="font-size:0.92rem;font-weight:700;color:${col};margin-bottom:4px;">${wave}</div>
-          <div style="font-size:0.8rem;color:#111;margin-bottom:4px;">${desc}</div>
-          <div style="font-size:0.76rem;color:#9e9e9e;">${tip}</div>
+          <div style="font-size:0.8rem;color:var(--text);margin-bottom:4px;">${desc}</div>
+          <div style="font-size:0.76rem;color:var(--text-subtle);">${tip}</div>
         </div>`).join('')}
     </div>`, '#a855f7');
 
@@ -565,7 +565,7 @@ function renderElliott(content, state) {
     const builder = new ApexCandleBuilder(el, prices, 340).addLine(ma20, '#9e9e9e');
     const waveIdx = [5, 15, 30, 42, 52, 65, 75];
     const labels  = ['1', '2', '3', '4', '5', 'a', 'b'];
-    const colors  = ['#60a5fa', '#3b82f6', '#1d4ed8', '#7c3aed', '#a855f7', '#c50f1f', '#f59e0b'];
+    const colors  = ['#60a5fa', '#3b82f6', '#1d4ed8', '#7c3aed', '#a855f7', '#3b82f6', '#f59e0b'];
     waveIdx.forEach((xi, i) => { if (xi < prices.length) builder.addWaveLabel(xi, labels[i], colors[i]); });
     const lo = prices[0].l, hi = prices.slice(0, 55).reduce((m, p) => Math.max(m, p.h), 0);
     [38.2, 61.8].forEach(lvl => builder.addHLine(hi - (hi - lo) * lvl / 100, '#a855f7', [3, 3], `Fib ${lvl}%`));
@@ -601,26 +601,26 @@ function renderSummary(content, state) {
   ];
   const total   = signals.reduce((s, sg) => s + sg.score, 0);
   const opinion = total >= 2 ? '매수 우세' : total <= -2 ? '매도 우세' : '중립';
-  const opColor = total >= 2 ? '#107c10' : total <= -2 ? '#c50f1f' : '#f59e0b';
+  const opColor = total >= 2 ? '#f0304a' : total <= -2 ? '#3b82f6' : '#f59e0b';
 
   content.innerHTML = card(`${c.name} 기술적 분석 종합 리포트`, 'fa-solid fa-file-chart-column', `
     ${info(`5개 기술적 지표를 종합해 현재 매수/매도/중립 신호를 판단합니다. 단일 지표가 아닌 복수 지표의 방향 일치도를 보는 것이 핵심입니다.`, '#111')}
     <div id="cv-summary" style="width:100%;min-height:280px;"></div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:16px 0;">
       ${signals.map(sg => `
-        <div style="background:#fafafa;border-radius:8px;padding:12px;border-left:3px solid ${sg.score > 0 ? '#107c10' : sg.score < 0 ? '#c50f1f' : '#9e9e9e'};border:1px solid #f0f0f0;border-left-width:3px;">
-          <div style="font-size:0.75rem;color:#9e9e9e;margin-bottom:4px;">${sg.name}</div>
-          <div style="font-size:0.9rem;font-weight:700;color:${sg.score > 0 ? '#107c10' : sg.score < 0 ? '#c50f1f' : '#f59e0b'};">
+        <div style="background:var(--surface-soft);border-radius:8px;padding:12px;border-left:3px solid ${sg.score > 0 ? '#f0304a' : sg.score < 0 ? '#3b82f6' : '#9e9e9e'};border:1px solid #f0f0f0;border-left-width:3px;">
+          <div style="font-size:0.75rem;color:var(--text-subtle);margin-bottom:4px;">${sg.name}</div>
+          <div style="font-size:0.9rem;font-weight:700;color:${sg.score > 0 ? '#f0304a' : sg.score < 0 ? '#3b82f6' : '#f59e0b'};">
             ${sg.score > 0 ? '↑ 강세' : '↓ 약세'}
           </div>
         </div>`).join('')}
     </div>
     <div style="padding:18px;border-radius:10px;border:2px solid ${opColor};background:${opColor}0d;text-align:center;">
-      <div style="font-size:0.78rem;color:#9e9e9e;margin-bottom:6px;">종합 기술적 의견</div>
+      <div style="font-size:0.78rem;color:var(--text-subtle);margin-bottom:6px;">종합 기술적 의견</div>
       <div style="font-size:1.4rem;font-weight:800;color:${opColor};">${opinion}</div>
-      <div style="font-size:0.8rem;color:#555;margin-top:4px;">종합 스코어: ${total.toFixed(1)} | 기준: +2이상=매수우세, -2이하=매도우세</div>
+      <div style="font-size:0.8rem;color:var(--text-muted);margin-top:4px;">종합 스코어: ${total.toFixed(1)} | 기준: +2이상=매수우세, -2이하=매도우세</div>
     </div>
-    <div style="margin-top:14px;padding:12px;background:#fafafa;border-radius:8px;font-size:0.8rem;color:#757575;line-height:1.65;border:1px solid #f0f0f0;">
+    <div style="margin-top:14px;padding:12px;background:var(--surface-soft);border-radius:8px;font-size:0.8rem;color:var(--text-muted);line-height:1.65;border:1px solid #f0f0f0;">
       <i class="fa-solid fa-triangle-exclamation"></i> 본 분석은 시뮬레이션 데이터 기반 교육용 리포트입니다.
     </div>`, '#111');
 
@@ -629,7 +629,7 @@ function renderSummary(content, state) {
     if (!el) return;
     trackChart(state, new ApexCandleBuilder(el, prices, 280)
       .addLine(ma20, '#0078d4')
-      .addLine(ma60, '#c50f1f')
+      .addLine(ma60, '#3b82f6')
       .addBand(upper, lower, '#9e9e9e')
       .render());
   });

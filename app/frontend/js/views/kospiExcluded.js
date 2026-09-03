@@ -1,4 +1,5 @@
 import { api } from '../api.js';
+import { dataSourceNote } from './dataSourceNote.js';
 
 const PERIODS = [
   { value: "1mo", label: "1개월" },
@@ -21,6 +22,7 @@ export function kospiExcludedView(container) {
         예) 반도체 제외 → 삼성전자·SK하이닉스 비중(약 28.5%)을 제거한 나머지 시장의 성과를 확인합니다.
       </p>
     </div>
+    ${dataSourceNote('real')}
 
     <div id="kospi-ex-meta-loading" style="color:var(--text-muted); font-size:.9rem; padding:12px 0;">
       <i class="fa-solid fa-circle-notch fa-spin"></i> 종목 정보 불러오는 중...
@@ -194,7 +196,7 @@ export function kospiExcludedView(container) {
 
       let html = '';
       if (data.is_simulated) {
-        html += `<div class="card" style="background:#fff7ed; border-color:#fed7aa; margin-bottom:16px; padding:12px 16px; display:flex; gap:10px; align-items:flex-start;">
+        html += `<div class="card" style="background:rgba(240,185,11,.12); border-color:#fed7aa; margin-bottom:16px; padding:12px 16px; display:flex; gap:10px; align-items:flex-start;">
           <i class="fa-solid fa-triangle-exclamation" style="color:#f59e0b; margin-top:2px;"></i>
           <span style="font-size:.88rem; color:#7c2d12;">${data.warning}</span>
         </div>`;

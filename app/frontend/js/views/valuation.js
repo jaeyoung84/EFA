@@ -13,10 +13,10 @@ function fmtPct(n, digits = 1) {
 function tabShell(tabs) {
   return `
     <div style="margin-bottom:24px;">
-      <h1 style="font-size:1.25rem;font-weight:700;color:#0f172a;margin-bottom:6px;">
+      <h1 style="font-size:1.25rem;font-weight:700;color:var(--text);margin-bottom:6px;">
         <i class="fa-solid fa-calculator"></i> 밸류에이션 실습
       </h1>
-      <p style="font-size:0.875rem;color:#475569;line-height:1.6;">
+      <p style="font-size:0.875rem;color:var(--text);line-height:1.6;">
         기업 선정부터 DCF·EVA·FCF 절대가치 평가까지 단계별로 실습합니다.
         가정을 바꿔가며 가치 범위를 직접 확인해보세요.
       </p>
@@ -45,8 +45,8 @@ function activateTab(container, idx, renders) {
 // ── 카드 래퍼 ─────────────────────────────────────────────────────────────────
 function card(title, icon, body, accent = '#2563eb') {
   return `
-    <div style="background:#fff;border-radius:12px;padding:20px;margin-bottom:16px;border-left:3px solid ${accent};border:1px solid #e2e8f0;border-left:3px solid ${accent};box-shadow:0 1px 4px #0001;">
-      <h3 style="font-size:0.95rem;font-weight:700;color:#0f172a;margin:0 0 14px;">
+    <div style="background:var(--surface);border-radius:12px;padding:20px;margin-bottom:16px;border-left:3px solid ${accent};border:1px solid var(--border);border-left:3px solid ${accent};box-shadow:0 1px 4px #0001;">
+      <h3 style="font-size:0.95rem;font-weight:700;color:var(--text);margin:0 0 14px;">
         <i class="${icon}" style="color:${accent};margin-right:6px;"></i>${title}
       </h3>
       ${body}
@@ -101,12 +101,12 @@ function renderCompanySelect(content) {
   content.innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-bottom:20px;">
       ${criteria.map(c => `
-        <div style="background:#f8fafc;border-radius:10px;padding:16px;border-top:3px solid ${c.color};border:1px solid #e2e8f0;border-top:3px solid ${c.color};">
+        <div style="background:var(--surface-soft);border-radius:10px;padding:16px;border-top:3px solid ${c.color};border:1px solid var(--border);border-top:3px solid ${c.color};">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
             <i class="${c.icon}" style="color:${c.color};font-size:1rem;"></i>
-            <span style="font-size:0.9rem;font-weight:700;color:#0f172a;">${c.label}</span>
+            <span style="font-size:0.9rem;font-weight:700;color:var(--text);">${c.label}</span>
           </div>
-          <p style="font-size:0.8rem;color:#475569;line-height:1.55;margin:0 0 10px;">${c.desc}</p>
+          <p style="font-size:0.8rem;color:var(--text);line-height:1.55;margin:0 0 10px;">${c.desc}</p>
           <div style="font-size:0.75rem;">
             <div style="color:#16a34a;margin-bottom:3px;"><i class="fa-solid fa-circle-check"></i> 적합: ${c.good}</div>
             <div style="color:#dc2626;"><i class="fa-solid fa-circle-xmark"></i> 주의: ${c.bad}</div>
@@ -120,18 +120,18 @@ function renderCompanySelect(content) {
         <table style="width:100%;border-collapse:collapse;font-size:0.82rem;">
           <thead>
             <tr style="border-bottom:1px solid #e2e8f0;">
-              <th style="text-align:left;padding:8px 6px;color:#475569;font-weight:600;">기업명</th>
-              <th style="text-align:left;padding:8px 6px;color:#475569;font-weight:600;">섹터</th>
-              <th style="text-align:left;padding:8px 6px;color:#475569;font-weight:600;">선정 이유</th>
-              <th style="text-align:center;padding:8px 6px;color:#475569;font-weight:600;">난이도</th>
+              <th style="text-align:left;padding:8px 6px;color:var(--text);font-weight:600;">기업명</th>
+              <th style="text-align:left;padding:8px 6px;color:var(--text);font-weight:600;">섹터</th>
+              <th style="text-align:left;padding:8px 6px;color:var(--text);font-weight:600;">선정 이유</th>
+              <th style="text-align:center;padding:8px 6px;color:var(--text);font-weight:600;">난이도</th>
             </tr>
           </thead>
           <tbody>
             ${sampleCompanies.map(c => `
               <tr style="border-bottom:1px solid #e9f0f8;">
-                <td style="padding:8px 6px;color:#2563eb;font-weight:600;">${c.name}</td>
-                <td style="padding:8px 6px;color:#0f172a;">${badge(c.sector, '#2563eb')}</td>
-                <td style="padding:8px 6px;color:#475569;line-height:1.5;">${c.why}</td>
+                <td style="padding:8px 6px;color:var(--primary);font-weight:600;">${c.name}</td>
+                <td style="padding:8px 6px;color:var(--text);">${badge(c.sector, '#2563eb')}</td>
+                <td style="padding:8px 6px;color:var(--text);line-height:1.5;">${c.why}</td>
                 <td style="padding:8px 6px;text-align:center;color:#f59e0b;">${c.difficulty}</td>
               </tr>`).join('')}
           </tbody>
@@ -142,13 +142,13 @@ function renderCompanySelect(content) {
       ${infoBox('분석 기업을 고른 뒤 아래 항목을 하나씩 체크하세요. 모두 체크되지 않아도 괜찮습니다. 안 되는 항목이 있으면 "왜 안 되는지"를 먼저 파악하는 것도 분석의 시작입니다.')}
       <div id="checklist-wrap" style="display:flex;flex-direction:column;gap:8px;">
         ${checklist.map((item, i) => `
-          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;padding:8px;border-radius:6px;border:1px solid #e2e8f0;transition:background 0.15s;"
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;padding:8px;border-radius:6px;border:1px solid var(--border);transition:background 0.15s;"
                  onmouseover="this.style.background='#0f1f38'" onmouseout="this.style.background='transparent'">
-            <input type="checkbox" id="chk-${i}" style="margin-top:2px;accent-color:#2563eb;width:16px;height:16px;flex-shrink:0;">
-            <span style="font-size:0.83rem;color:#475569;line-height:1.5;">${item}</span>
+            <input type="checkbox" id="chk-${i}" style="margin-top:2px;accent-color:var(--primary);width:16px;height:16px;flex-shrink:0;">
+            <span style="font-size:0.83rem;color:var(--text);line-height:1.5;">${item}</span>
           </label>`).join('')}
       </div>
-      <div id="chk-result" style="margin-top:14px;padding:10px;background:#f1f5f9;border-radius:8px;font-size:0.83rem;color:#2563eb;text-align:center;display:none;"></div>`, '#22c55e')}
+      <div id="chk-result" style="margin-top:14px;padding:10px;background:var(--surface-soft);border-radius:8px;font-size:0.83rem;color:var(--primary);text-align:center;display:none;"></div>`, '#22c55e')}
 
     ${card('기업 선정 후 다음 단계', 'fa-solid fa-arrow-right', `
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;">
@@ -158,9 +158,9 @@ function renderCompanySelect(content) {
           ['④ EVA 분석', 'fa-solid fa-chart-bar', '자본 비용을 내고도 가치를 창출하는지 확인합니다.', '#a855f7'],
           ['⑤ 종합 리포트', 'fa-solid fa-file-lines', '세 가지 분석을 종합해 한 장의 리포트를 완성합니다.', '#f59e0b'],
         ].map(([t, ic, d, c]) => `
-          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;border:1px solid #e2e8f0;">
+          <div style="background:var(--surface-soft);border:1px solid var(--border);border-radius:8px;padding:12px;border:1px solid var(--border);">
             <div style="color:${c};margin-bottom:6px;"><i class="${ic}"></i> <strong style="font-size:0.83rem;">${t}</strong></div>
-            <p style="font-size:0.78rem;color:#64748b;line-height:1.5;margin:0;">${d}</p>
+            <p style="font-size:0.78rem;color:var(--text-muted);line-height:1.5;margin:0;">${d}</p>
           </div>`).join('')}
       </div>`, '#f59e0b')}
   `;
@@ -194,34 +194,34 @@ function renderFcf(content) {
         <table style="width:100%;border-collapse:collapse;font-size:0.82rem;" id="fcf-table">
           <thead>
             <tr style="border-bottom:1px solid #e2e8f0;">
-              <th style="text-align:left;padding:8px;color:#475569;">항목</th>
-              ${['1년차', '2년차', '3년차', '4년차', '5년차'].map(y => `<th style="text-align:center;padding:8px;color:#475569;">${y}</th>`).join('')}
+              <th style="text-align:left;padding:8px;color:var(--text);">항목</th>
+              ${['1년차', '2년차', '3년차', '4년차', '5년차'].map(y => `<th style="text-align:center;padding:8px;color:var(--text);">${y}</th>`).join('')}
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td style="padding:8px;color:#475569;">매출액 (억원)</td>
-              ${[10000, 11000, 12100, 13310, 14641].map((v, i) => `<td style="padding:6px;"><input type="number" class="fcf-rev" data-yr="${i}" value="${v}" style="width:90px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:4px;padding:4px 6px;color:#0f172a;font-size:0.82rem;text-align:right;"></td>`).join('')}
+              <td style="padding:8px;color:var(--text);">매출액 (억원)</td>
+              ${[10000, 11000, 12100, 13310, 14641].map((v, i) => `<td style="padding:6px;"><input type="number" class="fcf-rev" data-yr="${i}" value="${v}" style="width:90px;background:var(--surface-soft);border:1px solid var(--border);border-radius:4px;padding:4px 6px;color:var(--text);font-size:0.82rem;text-align:right;"></td>`).join('')}
             </tr>
             <tr>
-              <td style="padding:8px;color:#475569;">영업현금흐름 CFO (억원)</td>
-              ${[1500, 1650, 1800, 1980, 2180].map((v, i) => `<td style="padding:6px;"><input type="number" class="fcf-cfo" data-yr="${i}" value="${v}" style="width:90px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:4px;padding:4px 6px;color:#0f172a;font-size:0.82rem;text-align:right;"></td>`).join('')}
+              <td style="padding:8px;color:var(--text);">영업현금흐름 CFO (억원)</td>
+              ${[1500, 1650, 1800, 1980, 2180].map((v, i) => `<td style="padding:6px;"><input type="number" class="fcf-cfo" data-yr="${i}" value="${v}" style="width:90px;background:var(--surface-soft);border:1px solid var(--border);border-radius:4px;padding:4px 6px;color:var(--text);font-size:0.82rem;text-align:right;"></td>`).join('')}
             </tr>
             <tr>
-              <td style="padding:8px;color:#475569;">설비투자 Capex (억원)</td>
-              ${[400, 420, 440, 460, 480].map((v, i) => `<td style="padding:6px;"><input type="number" class="fcf-capex" data-yr="${i}" value="${v}" style="width:90px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:4px;padding:4px 6px;color:#0f172a;font-size:0.82rem;text-align:right;"></td>`).join('')}
+              <td style="padding:8px;color:var(--text);">설비투자 Capex (억원)</td>
+              ${[400, 420, 440, 460, 480].map((v, i) => `<td style="padding:6px;"><input type="number" class="fcf-capex" data-yr="${i}" value="${v}" style="width:90px;background:var(--surface-soft);border:1px solid var(--border);border-radius:4px;padding:4px 6px;color:var(--text);font-size:0.82rem;text-align:right;"></td>`).join('')}
             </tr>
-            <tr style="background:#f1f5f9;">
-              <td style="padding:8px;color:#2563eb;font-weight:700;">FCF (억원)</td>
+            <tr style="background:var(--surface-soft);">
+              <td style="padding:8px;color:var(--primary);font-weight:700;">FCF (억원)</td>
               ${[0,1,2,3,4].map(i => `<td style="padding:8px;text-align:center;color:#22c55e;font-weight:700;" id="fcf-val-${i}">-</td>`).join('')}
             </tr>
             <tr>
-              <td style="padding:8px;color:#475569;">FCF 마진 (%)</td>
-              ${[0,1,2,3,4].map(i => `<td style="padding:8px;text-align:center;color:#475569;font-size:0.82rem;" id="fcf-margin-${i}">-</td>`).join('')}
+              <td style="padding:8px;color:var(--text);">FCF 마진 (%)</td>
+              ${[0,1,2,3,4].map(i => `<td style="padding:8px;text-align:center;color:var(--text);font-size:0.82rem;" id="fcf-margin-${i}">-</td>`).join('')}
             </tr>
             <tr>
-              <td style="padding:8px;color:#475569;">CFO 대비 FCF (%)</td>
-              ${[0,1,2,3,4].map(i => `<td style="padding:8px;text-align:center;color:#475569;font-size:0.82rem;" id="fcf-ratio-${i}">-</td>`).join('')}
+              <td style="padding:8px;color:var(--text);">CFO 대비 FCF (%)</td>
+              ${[0,1,2,3,4].map(i => `<td style="padding:8px;text-align:center;color:var(--text);font-size:0.82rem;" id="fcf-ratio-${i}">-</td>`).join('')}
             </tr>
           </tbody>
         </table>
@@ -231,7 +231,7 @@ function renderFcf(content) {
       <div id="fcf-summary" style="display:none;margin-top:16px;">
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;" id="fcf-kpis"></div>
         <div id="fcf-chart-wrap" style="margin-top:16px;"></div>
-        <div id="fcf-comment" style="margin-top:14px;padding:12px;background:#f1f5f9;border-radius:8px;font-size:0.82rem;color:#475569;line-height:1.6;"></div>
+        <div id="fcf-comment" style="margin-top:14px;padding:12px;background:var(--surface-soft);border-radius:8px;font-size:0.82rem;color:var(--text);line-height:1.6;"></div>
       </div>`, '#06b6d4')}
 
     ${card('FCF 해석 가이드', 'fa-solid fa-lightbulb', `
@@ -242,9 +242,9 @@ function renderFcf(content) {
           ['CFO는 +, FCF는 -', '#a855f7', 'Capex가 크다는 의미. 투자가 성과로 이어지는지 수년 후 확인 필요.'],
           ['FCF 급감', '#ef4444', '매출채권·재고 증가 또는 운전자본 부담. 이익의 질이 떨어질 수 있음.'],
         ].map(([t, c, d]) => `
-          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;border-left:3px solid ${c};">
+          <div style="background:var(--surface-soft);border:1px solid var(--border);border-radius:8px;padding:12px;border-left:3px solid ${c};">
             <div style="font-size:0.82rem;font-weight:700;color:${c};margin-bottom:6px;">${t}</div>
-            <p style="font-size:0.78rem;color:#64748b;line-height:1.5;margin:0;">${d}</p>
+            <p style="font-size:0.78rem;color:var(--text-muted);line-height:1.5;margin:0;">${d}</p>
           </div>`).join('')}
       </div>`, '#22c55e')}
   `;
@@ -272,23 +272,23 @@ function renderFcf(content) {
       ['FCF 성장 방향', growing ? '증가 추세' : '감소 추세', growing ? '#22c55e' : '#ef4444'],
       ['전기간 FCF+', allPos ? '달성' : '일부 마이너스', allPos ? '#22c55e' : '#f59e0b'],
     ].map(([l, v, c]) => `
-      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;text-align:center;">
-        <div style="font-size:0.75rem;color:#475569;margin-bottom:4px;">${l}</div>
+      <div style="background:var(--surface-soft);border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center;">
+        <div style="font-size:0.75rem;color:var(--text);margin-bottom:4px;">${l}</div>
         <div style="font-size:1rem;font-weight:700;color:${c};">${v}</div>
       </div>`).join('');
 
     const maxF = Math.max(...fcfs.map(Math.abs));
     const chartH = 120;
     content.querySelector('#fcf-chart-wrap').innerHTML = `
-      <div style="font-size:0.78rem;color:#475569;margin-bottom:8px;">연도별 FCF 추이 (억원)</div>
-      <div style="display:flex;align-items:flex-end;gap:8px;height:${chartH}px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;">
+      <div style="font-size:0.78rem;color:var(--text);margin-bottom:8px;">연도별 FCF 추이 (억원)</div>
+      <div style="display:flex;align-items:flex-end;gap:8px;height:${chartH}px;background:var(--surface-soft);border:1px solid var(--border);border-radius:8px;padding:12px;">
         ${fcfs.map((f, i) => {
           const h = maxF > 0 ? Math.abs(f) / maxF * (chartH - 24) : 10;
           const col = f >= 0 ? '#22c55e' : '#ef4444';
           return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
             <div style="font-size:0.7rem;color:${col};font-weight:600;">${fmt(f)}</div>
             <div style="width:100%;height:${h}px;background:${col}55;border-radius:4px 4px 0 0;border-bottom:2px solid ${col};"></div>
-            <div style="font-size:0.7rem;color:#64748b;">${i + 1}년</div>
+            <div style="font-size:0.7rem;color:var(--text-muted);">${i + 1}년</div>
           </div>`;
         }).join('')}
       </div>`;
@@ -311,9 +311,9 @@ function renderDcf(content) {
     ${infoBox('<strong>DCF(할인현금흐름)란?</strong> 미래에 받을 현금을 오늘 가치로 환산해 기업 내재가치를 계산합니다. "1년 후 1만원"보다 "오늘 9,000원"이 나을 수 있는 원리를 이용합니다. 가정(할인율·성장률)이 바뀌면 결과도 크게 달라지므로, 시나리오 범위를 함께 확인하세요.', '#3b82f6')}
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
-      <div style="background:#fff;border-radius:12px;padding:18px;border:1px solid #e2e8f0;border-left:3px solid #2563eb;">
-        <h3 style="font-size:0.88rem;font-weight:700;color:#0f172a;margin:0 0 14px;">
-          <i class="fa-solid fa-sliders" style="color:#2563eb;margin-right:6px;"></i>기본 가정 입력
+      <div style="background:var(--surface);border-radius:12px;padding:18px;border:1px solid var(--border);border-left:3px solid #2563eb;">
+        <h3 style="font-size:0.88rem;font-weight:700;color:var(--text);margin:0 0 14px;">
+          <i class="fa-solid fa-sliders" style="color:var(--primary);margin-right:6px;"></i>기본 가정 입력
         </h3>
         <div style="display:flex;flex-direction:column;gap:10px;">
           ${[
@@ -326,9 +326,9 @@ function renderDcf(content) {
             ['dcf-shares', '발행주식수 (백만주)', 600, ''],
           ].map(([id, label, def, hint]) => `
             <div>
-              <label style="font-size:0.78rem;color:#64748b;display:block;margin-bottom:3px;">${label}${hint ? ` <span style="color:#475569;">(${hint})</span>` : ''}</label>
+              <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:3px;">${label}${hint ? ` <span style="color:var(--text);">(${hint})</span>` : ''}</label>
               <input type="number" id="${id}" value="${def}" step="0.1"
-                style="width:100%;background:#f8fafc;border:1px solid #d9e1ec;border-radius:6px;padding:7px 10px;color:#0f172a;font-size:0.85rem;">
+                style="width:100%;background:var(--surface-soft);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:0.85rem;">
             </div>`).join('')}
           <button id="dcf-calc" style="padding:10px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:0.85rem;font-weight:600;cursor:pointer;margin-top:4px;">
             <i class="fa-solid fa-calculator"></i> DCF 계산
@@ -336,11 +336,11 @@ function renderDcf(content) {
         </div>
       </div>
 
-      <div style="background:#fff;border-radius:12px;padding:18px;border:1px solid #e2e8f0;border-left:3px solid #22c55e;" id="dcf-result-panel">
-        <h3 style="font-size:0.88rem;font-weight:700;color:#0f172a;margin:0 0 14px;">
+      <div style="background:var(--surface);border-radius:12px;padding:18px;border:1px solid var(--border);border-left:3px solid #22c55e;" id="dcf-result-panel">
+        <h3 style="font-size:0.88rem;font-weight:700;color:var(--text);margin:0 0 14px;">
           <i class="fa-solid fa-chart-pie" style="color:#22c55e;margin-right:6px;"></i>계산 결과
         </h3>
-        <div style="color:#64748b;font-size:0.82rem;text-align:center;padding:40px 0;">
+        <div style="color:var(--text-muted);font-size:0.82rem;text-align:center;padding:40px 0;">
           가정값을 입력하고 DCF 계산 버튼을 누르세요.
         </div>
       </div>
@@ -389,11 +389,11 @@ function renderDcf(content) {
     ].map(([l, v, h]) => resultRow(l, v, h)).join('');
 
     panel.innerHTML = `
-      <h3 style="font-size:0.88rem;font-weight:700;color:#0f172a;margin:0 0 14px;">
+      <h3 style="font-size:0.88rem;font-weight:700;color:var(--text);margin:0 0 14px;">
         <i class="fa-solid fa-chart-pie" style="color:#22c55e;margin-right:6px;"></i>계산 결과
       </h3>
       ${resHtml}
-      <div style="margin-top:12px;padding:10px;background:#f1f5f9;border-radius:8px;font-size:0.78rem;color:#64748b;line-height:1.55;">
+      <div style="margin-top:12px;padding:10px;background:var(--surface-soft);border-radius:8px;font-size:0.78rem;color:var(--text-muted);line-height:1.55;">
         TV 비중: ${fmtPct(pvTv / ev * 100)} | FCF 비중: ${fmtPct(pvFcfs.reduce((a,b)=>a+b,0) / ev * 100)}
       </div>`;
 
@@ -403,25 +403,25 @@ function renderDcf(content) {
         <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
           <thead>
             <tr style="border-bottom:1px solid #e2e8f0;">
-              ${['연차', '성장률', 'FCF(억)', 'PV(억)', '누적PV(억)'].map(h => `<th style="padding:8px;color:#475569;text-align:right;">${h}</th>`).join('')}
+              ${['연차', '성장률', 'FCF(억)', 'PV(억)', '누적PV(억)'].map(h => `<th style="padding:8px;color:var(--text);text-align:right;">${h}</th>`).join('')}
             </tr>
           </thead>
           <tbody>
             ${fcfs.map((f, i) => {
               const cumPv = pvFcfs.slice(0, i + 1).reduce((a, b) => a + b, 0);
               return `<tr style="border-bottom:1px solid #e9f0f8;">
-                <td style="padding:7px;color:#0f172a;text-align:right;">${i + 1}년차</td>
+                <td style="padding:7px;color:var(--text);text-align:right;">${i + 1}년차</td>
                 <td style="padding:7px;color:#a855f7;text-align:right;">${fmtPct(gRates[i] * 100)}</td>
-                <td style="padding:7px;color:#0f172a;text-align:right;">${fmt(f)}</td>
-                <td style="padding:7px;color:#2563eb;text-align:right;">${fmt(pvFcfs[i])}</td>
+                <td style="padding:7px;color:var(--text);text-align:right;">${fmt(f)}</td>
+                <td style="padding:7px;color:var(--primary);text-align:right;">${fmt(pvFcfs[i])}</td>
                 <td style="padding:7px;color:#22c55e;text-align:right;">${fmt(cumPv)}</td>
               </tr>`;
             }).join('')}
-            <tr style="background:#f1f5f9;font-weight:700;">
+            <tr style="background:var(--surface-soft);font-weight:700;">
               <td style="padding:7px;color:#f59e0b;text-align:right;">영구가치</td>
               <td style="padding:7px;color:#a855f7;text-align:right;">${fmtPct(tg * 100)}</td>
-              <td style="padding:7px;color:#0f172a;text-align:right;">${fmt(tv)}</td>
-              <td style="padding:7px;color:#2563eb;text-align:right;">${fmt(pvTv)}</td>
+              <td style="padding:7px;color:var(--text);text-align:right;">${fmt(tv)}</td>
+              <td style="padding:7px;color:var(--primary);text-align:right;">${fmt(pvTv)}</td>
               <td style="padding:7px;color:#22c55e;text-align:right;">${fmt(ev)}</td>
             </tr>
           </tbody>
@@ -448,19 +448,19 @@ function renderDcf(content) {
       <table style="border-collapse:collapse;font-size:0.75rem;">
         <thead>
           <tr>
-            <th style="padding:6px 10px;color:#64748b;border:1px solid #e2e8f0;">WACC \\ TV성장률</th>
-            ${tgs.map(g => `<th style="padding:6px 10px;color:#475569;border:1px solid #e2e8f0;text-align:center;">${fmtPct(g*100)}</th>`).join('')}
+            <th style="padding:6px 10px;color:var(--text-muted);border:1px solid var(--border);">WACC \\ TV성장률</th>
+            ${tgs.map(g => `<th style="padding:6px 10px;color:var(--text);border:1px solid var(--border);text-align:center;">${fmtPct(g*100)}</th>`).join('')}
           </tr>
         </thead>
         <tbody>
           ${waccs.map(w => `
             <tr>
-              <td style="padding:6px 10px;color:#475569;border:1px solid #e2e8f0;font-weight:600;">${fmtPct(w*100)}</td>
+              <td style="padding:6px 10px;color:var(--text);border:1px solid var(--border);font-weight:600;">${fmtPct(w*100)}</td>
               ${tgs.map(g => {
                 const ps = calcPs(w, g);
                 const isBase = Math.abs(w - baseW) < 0.001 && Math.abs(g - baseTg) < 0.001;
                 const col = isBase ? '#2563eb' : ps > perShare * 1.2 ? '#22c55e33' : ps < perShare * 0.8 ? '#ef444433' : '#1e293b';
-                return `<td style="padding:6px 10px;border:1px solid #e2e8f0;text-align:right;background:${col};color:${isBase?'#fff':'#f1f5f9'};font-weight:${isBase?'700':'400'};">${fmt(ps, 0)}원</td>`;
+                return `<td style="padding:6px 10px;border:1px solid var(--border);text-align:right;background:${col};color:${isBase?'#fff':'#f1f5f9'};font-weight:${isBase?'700':'400'};">${fmt(ps, 0)}원</td>`;
               }).join('')}
             </tr>`).join('')}
         </tbody>
@@ -474,8 +474,8 @@ function renderDcf(content) {
           ['영구가치 비중', `${fmtPct(pvTv/ev*100)}`, pvTv/ev > 0.6 ? '#ef4444' : '#22c55e'],
           ['주주가치', `${fmt(equity)}억`, equity > 0 ? '#22c55e' : '#ef4444'],
         ].map(([l, v, c]) => `
-          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;text-align:center;">
-            <div style="font-size:0.75rem;color:#475569;margin-bottom:4px;">${l}</div>
+          <div style="background:var(--surface-soft);border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center;">
+            <div style="font-size:0.75rem;color:var(--text);margin-bottom:4px;">${l}</div>
             <div style="font-size:1rem;font-weight:700;color:${c};">${v}</div>
           </div>`).join('')}
       </div>
@@ -496,8 +496,8 @@ function renderEva(content) {
     ${infoBox('<strong>EVA(경제적 부가가치)란?</strong> 회계 이익에서 자본 비용까지 뺀 "진짜 가치 창출"을 측정합니다. 영업이익이 플러스여도 EVA가 마이너스라면, 주주와 채권자 몫을 다 못 벌어내고 있는 겁니다. EVA가 꾸준히 플러스인 기업이 진짜 좋은 기업입니다.', '#a855f7')}
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
-      <div style="background:#fff;border-radius:12px;padding:18px;border:1px solid #e2e8f0;border-left:3px solid #a855f7;">
-        <h3 style="font-size:0.88rem;font-weight:700;color:#0f172a;margin:0 0 14px;">
+      <div style="background:var(--surface);border-radius:12px;padding:18px;border:1px solid var(--border);border-left:3px solid #a855f7;">
+        <h3 style="font-size:0.88rem;font-weight:700;color:var(--text);margin:0 0 14px;">
           <i class="fa-solid fa-sliders" style="color:#a855f7;margin-right:6px;"></i>EVA 입력값
         </h3>
         <div style="display:flex;flex-direction:column;gap:10px;">
@@ -509,9 +509,9 @@ function renderEva(content) {
             ['eva-ew', '자기자본 비중 (%)', 60, '자기자본 / 투하자본'],
           ].map(([id, label, def, hint]) => `
             <div>
-              <label style="font-size:0.78rem;color:#64748b;display:block;margin-bottom:3px;">${label} <span style="color:#475569;">(${hint})</span></label>
+              <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:3px;">${label} <span style="color:var(--text);">(${hint})</span></label>
               <input type="number" id="${id}" value="${def}" step="0.1"
-                style="width:100%;background:#f8fafc;border:1px solid #d9e1ec;border-radius:6px;padding:7px 10px;color:#0f172a;font-size:0.85rem;">
+                style="width:100%;background:var(--surface-soft);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:0.85rem;">
             </div>`).join('')}
           <button id="eva-calc" style="padding:10px;background:#a855f7;color:#fff;border:none;border-radius:8px;font-size:0.85rem;font-weight:600;cursor:pointer;margin-top:4px;">
             <i class="fa-solid fa-calculator"></i> EVA 계산
@@ -519,11 +519,11 @@ function renderEva(content) {
         </div>
       </div>
 
-      <div style="background:#fff;border-radius:12px;padding:18px;border:1px solid #e2e8f0;border-left:3px solid #a855f7;" id="eva-result-panel">
-        <h3 style="font-size:0.88rem;font-weight:700;color:#0f172a;margin:0 0 14px;">
+      <div style="background:var(--surface);border-radius:12px;padding:18px;border:1px solid var(--border);border-left:3px solid #a855f7;" id="eva-result-panel">
+        <h3 style="font-size:0.88rem;font-weight:700;color:var(--text);margin:0 0 14px;">
           <i class="fa-solid fa-chart-bar" style="color:#a855f7;margin-right:6px;"></i>계산 결과
         </h3>
-        <div style="color:#64748b;font-size:0.82rem;text-align:center;padding:40px 0;">
+        <div style="color:var(--text-muted);font-size:0.82rem;text-align:center;padding:40px 0;">
           입력값을 넣고 EVA 계산 버튼을 누르세요.
         </div>
       </div>
@@ -540,11 +540,11 @@ function renderEva(content) {
           ['<i class="fa-solid fa-box"></i> B 회사', '영업이익 300억, 투하자본 4,000억, WACC 10%', '자본비용 400억 → EVA = -100억', '회계이익은 있지만 실질 가치 파괴', '#ef4444'],
           ['<i class="fa-solid fa-box"></i> C 회사', '영업이익 400억, 투하자본 4,000억, WACC 10%', '자본비용 400억 → EVA = 0', '본전치기. 투자자 기대를 딱 충족', '#f59e0b'],
         ].map(([name, cond, res, comment, col]) => `
-          <div style="background:#f8fafc;border-radius:8px;padding:14px;border-top:3px solid ${col};">
-            <div style="font-size:0.88rem;font-weight:700;color:#0f172a;margin-bottom:6px;">${name}</div>
-            <div style="font-size:0.78rem;color:#64748b;line-height:1.5;margin-bottom:6px;">${cond}</div>
+          <div style="background:var(--surface-soft);border-radius:8px;padding:14px;border-top:3px solid ${col};">
+            <div style="font-size:0.88rem;font-weight:700;color:var(--text);margin-bottom:6px;">${name}</div>
+            <div style="font-size:0.78rem;color:var(--text-muted);line-height:1.5;margin-bottom:6px;">${cond}</div>
             <div style="font-size:0.82rem;color:${col};font-weight:600;margin-bottom:4px;">${res}</div>
-            <div style="font-size:0.78rem;color:#64748b;">${comment}</div>
+            <div style="font-size:0.78rem;color:var(--text-muted);">${comment}</div>
           </div>`).join('')}
       </div>`, '#a855f7')}
   `;
@@ -565,7 +565,7 @@ function renderEva(content) {
     const panel = content.querySelector('#eva-result-panel');
     const evaCol = eva >= 0 ? '#22c55e' : '#ef4444';
     panel.innerHTML = `
-      <h3 style="font-size:0.88rem;font-weight:700;color:#0f172a;margin:0 0 14px;">
+      <h3 style="font-size:0.88rem;font-weight:700;color:var(--text);margin:0 0 14px;">
         <i class="fa-solid fa-chart-bar" style="color:#a855f7;margin-right:6px;"></i>계산 결과
       </h3>
       ${resultRow('WACC (가중평균자본비용)', fmtPct(wacc * 100))}
@@ -585,19 +585,19 @@ function renderEva(content) {
       <table style="border-collapse:collapse;font-size:0.77rem;">
         <thead>
           <tr>
-            <th style="padding:6px 10px;color:#64748b;border:1px solid #e2e8f0;">NOPAT \\ 투하자본</th>
-            ${ics.map(v => `<th style="padding:6px 10px;color:#475569;border:1px solid #e2e8f0;text-align:center;">${fmt(v)}억</th>`).join('')}
+            <th style="padding:6px 10px;color:var(--text-muted);border:1px solid var(--border);">NOPAT \\ 투하자본</th>
+            ${ics.map(v => `<th style="padding:6px 10px;color:var(--text);border:1px solid var(--border);text-align:center;">${fmt(v)}억</th>`).join('')}
           </tr>
         </thead>
         <tbody>
           ${nopats.map(n => `
             <tr>
-              <td style="padding:6px 10px;color:#475569;border:1px solid #e2e8f0;font-weight:600;">${fmt(n)}억</td>
+              <td style="padding:6px 10px;color:var(--text);border:1px solid var(--border);font-weight:600;">${fmt(n)}억</td>
               ${ics.map(c => {
                 const e = n - c * wacc;
                 const isBase = Math.abs(n - nopat) < 1 && Math.abs(c - ic) < 1;
                 const col = isBase ? '#2563eb' : e >= 0 ? '#22c55e22' : '#ef444422';
-                return `<td style="padding:6px 10px;border:1px solid #e2e8f0;text-align:right;background:${col};color:${e>=0?'#22c55e':'#ef4444'};font-weight:${isBase?'700':'400'};">${fmt(e)}억</td>`;
+                return `<td style="padding:6px 10px;border:1px solid var(--border);text-align:right;background:${col};color:${e>=0?'#22c55e':'#ef4444'};font-weight:${isBase?'700':'400'};">${fmt(e)}억</td>`;
               }).join('')}
             </tr>`).join('')}
         </tbody>
@@ -613,7 +613,7 @@ function renderReport(content) {
     ${infoBox('분석 기업과 가정값을 입력하면 FCF·DCF·EVA 요약이 한 장의 투자 리포트 형태로 생성됩니다. 각 탭에서 상세 계산을 마친 뒤 이 탭에서 종합 정리하세요.', '#f59e0b')}
 
     <div style="background:#1e293b;border-radius:12px;padding:18px;margin-bottom:16px;border-left:3px solid #f59e0b;">
-      <h3 style="font-size:0.88rem;font-weight:700;color:#0f172a;margin:0 0 14px;">
+      <h3 style="font-size:0.88rem;font-weight:700;color:var(--text);margin:0 0 14px;">
         <i class="fa-solid fa-file-lines" style="color:#f59e0b;margin-right:6px;"></i>종합 리포트 입력
       </h3>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
@@ -628,15 +628,15 @@ function renderReport(content) {
           ['rpt-horizon', '분석 기간 (년)', '5'],
         ].map(([id, label, def]) => `
           <div>
-            <label style="font-size:0.78rem;color:#64748b;display:block;margin-bottom:3px;">${label}</label>
+            <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:3px;">${label}</label>
             <input type="text" id="${id}" value="${def}"
-              style="width:100%;background:#f8fafc;border:1px solid #d9e1ec;border-radius:6px;padding:7px 10px;color:#0f172a;font-size:0.85rem;">
+              style="width:100%;background:var(--surface-soft);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:0.85rem;">
           </div>`).join('')}
       </div>
       <div style="margin-top:12px;">
-        <label style="font-size:0.78rem;color:#64748b;display:block;margin-bottom:3px;">투자 의견 요약 (한 줄)</label>
+        <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:3px;">투자 의견 요약 (한 줄)</label>
         <input type="text" id="rpt-opinion" value="안정적 FCF 창출과 기술 해자를 바탕으로 현재 주가 대비 약 18% 저평가로 판단"
-          style="width:100%;background:#f8fafc;border:1px solid #d9e1ec;border-radius:6px;padding:7px 10px;color:#0f172a;font-size:0.85rem;">
+          style="width:100%;background:var(--surface-soft);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:0.85rem;">
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:12px;">
         ${[
@@ -645,12 +645,12 @@ function renderReport(content) {
           ['rpt-risk3', '주요 리스크 3', '환율 변동 (달러 약세)'],
         ].map(([id, label, def]) => `
           <div>
-            <label style="font-size:0.78rem;color:#64748b;display:block;margin-bottom:3px;">${label}</label>
+            <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:3px;">${label}</label>
             <input type="text" id="${id}" value="${def}"
-              style="width:100%;background:#f8fafc;border:1px solid #d9e1ec;border-radius:6px;padding:7px 10px;color:#0f172a;font-size:0.85rem;">
+              style="width:100%;background:var(--surface-soft);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:0.85rem;">
           </div>`).join('')}
       </div>
-      <button id="rpt-gen" style="margin-top:14px;padding:10px 24px;background:#f59e0b;color:#0f172a;border:none;border-radius:8px;font-size:0.85rem;font-weight:700;cursor:pointer;">
+      <button id="rpt-gen" style="margin-top:14px;padding:10px 24px;background:#f59e0b;color:var(--text);border:none;border-radius:8px;font-size:0.85rem;font-weight:700;cursor:pointer;">
         <i class="fa-solid fa-file-lines"></i> 리포트 생성
       </button>
     </div>
@@ -665,13 +665,13 @@ function renderReport(content) {
           ['EVA', 'fa-solid fa-chart-bar', '#a855f7', '자본비용 차감 후 진짜 이익\nROIC > WACC 이면 가치 창출'],
           ['시나리오', 'fa-solid fa-table-cells', '#f59e0b', '단일 숫자보다 범위로 판단\n보수·기준·낙관 비교 필수'],
         ].map(([t, ic, c, d]) => `
-          <div style="background:#f8fafc;border-radius:8px;padding:14px;border-top:3px solid ${c};">
+          <div style="background:var(--surface-soft);border-radius:8px;padding:14px;border-top:3px solid ${c};">
             <div style="color:${c};margin-bottom:8px;font-size:0.95rem;"><i class="${ic}"></i> <strong>${t}</strong></div>
-            <p style="font-size:0.78rem;color:#64748b;line-height:1.6;margin:0;white-space:pre-line;">${d}</p>
+            <p style="font-size:0.78rem;color:var(--text-muted);line-height:1.6;margin:0;white-space:pre-line;">${d}</p>
           </div>`).join('')}
       </div>
-      <div style="margin-top:16px;padding:14px;background:#f1f5f9;border-radius:8px;font-size:0.82rem;color:#475569;line-height:1.7;">
-        <strong style="color:#0f172a;">절대가치 평가의 핵심 메시지</strong><br>
+      <div style="margin-top:16px;padding:14px;background:var(--surface-soft);border-radius:8px;font-size:0.82rem;color:var(--text);line-height:1.7;">
+        <strong style="color:var(--text);">절대가치 평가의 핵심 메시지</strong><br>
         밸류에이션은 "정답 맞히기"가 아닙니다. 좋은 가정을 찾고, 그 가정이 현실과 맞는지 계속 검증하는 과정입니다.
         DCF 내재가치가 현재 주가보다 높다고 무조건 매수하지 마세요. 가정의 근거가 얼마나 탄탄한지, 리스크는 무엇인지를 함께 고려해야 합니다.
       </div>`, '#f59e0b')}
@@ -689,15 +689,15 @@ function renderReport(content) {
 
     content.querySelector('#rpt-output').style.display = 'block';
     content.querySelector('#rpt-output').innerHTML = `
-      <div style="background:#1e293b;border-radius:12px;padding:24px;border:1px solid #e2e8f0;">
+      <div style="background:#1e293b;border-radius:12px;padding:24px;border:1px solid var(--border);">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:10px;">
           <div>
-            <div style="font-size:0.75rem;color:#475569;margin-bottom:4px;">투자분석 리포트 | ${new Date().toLocaleDateString('ko-KR')}</div>
-            <h2 style="font-size:1.2rem;font-weight:800;color:#0f172a;margin:0 0 4px;">${company}</h2>
-            <div style="font-size:0.82rem;color:#475569;">${g('rpt-sector')} | WACC ${g('rpt-wacc')}% | 분석기간 ${g('rpt-horizon')}년</div>
+            <div style="font-size:0.75rem;color:var(--text);margin-bottom:4px;">투자분석 리포트 | ${new Date().toLocaleDateString('ko-KR')}</div>
+            <h2 style="font-size:1.2rem;font-weight:800;color:var(--text);margin:0 0 4px;">${company}</h2>
+            <div style="font-size:0.82rem;color:var(--text);">${g('rpt-sector')} | WACC ${g('rpt-wacc')}% | 분석기간 ${g('rpt-horizon')}년</div>
           </div>
           <div style="text-align:right;">
-            <div style="font-size:0.75rem;color:#64748b;">투자의견</div>
+            <div style="font-size:0.75rem;color:var(--text-muted);">투자의견</div>
             <div style="font-size:1.3rem;font-weight:800;color:${ratingColor};">${rating}</div>
             <div style="font-size:0.82rem;color:${ratingColor};">목표가 ${fmt(iv, 0)}원 (현재 ${fmt(price, 0)}원, ${upside > 0 ? '+' : ''}${upside}%)</div>
           </div>
@@ -711,19 +711,19 @@ function renderReport(content) {
             ['FCF 평균', `${fmt(+g('rpt-fcf-avg'))}억`, '#22c55e'],
             ['EVA', `${fmt(eva)}억`, eva >= 0 ? '#22c55e' : '#ef4444'],
           ].map(([l, v, c]) => `
-            <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;text-align:center;">
-              <div style="font-size:0.72rem;color:#475569;margin-bottom:4px;">${l}</div>
+            <div style="background:var(--surface-soft);border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center;">
+              <div style="font-size:0.72rem;color:var(--text);margin-bottom:4px;">${l}</div>
               <div style="font-size:0.95rem;font-weight:700;color:${c};">${v}</div>
             </div>`).join('')}
         </div>
 
-        <div style="padding:14px;background:#f1f5f9;border-radius:8px;margin-bottom:16px;border-left:3px solid ${ratingColor};">
-          <div style="font-size:0.75rem;color:#475569;margin-bottom:4px;">투자 의견</div>
-          <div style="font-size:0.88rem;color:#0f172a;line-height:1.6;">${g('rpt-opinion')}</div>
+        <div style="padding:14px;background:var(--surface-soft);border-radius:8px;margin-bottom:16px;border-left:3px solid ${ratingColor};">
+          <div style="font-size:0.75rem;color:var(--text);margin-bottom:4px;">투자 의견</div>
+          <div style="font-size:0.88rem;color:var(--text);line-height:1.6;">${g('rpt-opinion')}</div>
         </div>
 
         <div>
-          <div style="font-size:0.8rem;font-weight:700;color:#475569;margin-bottom:8px;">주요 리스크</div>
+          <div style="font-size:0.8rem;font-weight:700;color:var(--text);margin-bottom:8px;">주요 리스크</div>
           <div style="display:flex;flex-wrap:wrap;gap:6px;">
             ${[g('rpt-risk1'), g('rpt-risk2'), g('rpt-risk3')].filter(Boolean).map(r =>
               `<span style="background:#ef444418;color:#ef4444;border:1px solid #ef444444;border-radius:20px;padding:3px 12px;font-size:0.78rem;"><i class="fa-solid fa-triangle-exclamation"></i> ${r}</span>`
@@ -731,7 +731,7 @@ function renderReport(content) {
           </div>
         </div>
 
-        <div style="margin-top:16px;padding-top:14px;border-top:1px solid #e2e8f0;font-size:0.72rem;color:#475569;line-height:1.6;">
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid #e2e8f0;font-size:0.72rem;color:var(--text);line-height:1.6;">
           본 리포트는 교육 목적의 실습 결과물이며 실제 투자 권유가 아닙니다. 모든 가정과 수치는 학습용으로 임의 설정된 것입니다.
         </div>
       </div>`;

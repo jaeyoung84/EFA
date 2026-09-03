@@ -22,6 +22,10 @@ import { transformerView }     from './views/transformer.js';
 import { backtestView }        from './views/backtest.js';
 import { quantView }           from './views/quant.js';
 import { portfolioView }       from './views/portfolio.js';
+import { portfolioHoldingsView } from './views/portfolioHoldings.js';
+import { portfolioRiskView } from './views/portfolioRisk.js';
+import { strategyBacktestView } from './views/strategyBacktest.js';
+import { strategyListView } from './views/strategyList.js';
 import { portfolioCombinationView } from './views/portfolioCombination.js';
 import { portfolioGuideView } from './views/portfolioGuide.js';
 import { portfolioRegimeView } from './views/portfolioRegime.js';
@@ -206,8 +210,12 @@ const routes = {
   'lstm':              { label: 'LSTM 예측기',            render: () => lstmView(app) },
   'transformer':       { label: 'Transformer',            render: () => transformerView(app) },
   'backtest':          { label: '백테스트 엔진',          render: () => backtestView(app) },
+  'strategy-backtest': { label: '실제 가격 백테스트',      render: () => strategyBacktestView(app) },
+  'my-strategies':     { label: '내 전략',                render: () => strategyListView(app) },
   'quant-lean':        { label: 'Quant · LEAN 백테스트 리포트', render: () => quantView(app) },
   'portfolio':         { label: '포트폴리오 최적화',      render: () => portfolioView(app) },
+  'portfolio-holdings': { label: '내 보유자산',           render: () => portfolioHoldingsView(app) },
+  'portfolio-risk':     { label: '실제 보유자산 리스크 분석', render: () => portfolioRiskView(app) },
   'portfolio-combination': { label: '포트폴리오 조합',    render: () => portfolioCombinationView(app) },
   'portfolio-guide':       { label: '포트폴리오 추천',    render: () => portfolioGuideView(app) },
   'portfolio-regime':      { label: '자산배분 위험선호도(R1~R5)', render: () => portfolioRegimeView(app) },
@@ -368,9 +376,19 @@ function updateQuizSidebarLock() {
   }
 }
 
+// 대시보드·포트폴리오·전략 연구소 핵심 화면은 퀀트 트레이딩 터미널 다크
+// 테마를 쓴다(styles.css의 body.theme-terminal 규칙). 나머지 화면은 아직
+// 기존 라이트 테마를 그대로 쓴다.
+const TERMINAL_THEME_VIEWS = [
+  'home',
+  'portfolio-holdings', 'portfolio-risk',
+  'backtest', 'strategy-backtest', 'my-strategies', 'quant-lean',
+];
+
 function navigate(view) {
   const route = routes[view] || routes['home'];
   currentView = view;
+  document.body.classList.toggle('theme-terminal', TERMINAL_THEME_VIEWS.includes(view));
 
   // Views that create resources needing teardown (e.g. ApexCharts instances,
   // which keep an internal window-resize listener alive) register a cleanup
@@ -391,20 +409,17 @@ function navigate(view) {
   if (breadcrumb) breadcrumb.textContent = route.label;
 
   // 현재 화면이 속한 사이드바 섹션만 펼치고 나머지는 닫는다 (사용 중인 메뉴만 열림)
-  const _practiceViews = ['macro-realtime','macro-simulation','kospi-excluded','industry-analysis',
-    'dart-region-search','group-network','company-financial','financial-statement','valuation',
-    'risk','technical-chart','backtest','pipeline','cross-validation','random-forest',
-    'kmeans','svm','mlp','linear-regression','lstm','transformer','market-snapshot','financial-knowledge'];
-  const _portfolioViews = ['portfolio', 'portfolio-combination', 'portfolio-guide', 'portfolio-simulation'];
-  const _aiViews = ['dart-financial-analysis','dart-company-search','tax-accounting'];
+  const marketViews = ['world-markets','asset-classes','today-gainers','today-sobujang','technical-chart','company-financial','dart-company-search','industry-analysis'];
+  const strategyViews = ['backtest','strategy-backtest','my-strategies','quant-lean','pipeline','cross-validation','chart-drawing'];
+  const portfolioViews = ['portfolio','portfolio-holdings','portfolio-risk','portfolio-combination','portfolio-guide','portfolio-regime','portfolio-simulation','risk'];
+  const researchViews = ['macro-realtime','valuation','financial-statement','rag-chat','quiz-home','learn-11'];
+  const settingsViews = ['server-resources','tax-accounting'];
   const activeSections = [];
-  if (['learn-10-1', 'learn-10-2', 'learn-10-3', 'learn-11'].includes(view)) activeSections.push('review');
-  else if (view?.startsWith('learn-')) activeSections.push('learn');
-  if (view?.startsWith('quiz-') || view === 'vocabulary-exam') activeSections.push('quiz');
-  if (['server-resources', 'world-markets', 'asset-classes', 'today-gainers', 'today-sobujang', 'volume-cloud', 'sector-cloud', 'global-capital-map'].includes(view)) activeSections.push('visualization');
-  if (_portfolioViews.includes(view)) activeSections.push('portfolio');
-  if (_practiceViews.includes(view)) activeSections.push('practice');
-  if (_aiViews.includes(view)) activeSections.push('aitools');
+  if (marketViews.includes(view)) activeSections.push('market');
+  if (strategyViews.includes(view)) activeSections.push('strategy');
+  if (portfolioViews.includes(view)) activeSections.push('portfolio');
+  if (researchViews.includes(view) || view?.startsWith('learn-') || view?.startsWith('quiz-') || view === 'vocabulary-exam') activeSections.push('research');
+  if (settingsViews.includes(view)) activeSections.push('settings');
   if (typeof window._setActiveNavSections === 'function') window._setActiveNavSections(activeSections);
 
   if (view?.startsWith('quiz-') || view === 'vocabulary-exam') updateQuizSidebarLock();
@@ -416,7 +431,7 @@ function navigate(view) {
   requestAnimationFrame(() => restoreFormState(view, app));
   addPracticeGuide(view);
 
-  if (window.innerWidth <= MOBILE_BREAKPOINT && typeof closeSidebar === 'function') closeSidebar();
+  if (window.innerWidth <= MOBILE_BREAKPOINT && typeof closeMainnav === 'function') closeMainnav();
 }
 
 window.navigate = navigate;

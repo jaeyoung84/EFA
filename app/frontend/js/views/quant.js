@@ -1,4 +1,5 @@
 import { api } from '../api.js';
+import { authRequest, isAuthenticated } from '../auth.js';
 
 const TABS = [
   { symbol: 'hyundai', label: '현대자동차 (005380)' },
@@ -39,7 +40,7 @@ function drawEquityCurve(canvas, points) {
   const x = (i) => left + i * (width - left - right) / Math.max(points.length - 1, 1);
   const y = (v) => top + (max - v) / gap * (height - top - bottom);
 
-  ctx.strokeStyle = '#334155'; ctx.beginPath(); ctx.moveTo(left, height - bottom); ctx.lineTo(width - right, height - bottom); ctx.stroke();
+  ctx.strokeStyle = '#232938'; ctx.beginPath(); ctx.moveTo(left, height - bottom); ctx.lineTo(width - right, height - bottom); ctx.stroke();
 
   ctx.beginPath();
   points.forEach((p, i) => { const px = x(i); const py = y(p.equity); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
@@ -48,7 +49,7 @@ function drawEquityCurve(canvas, points) {
 
   ctx.beginPath();
   points.forEach((p, i) => { const px = x(i); const py = y(p.equity); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
-  ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 2.2; ctx.stroke();
+  ctx.strokeStyle = '#f0b90b'; ctx.lineWidth = 2.2; ctx.stroke();
 
   ctx.fillStyle = '#94a3b8'; ctx.font = '600 11px sans-serif'; ctx.textAlign = 'start';
   ctx.fillText(`시작 ${Math.round(values[0]).toLocaleString('ko-KR')}`, left, height - 8);
@@ -69,25 +70,54 @@ function renderResult(target, data) {
         <i class="fa-solid ${data.status === 'Completed' ? 'fa-circle-check' : 'fa-circle-question'}"></i> ${data.status === 'Completed' ? 'LEAN 백테스트 완료' : (data.status || '상태 미확인')}
       </span>
     </div>
-    <p style="margin:0 0 18px; padding:12px 14px; background:#1e293b; border:1px solid #334155; border-radius:10px; color:#cbd5e1; font-size:.82rem; line-height:1.55;">
-      <i class="fa-solid fa-flask" style="color:#3b82f6;"></i> ${data.strategy_note}
+    <p style="margin:0 0 18px; padding:12px 14px; background:#12161f; border:1px solid #232938; border-radius:10px; color:#cbd5e1; font-size:.82rem; line-height:1.55;">
+      <i class="fa-solid fa-flask" style="color:#f0b90b;"></i> ${data.strategy_note}
     </p>
     <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; margin-bottom:20px;">
       ${STAT_CARDS.map(([key, label]) => `
         <div class="metric-box">
           <div style="font-size:.68rem; color:#64748b; margin-bottom:4px;">${label}</div>
-          <div style="font-size:1rem; font-weight:700; color:${key === 'Net Profit' ? (isPositive ? '#22c55e' : '#ef4444') : 'var(--text)'};">${stats[key] ?? '-'}</div>
+          <div style="font-size:1rem; font-weight:700; color:${key === 'Net Profit' ? (isPositive ? 'var(--up)' : 'var(--down)') : 'var(--text)'};">${stats[key] ?? '-'}</div>
         </div>`).join('')}
     </div>
-    <div style="background:#1e293b; border:1px solid #334155; border-radius:12px; padding:14px;">
+    <div style="background:#12161f; border:1px solid #232938; border-radius:12px; padding:14px;">
       <div style="font-size:.78rem; color:#94a3b8; margin-bottom:8px;"><i class="fa-solid fa-chart-line"></i> 자산(Equity) 곡선</div>
       <canvas data-quant-chart aria-label="LEAN 백테스트 자산 변화 곡선"></canvas>
     </div>
     <p style="margin:16px 0 0; padding:11px 12px; background:rgba(250,204,21,.08); border:1px solid rgba(250,204,21,.35); border-radius:9px; color:#fbbf24; font-size:.75rem; line-height:1.55;">
       <i class="fa-solid fa-circle-info"></i> 이 결과는 QuantConnect LEAN 엔진으로 미리 실행해 둔 백테스트 산출물(<code>lean-hyundai</code>/<code>lean-samsung</code> 및 그 결과 폴더)을 그대로 보여 주는 학습용 자료입니다. 실시간 시세가 아니며, 실제 매매 수수료·세금·슬리피지·상장폐지 등을 모두 반영하지 않았으므로 투자 판단의 근거로 사용하지 마세요.
-    </p>`;
+    </p>
+    ${isAuthenticated() ? `
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:14px;">
+        <input id="quant-save-name" type="text" value="${data.label} · ${data.strategy_name}" maxlength="80" class="param-input" style="flex:1; min-width:220px;">
+        <button class="run-btn" id="quant-save" style="padding:8px 12px; font-size:.75rem;">전략으로 저장</button>
+      </div>
+      <p id="quant-save-status" style="margin:8px 0 0; font-size:.75rem; color:#94a3b8;"></p>
+    ` : ''}`;
   drawEquityCurve(target.querySelector('[data-quant-chart]'), data.equity_curve || []);
   window.addEventListener('resize', () => drawEquityCurve(target.querySelector('[data-quant-chart]'), data.equity_curve || []));
+
+  const saveBtn = target.querySelector('#quant-save');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', async () => {
+      const status = target.querySelector('#quant-save-status');
+      const name = target.querySelector('#quant-save-name').value.trim();
+      if (!name) { status.textContent = '전략 이름을 입력하세요.'; status.style.color = '#ef4444'; return; }
+      saveBtn.disabled = true; status.textContent = '저장 중…'; status.style.color = '#94a3b8';
+      try {
+        await authRequest('/api/strategy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'lean', name, symbol: data.symbol }),
+        });
+        status.textContent = '"내 전략"에 저장했습니다.'; status.style.color = '#22c55e';
+      } catch (error) {
+        status.textContent = error.message; status.style.color = '#ef4444';
+      } finally {
+        saveBtn.disabled = false;
+      }
+    });
+  }
 }
 
 async function loadSymbol(container, symbol) {
@@ -109,12 +139,12 @@ export function quantView(container) {
         QuantConnect LEAN 엔진으로 실행한 현대자동차·삼성전자 백테스트 결과를 확인합니다.
       </p>
     </div>
-    <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:20px; border-bottom:1px solid #334155;">
+    <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:20px; border-bottom:1px solid #232938;">
       ${TABS.map((tab, i) => `
         <button class="quant-tab" data-symbol="${tab.symbol}"
           style="padding:9px 18px; border:none; border-radius:8px 8px 0 0; cursor:pointer;
                  font-size:0.825rem; font-weight:600; transition:all 0.15s;
-                 background:${i === 0 ? '#2563eb' : '#1e293b'};
+                 background:${i === 0 ? '#c99700' : '#12161f'};
                  color:${i === 0 ? '#fff' : '#94a3b8'};">
           ${tab.label}
         </button>`).join('')}
@@ -125,7 +155,7 @@ export function quantView(container) {
     btn.addEventListener('click', () => {
       container.querySelectorAll('.quant-tab').forEach((b) => {
         const active = b === btn;
-        b.style.background = active ? '#2563eb' : '#1e293b';
+        b.style.background = active ? '#c99700' : '#12161f';
         b.style.color = active ? '#fff' : '#94a3b8';
       });
       loadSymbol(container, btn.dataset.symbol);

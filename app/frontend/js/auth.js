@@ -4,12 +4,14 @@ let user = null;
 function token() { return localStorage.getItem(TOKEN_KEY); }
 function headers() { return token() ? { Authorization: `Bearer ${token()}` } : {}; }
 
-async function request(path, options = {}) {
+export async function authRequest(path, options = {}) {
   const response = await fetch(path, { ...options, headers: { ...headers(), ...(options.headers || {}) } });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.detail || '요청을 처리하지 못했습니다.');
   return payload;
 }
+
+export function isAuthenticated() { return Boolean(token()); }
 
 function updateBadge() {
   const badge = document.getElementById('auth-badge');
@@ -28,7 +30,7 @@ async function renderActivity() {
   if (!target || !user) return;
   target.textContent = '사용 내역을 불러오는 중…';
   try {
-    const data = await request('/api/auth/activity');
+    const data = await authRequest('/api/auth/activity');
     if (!data.items?.length) { target.textContent = '아직 저장된 사용 내역이 없습니다.'; return; }
     target.replaceChildren(...data.items.map((item) => {
       const row = document.createElement('li');
@@ -70,7 +72,7 @@ export function openAuthModal() { user ? showProfile() : showForm(); }
 
 export async function recordUsage(view) {
   if (!user) return;
-  try { await request('/api/auth/activity', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'view', view }) }); } catch { /* 로그 저장 실패는 화면 이용을 막지 않는다. */ }
+  try { await authRequest('/api/auth/activity', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'view', view }) }); } catch { /* 로그 저장 실패는 화면 이용을 막지 않는다. */ }
 }
 
 export async function initAuth() {
@@ -98,11 +100,11 @@ export async function initAuth() {
     if (mode === 'signup') body.username = form.querySelector('#auth-username').value;
     submit.disabled = true; error.textContent = '';
     try {
-      const data = await request(`/api/auth/${mode === 'signup' ? 'signup' : 'login'}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await authRequest(`/api/auth/${mode === 'signup' ? 'signup' : 'login'}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       localStorage.setItem(TOKEN_KEY, data.token); user = data.user; updateBadge(); closeModal(); recordUsage('로그인');
     } catch (err) { error.textContent = err.message; } finally { submit.disabled = false; }
   });
-  modal().querySelector('#auth-logout').addEventListener('click', async () => { try { await request('/api/auth/logout', { method: 'POST' }); } catch {} localStorage.removeItem(TOKEN_KEY); user = null; updateBadge(); closeModal(); });
-  if (token()) { try { user = (await request('/api/auth/me')).user; } catch { localStorage.removeItem(TOKEN_KEY); } }
+  modal().querySelector('#auth-logout').addEventListener('click', async () => { try { await authRequest('/api/auth/logout', { method: 'POST' }); } catch {} localStorage.removeItem(TOKEN_KEY); user = null; updateBadge(); closeModal(); });
+  if (token()) { try { user = (await authRequest('/api/auth/me')).user; } catch { localStorage.removeItem(TOKEN_KEY); } }
   updateBadge();
 }
