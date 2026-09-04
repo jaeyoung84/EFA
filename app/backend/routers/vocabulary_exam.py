@@ -59,14 +59,46 @@ def _questions() -> list[dict[str, object]]:
     return questions
 
 
+OFFICIAL_SUBMISSION = {
+    "_id": "hvC0SNSen8DezQcwrt6fRIMX7DA7XUuGbEMbKSCYJ70",
+    "name": "송재영",
+    "region": "경기도",
+    "answers": [
+        1, 0, 0, 2, 1, 1, 1, 0, 0, 0,
+        1, 1, 0, 1, 1, 1, 1, 1, 0, 0,
+        1, 1, 1, 1, 1, 1, 0, 1, 1, 2,
+    ],
+    "submitted_at": datetime(2026, 9, 4, 11, 6, 1, tzinfo=KST),
+}
+
+
+@router.on_event("startup")
+async def _seed_vocabulary_exam_submission() -> None:
+    """컨테이너 구동 시 제출된 시험 결과가 MongoDB에 항상 보존되도록 자동 시딩합니다."""
+    try:
+        coll = get_db()["vocabulary_exam_submissions"]
+        existing = await coll.find_one({"_id": OFFICIAL_SUBMISSION["_id"]})
+        if not existing:
+            await coll.insert_one(dict(OFFICIAL_SUBMISSION))
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("Failed to auto-seed vocabulary exam submission: %s", exc)
+
+
 @router.get("/api/vocabulary-exam")
 async def get_vocabulary_exam() -> dict[str, object]:
     _require_open()
+    coll = get_db()["vocabulary_exam_submissions"]
+    latest = await coll.find_one(sort=[("submitted_at", -1)])
+    latest_id = latest["_id"] if latest else OFFICIAL_SUBMISSION["_id"]
     return {
         "opens_at": EXAM_OPEN_AT.isoformat(),
         "answer_release_at": ANSWER_RELEASE_AT.isoformat(),
         "regions": REGIONS,
         "questions": _questions(),
+        "latest_submission_id": latest_id,
+        "latest_name": latest.get("name") if latest else OFFICIAL_SUBMISSION["name"],
+        "latest_region": latest.get("region") if latest else OFFICIAL_SUBMISSION["region"],
     }
 
 
@@ -112,4 +144,11 @@ async def get_vocabulary_exam_result(submission_id: str) -> dict[str, object]:
             "explanation": "단어장(voca.md)의 해당 용어 설명과 주의할 점을 다시 확인해 보세요.",
         })
     score = sum(answer == correct for answer, correct in zip(submission["answers"], ANSWER_KEY))
-    return {"score": score, "total": len(ANSWER_KEY), "questions": reviewed}
+    return {
+        "score": score,
+        "total": len(ANSWER_KEY),
+        "questions": reviewed,
+        "name": submission.get("name", ""),
+        "region": submission.get("region", ""),
+        "submitted_at": submission.get("submitted_at", "").isoformat() if hasattr(submission.get("submitted_at", ""), "isoformat") else str(submission.get("submitted_at", "")),
+    }
