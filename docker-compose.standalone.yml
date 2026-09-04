@@ -8,7 +8,7 @@ name: jy-investing
 # 접속: http://localhost:8000 (Codespaces 환경에서는 포트 8000 Forwarding URL)
 # 종료: docker compose down
 #
-# (무거운 전체 RAG 환경이 필요한 경우: docker compose -f docker-compose.full-rag.yml up -d)
+# (무거운 전체 RAG 환경이 필요한 경우: docker compose up -d, 즉 저장소 루트의 docker-compose.yml)
 
 services:
   app:
