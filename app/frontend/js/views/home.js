@@ -1,3 +1,4 @@
+import { api } from '../api.js';
 import { authRequest, isAuthenticated } from '../auth.js';
 import { portfolioInsights, portfolioValuation } from './portfolioHoldings.js';
 
@@ -580,6 +581,9 @@ export function homeView(container) {
       const ohlcv = (data.ohlcv || []).filter((point) => [point?.o, point?.h, point?.l, point?.c].every(isFiniteOhlcValue));
       if (!ohlcv.length) throw new Error('데이터 없음');
 
+      // 일봉 마지막 두 개로 계산한 값이라 장중에는 topbar(실시간 스냅샷 기준)와
+      // 다를 수 있다. loadMarketSnapshot()이 이 함수 이후에 더 정확한 값으로
+      // 덮어쓴다 — 이 값은 그게 실패했을 때의 폴백일 뿐이다.
       const last = ohlcv.at(-1);
       const previousClose = ohlcv.length > 1 ? ohlcv.at(-2).c : last.o;
       const changePercent = ((last.c / previousClose) - 1) * 100;
@@ -771,6 +775,47 @@ export function homeView(container) {
     });
     loadChart(market);
   });
+
+  // 상단 티커(topbar)는 /api/market/snapshot(fast_info.last_price 대비
+  // previous_close)로 "오늘의 등락률"을 계산하는데, 이 대시보드 카드는 /api/home/
+  // market-candle의 일봉 마지막 두 개로 등락률을 다시 계산해 서로 다른 숫자가
+  // 뜰 수 있었다(장중에는 오늘 진행 중인 봉이 아직 확정되지 않아 어제 대비 값이
+  // 나오는 경우가 있음). 같은 소스로 통일해 topbar와 항상 일치시킨다. 차트 자체
+  // (봉 그래프)는 계속 market-candle을 쓰고, 가격·등락률 "숫자" 표시만 여기서
+  // 덮어써서 더 정확한 값으로 맞춘다. 실패하면 loadChart가 이미 넣어둔 값을
+  // 그대로 둔다(빈 화면보다 낫다).
+  async function loadMarketSnapshot() {
+    try {
+      const data = await api.marketSnapshot({ tickers: HOME_MARKETS.map((m) => m.ticker) });
+      const byTicker = Object.fromEntries((data.items || []).map((item) => [item.ticker, item]));
+      HOME_MARKETS.forEach((market) => {
+        const item = byTicker[market.ticker];
+        if (!item || item.status !== 'ok') return;
+        const isUp = item.change_pct >= 0;
+        const priceText = item.value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+        const card = container.querySelector(`[data-market-card="${market.id}"]`);
+        if (card) {
+          const price = card.querySelector(`[data-price="${market.id}"]`);
+          const change = card.querySelector(`[data-change="${market.id}"]`);
+          if (price) price.textContent = priceText;
+          if (change) {
+            change.textContent = `${isUp ? '▲' : '▼'} ${Math.abs(item.change_pct).toFixed(2)}%`;
+            change.className = isUp ? 'is-up' : 'is-down';
+          }
+        }
+        const overviewValue = container.querySelector(`[data-jy-market="${market.id}"]`);
+        const overviewChange = container.querySelector(`[data-jy-change="${market.id}"]`);
+        if (overviewValue) overviewValue.textContent = priceText;
+        if (overviewChange) {
+          overviewChange.textContent = `${isUp ? '+' : '-'}${Math.abs(item.change_pct).toFixed(2)}% · 지연 시세`;
+          overviewChange.className = isUp ? 'is-up' : 'is-down';
+        }
+      });
+    } catch {
+      // 스냅샷 조회 실패 시 loadChart가 넣어둔 값을 그대로 유지한다.
+    }
+  }
+  loadMarketSnapshot();
 
   async function loadQuotes() {
     const refreshButton = container.querySelector('#home-quote-refresh');
