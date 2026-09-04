@@ -64,6 +64,8 @@ services:
       MONGO_INITDB_DATABASE: ${MONGODB_DB:-investment_db}
     volumes:
       - investment_mongo_data:/data/db
+      # 최초 기동 시(빈 볼륨) 퀴즈 문제·본인 제출 답안을 그대로 적재합니다.
+      - ./mongo-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
       interval: 10s
