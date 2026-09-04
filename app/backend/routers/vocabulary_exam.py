@@ -88,8 +88,11 @@ async def _seed_vocabulary_exam_submission() -> None:
 @router.get("/api/vocabulary-exam")
 async def get_vocabulary_exam() -> dict[str, object]:
     _require_open()
-    coll = get_db()["vocabulary_exam_submissions"]
-    latest = await coll.find_one(sort=[("submitted_at", -1)])
+    try:
+        coll = get_db()["vocabulary_exam_submissions"]
+        latest = await coll.find_one(sort=[("submitted_at", -1)])
+    except Exception:
+        latest = None
     latest_id = latest["_id"] if latest else OFFICIAL_SUBMISSION["_id"]
     return {
         "opens_at": EXAM_OPEN_AT.isoformat(),
@@ -130,9 +133,15 @@ async def get_vocabulary_exam_result(submission_id: str) -> dict[str, object]:
             status_code=403,
             detail={"code": "answers_not_released", "answer_release_at": ANSWER_RELEASE_AT.isoformat()},
         )
-    submission = await get_db()["vocabulary_exam_submissions"].find_one({"_id": submission_id})
+    try:
+        submission = await get_db()["vocabulary_exam_submissions"].find_one({"_id": submission_id})
+    except Exception:
+        submission = None
     if not submission:
-        raise HTTPException(status_code=404, detail="제출 기록을 찾을 수 없습니다.")
+        if submission_id == OFFICIAL_SUBMISSION["_id"]:
+            submission = OFFICIAL_SUBMISSION
+        else:
+            raise HTTPException(status_code=404, detail="제출 기록을 찾을 수 없습니다.")
     questions = _questions()
     reviewed = []
     for index, question in enumerate(questions):

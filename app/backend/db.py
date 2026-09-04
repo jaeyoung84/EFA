@@ -20,8 +20,21 @@ _db: AsyncIOMotorDatabase | None = None
 
 # 환경변수로 배포 환경별 MongoDB 주소와 DB 이름을 바꿀 수 있다. 환경변수가 없으면
 # 로컬 개발을 위한 기본값을 사용한다.
-MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
-MONGODB_DB = os.getenv("MONGODB_DB", "investment_db")
+MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://127.0.0.1:27017")
+MONGODB_DB = os.getenv("MONGODB_DB", "jy_investing")
+
+
+def _resolve_mongodb_url() -> str:
+    """런타임에 동적으로 설정된 MONGODB_URL 환경변수를 우선 탐색하여 반환한다."""
+    url = os.getenv("MONGODB_URL")
+    if url:
+        return url
+    return MONGODB_URL
+
+
+def _resolve_mongodb_db() -> str:
+    """런타임에 동적으로 설정된 MONGODB_DB 환경변수를 우선 탐색하여 반환한다."""
+    return os.getenv("MONGODB_DB", MONGODB_DB)
 
 
 def get_client() -> AsyncIOMotorClient:
@@ -35,7 +48,8 @@ def get_client() -> AsyncIOMotorClient:
 
     # 지연 초기화: DB 기능을 전혀 쓰지 않는 실행 경로에서는 클라이언트를 만들지 않는다.
     if _client is None:
-        _client = AsyncIOMotorClient(MONGODB_URL, serverSelectionTimeoutMS=5000)
+        target_url = _resolve_mongodb_url()
+        _client = AsyncIOMotorClient(target_url, serverSelectionTimeoutMS=5000)
     return _client
 
 
@@ -50,7 +64,7 @@ def get_db() -> AsyncIOMotorDatabase:
 
     # 클라이언트 생성 책임은 get_client에 모아 두어 설정과 연결 수명주기를 일관되게 관리한다.
     if _db is None:
-        _db = get_client()[MONGODB_DB]
+        _db = get_client()[_resolve_mongodb_db()]
     return _db
 
 

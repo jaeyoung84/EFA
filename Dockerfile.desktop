@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
@@ -8,38 +8,48 @@ ENV DEBIAN_FRONTEND=noninteractive \
     LANGUAGE=ko_KR:ko \
     LC_ALL=ko_KR.UTF-8
 
+# 1. 시스템 필수 도구, 한국어 폰트, 로케일, MongoDB 7.0 공식 서버 설치
 RUN apt-get update && apt-get install -y --no-install-recommends \
       bash \
       curl \
+      gnupg \
       fonts-nanum \
       locales \
       tzdata \
+    && curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor \
+    && echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] http://repo.mongodb.org/apt/debian bookworm/mongodb-org/7.0 main" > /etc/apt/sources.list.d/mongodb-org-7.0.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends mongodb-org-server \
     && sed -i '/ko_KR.UTF-8/s/^# //g' /etc/locale.gen \
     && locale-gen \
     && ln -fs /usr/share/zoneinfo/$TZ /etc/localtime \
     && dpkg-reconfigure -f noninteractive tzdata \
     && rm -rf /var/lib/apt/lists/*
 
+# 2. 파이썬 의존성 설치
 COPY requirements.desktop.txt .
-RUN --mount=type=cache,target=/root/.cache/pip pip install -r requirements.desktop.txt
+RUN pip install --no-cache-dir -r requirements.desktop.txt
 
-# 앱 코드(app/)보다 훨씬 드물게 바뀌는 정적 리소스를 먼저 배치해, 코드만 바뀐
-# 재빌드에서는 이 레이어들이 캐시에서 재사용되고 mermaid.min.js도 다시
-# 다운로드하지 않는다. COPY app/ 은 디렉터리를 병합하므로 이후에 실행돼도
-# 여기서 받은 app/frontend/vendor/mermaid.min.js는 지워지지 않는다.
+# 3. 정적 에셋(Mermaid 등) 준비
 RUN mkdir -p app/frontend/vendor \
     && python -c "import pathlib, urllib.request; pathlib.Path('app/frontend/vendor/mermaid.min.js').write_bytes(urllib.request.urlopen('https://cdn.jsdelivr.net/npm/mermaid@11.16.0/dist/mermaid.min.js', timeout=90).read())" \
     && test -s app/frontend/vendor/mermaid.min.js
+
+# 4. 문서, 데이터, 애플리케이션 코드 복사
 COPY docs/ ./docs/
 COPY image/ ./image/
 COPY hyundai-results/ ./hyundai-results/
 COPY lean-results/ ./lean-results/
-
+COPY data/ ./data/
 COPY app/ ./app/
 
-EXPOSE 8000
+# 5. All-in-One 엔트리포인트 등록 (내장 MongoDB 자동 구동 + FastAPI 실행)
+COPY scripts/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 8000 27017
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=10 \
     CMD curl --fail http://localhost:8000/api/health || exit 1
 
-CMD ["uvicorn", "app.backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["/entrypoint.sh"]
