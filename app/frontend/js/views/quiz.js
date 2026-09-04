@@ -105,12 +105,29 @@ export function quizHomeView(app, navigate) {
       </div>
     </div>
 
+    <div class="card" style="margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 20px;border-left:4px solid var(--primary);flex-wrap:wrap;">
+      <div>
+        <div style="font-weight:800;font-size:1.05rem;margin-bottom:4px;display:flex;align-items:center;gap:8px;">
+          <i class="fa-solid fa-spell-check" style="color:var(--primary)"></i>
+          <span>주식 기초 단어장 30문제 모의시험</span>
+          <span class="badge badge-blue">실전 평가</span>
+        </div>
+        <p style="margin:0;font-size:.85rem;color:var(--text-muted);">
+          voca.md 기반 4지선다 30문항 · 성명 및 사는 지역 등록 후 응시 · MongoDB 채점 결과 저장
+        </p>
+      </div>
+      <button class="btn btn-primary" id="go-voca-exam" style="white-space:nowrap;font-weight:700;">
+        <i class="fa-solid fa-pen-to-square" style="margin-right:6px;"></i>단어장 시험 응시하기
+      </button>
+    </div>
+
     <div class="plan-grid" id="plan-grid">${cards}</div>`;
 
   // wire plan card clicks
   app.querySelectorAll('.plan-card').forEach((card, i) => {
     card.onclick = () => navigate(`quiz-day-${Object.keys(DAY_TOPICS)[i]}`);
   });
+  app.querySelector('#go-voca-exam')?.addEventListener('click', () => navigate('vocabulary-exam'));
 }
 
 /* ─── QUIZ DAY VIEW ─────────────────────────────── */
