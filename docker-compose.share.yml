@@ -1,0 +1,56 @@
+name: jy-investing-desktop
+
+# 소스 코드 없이 Docker Hub 이미지만으로 실행하는 구성입니다.
+# 이 파일과 .env.desktop.example(선택) 두 개만 있으면 됩니다 — 저장소를
+# 통째로 내려받을 필요가 없습니다. docker-compose.desktop.yml과 달리
+# build: 단계가 없고, jaeyoungsong/jy-investing:latest 이미지를 그대로 pull합니다.
+#
+# 실행: docker compose -f docker-compose.share.yml up -d
+# 접속: http://localhost:8000
+# 종료: docker compose -f docker-compose.share.yml down (데이터 보존)
+#       docker compose -f docker-compose.share.yml down -v (계정·포트폴리오까지 삭제)
+#
+# 각자 자기 컴퓨터에서 실행하는 구조라 데이터(계정·보유자산·전략)는 완전히
+# 분리됩니다 — 서버를 같이 쓰는 것이 아니라 같은 이미지를 각자 실행하는 것입니다.
+services:
+  backend:
+    image: jaeyoungsong/jy-investing:latest
+    container_name: jy_investing_backend
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    env_file:
+      - path: .env.desktop
+        required: false
+    environment:
+      MONGODB_URL: mongodb://mongo:27017
+      MONGODB_DB: ${MONGODB_DB:-jy_investing}
+      RAG_EMBEDDING_PROVIDER: hash
+      RAG_LLM_API_KEY: ""
+      RAG_LLM_MODEL: ""
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 25s
+
+  mongo:
+    image: mongo:7
+    container_name: jy_investing_mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: ${MONGODB_DB:-jy_investing}
+    volumes:
+      - jy_investing_mongo_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping').ok\"" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  jy_investing_mongo_data:

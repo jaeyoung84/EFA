@@ -37,6 +37,37 @@ docker compose -f docker-compose.desktop.yml down
 docker compose -f docker-compose.desktop.yml down -v
 ```
 
+## 다른 사람과 공유하기 (Docker Hub 이미지)
+
+소스 코드를 보내지 않고도 실행할 수 있다. `jaeyoungsong/jy-investing:latest`로 이미지를 이미 올려 두었으므로, 상대방은 아래 4개 파일만 있으면 된다.
+
+```text
+docker-compose.share.yml
+run-jy-investing-shared.bat
+stop-jy-investing-shared.bat
+.env.desktop.example   (DART 검색을 쓰려면 .env.desktop으로 복사해 키를 채운다)
+```
+
+받는 사람이 할 일:
+
+1. [Docker Desktop](https://www.docker.com/products/docker-desktop/)을 설치한다(Windows/Mac 공통, 회원가입 불필요).
+2. 위 4개 파일을 아무 폴더에나 함께 둔다. 저장소를 통째로 받을 필요는 없다.
+3. `run-jy-investing-shared.bat`을 더블클릭한다. Docker Desktop이 꺼져 있으면 자동으로 켜고, `jaeyoungsong/jy-investing:latest` 이미지를 내려받아(최초 1회, 이미지 용량 때문에 몇 분 걸릴 수 있다) 실행한 뒤 브라우저를 연다.
+4. `http://localhost:8000`에서 새로 회원가입한다.
+
+**데이터는 완전히 분리된다.** 같은 서버에 접속하는 것이 아니라, 각자 자기 컴퓨터에서 같은 이미지를 독립적으로 실행하는 구조다. 내 계정·보유자산·전략이 상대방에게 보이지 않고, 반대도 마찬가지다. MongoDB 데이터는 `docker-compose.share.yml`이 만드는 로컬 볼륨에만 저장된다.
+
+끌 때는 `stop-jy-investing-shared.bat`을 더블클릭한다(데이터는 유지된다).
+
+**업데이트를 다시 받으려면**(개발자가 이미지를 새로 올린 뒤): `docker compose -f docker-compose.share.yml pull && docker compose -f docker-compose.share.yml up -d`
+
+**직접 이미지를 최신으로 올리려면**(개발자용):
+```bash
+docker compose -f docker-compose.desktop.yml build backend
+docker tag jy-investing-backend:desktop jaeyoungsong/jy-investing:latest
+docker push jaeyoungsong/jy-investing:latest
+```
+
 ## 전체 리서치 스택
 
 문서 AI, Qdrant, Meilisearch, 로컬 Ollama 모델까지 쓰려면 경량 Compose 대신 기존 구성을 사용한다.
