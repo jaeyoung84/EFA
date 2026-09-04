@@ -54,6 +54,7 @@ class RiskRequest(BaseModel):
     confidence: float = Field(default=0.95, ge=0.90, le=0.99)
     n_scenarios: int = Field(default=10000, ge=1000, le=100000)
     portfolio_value: float = Field(default=100_000_000, ge=1_000_000)
+    volatility: float = Field(default=0.19, ge=0.01, le=1.0)
 
 
 class PipelineRequest(BaseModel):
@@ -353,47 +354,20 @@ def quant_financial_knowledge(req: FinancialKnowledgeRequest) -> dict[str, objec
     import numpy as np
     configure_matplotlib_korean_font(plt)
 
+    # 각 항목의 coverage 비율(0.96 등)은 측정한 값이 아니라 상수였고, 프런트엔드
+    # 어디서도 읽지 않는 죽은 필드였다("측정하지 않은 값을 지표처럼 노출"). 실제로
+    # 쓰이는 문서·주제 매핑만 남기고 숫자는 뺀다.
     coverage = [
-        {
-            "day": "Part 052",
-            "topic": "주식/ETF 상품",
-            "document": "docs/37.md",
-            "coverage": 0.96,
-            "web_status": "보완됨",
-            "items": ["주식/ETF 개요", "ETF 운용 전략", "성과 비교"],
-        },
-        {
-            "day": "Part 053",
-            "topic": "채권 상품",
-            "document": "docs/37.md",
-            "coverage": 0.88,
-            "web_status": "보완됨",
-            "items": ["채권 개요", "듀레이션", "수익률 곡선", "운용 전략"],
-        },
-        {
-            "day": "Part 054",
-            "topic": "파생상품",
-            "document": "docs/38.md",
-            "coverage": 0.86,
-            "web_status": "보완됨",
-            "items": ["선물", "옵션", "스왑", "헤징 전략"],
-        },
-        {
-            "day": "Part 055",
-            "topic": "포트폴리오 이론",
-            "document": "docs/39.md",
-            "coverage": 0.94,
-            "web_status": "기존+보완",
-            "items": ["MPT", "성과분석", "MDD", "Sharpe", "Sortino"],
-        },
-        {
-            "day": "Part 056",
-            "topic": "자산배분 모델",
-            "document": "docs/40.md",
-            "coverage": 0.92,
-            "web_status": "기존+보완",
-            "items": ["평균분산", "블랙-리터만", "Risk-Parity", "사례 분석"],
-        },
+        {"day": "Part 052", "topic": "주식/ETF 상품", "document": "docs/37.md",
+         "items": ["주식/ETF 개요", "ETF 운용 전략", "성과 비교"]},
+        {"day": "Part 053", "topic": "채권 상품", "document": "docs/37.md",
+         "items": ["채권 개요", "듀레이션", "수익률 곡선", "운용 전략"]},
+        {"day": "Part 054", "topic": "파생상품", "document": "docs/38.md",
+         "items": ["선물", "옵션", "스왑", "헤징 전략"]},
+        {"day": "Part 055", "topic": "포트폴리오 이론", "document": "docs/39.md",
+         "items": ["MPT", "성과분석", "MDD", "Sharpe", "Sortino"]},
+        {"day": "Part 056", "topic": "자산배분 모델", "document": "docs/40.md",
+         "items": ["평균분산", "블랙-리터만", "Risk-Parity", "사례 분석"]},
     ]
 
     rng = np.random.default_rng(7)
@@ -570,8 +544,11 @@ def quant_risk(req: RiskRequest) -> dict[str, object]:
     import numpy as np
     configure_matplotlib_korean_font(plt)
 
+    # 예전에는 sigma가 0.012 상수로 고정돼 있어 화면의 "연간 변동성(σ)" 입력칸이
+    # 값을 바꿔도 결과가 그대로였다("죽은 컨트롤"). 사용자가 입력한 연간 변동성을
+    # 일간으로 환산해 실제로 반영한다.
     rng = np.random.default_rng(42)
-    mu, sigma = 0.0004, 0.012
+    mu, sigma = 0.0004, req.volatility / (252 ** 0.5)
     daily_ret = rng.normal(mu, sigma, req.n_scenarios).astype(float)
 
     alpha = 1 - req.confidence

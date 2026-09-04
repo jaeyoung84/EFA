@@ -109,8 +109,7 @@ function installQuoteModal(container) {
       });
       await chart.render();
       if (currentRequest !== requestId || modal.hidden) return;
-      source.textContent = data.is_simulated ? '시뮬레이션 데이터' : 'Yahoo Finance · 장중 시세는 약 15분 지연될 수 있습니다.';
-      source.classList.toggle('is-simulated', Boolean(data.is_simulated));
+      source.textContent = 'Yahoo Finance · 장중 시세는 약 15분 지연될 수 있습니다.';
       loading.hidden = true;
     } catch (error) {
       if (error.name === 'AbortError' || currentRequest !== requestId || modal.hidden) return;
@@ -187,7 +186,11 @@ export function marketRankingsView(container, {
       const data = await response.json();
       if (disposed) return;
       const items = data.items || [];
-      if (!items.length) throw new Error('데이터 없음');
+      const excluded = data.excluded || [];
+      if (!items.length) {
+        const reason = excluded.length ? `(${excluded.length}종목 시세 조회 실패)` : '';
+        throw new Error(`데이터 없음 ${reason}`.trim());
+      }
 
       itemsByTicker.clear();
       items.forEach((item) => itemsByTicker.set(item.ticker, item));
@@ -196,8 +199,7 @@ export function marketRankingsView(container, {
       const stampText = fetchedAt && !Number.isNaN(fetchedAt.valueOf())
         ? `조회 ${fetchedAt.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`
         : '조회 완료';
-      stamp.textContent = data.is_simulated ? `${stampText} · 시뮬레이션 데이터` : stampText;
-      stamp.classList.toggle('is-simulated', Boolean(data.is_simulated));
+      stamp.textContent = excluded.length ? `${stampText} · ${excluded.length}종목 제외` : stampText;
     } catch (error) {
       if (disposed) return;
       list.innerHTML = `<div class="gainers-error"><i class="fa-solid fa-triangle-exclamation"></i> 데이터를 불러오지 못했습니다: ${error.message}</div>`;

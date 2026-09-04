@@ -2599,7 +2599,7 @@ def market_dividend_history(ticker: str = "005930.KS") -> dict[str, object]:
 
 
 def _market_top_ranked_components(
-    components: list[dict[str, object]], limit: int, universe: str, simulation_seed: int,
+    components: list[dict[str, object]], limit: int, universe: str,
 ) -> dict[str, object]:
     """대표 종목 표본의 당일 등락률 순위를 반환한다."""
     import pandas as pd
@@ -2608,6 +2608,7 @@ def _market_top_ranked_components(
     limit = max(1, min(limit, len(components)))
     fetched_at = pd.Timestamp.utcnow()
     valid: list[dict[str, object]] = []
+    excluded: list[dict[str, object]] = []
 
     for stock in components:
         ticker = str(stock["ticker"])
@@ -2620,25 +2621,17 @@ def _market_top_ranked_components(
                 "ticker": ticker, "name": stock["name"], "sector": stock["sector"],
                 "price": round(current, 2), "change_pct": round(change_pct, 2),
             })
-        except Exception:
-            continue
+        except Exception as exc:
+            excluded.append({
+                "ticker": ticker, "name": stock["name"],
+                "reason": f"시세 조회 실패: {exc}",
+            })
 
-    is_simulated = False
-    if len(valid) < 5:
-        is_simulated = True
-        rng_state = simulation_seed
-
-        def _rand():
-            nonlocal rng_state
-            rng_state = (rng_state * 1664525 + 1013904223) % 2**32
-            return rng_state / 2**32
-
-        valid = [{
-            "ticker": stock["ticker"], "name": stock["name"], "sector": stock["sector"],
-            "price": round(20000 + _rand() * 480000, 0),
-            "change_pct": round((_rand() - 0.35) * 12, 2),
-        } for stock in components]
-
+    # 예전에는 유효 종목이 5개 미만이면 선형합동생성기로 가격과 등락률을 지어내
+    # 순위표를 채웠다(고정 시드라 매번 같은 가짜 순위가 나왔다). is_simulated 플래그를
+    # 붙이긴 했지만, 존재하지 않는 시세로 "오늘의 상승 종목"을 만드는 것 자체가
+    # portfolio.py가 지키는 "데이터가 부족하면 수치를 만들지 않는다" 규율과 정면으로
+    # 어긋난다. 이제는 받은 만큼만 보여주고 실패한 종목은 사유와 함께 표면화한다.
     ranked = sorted(valid, key=lambda item: item["change_pct"], reverse=True)[:limit]
     for i, item in enumerate(ranked, start=1):
         item["rank"] = i
@@ -2648,20 +2641,22 @@ def _market_top_ranked_components(
         "universe": universe,
         "universe_size": len(components),
         "fetched_at": fetched_at.isoformat(),
-        "is_simulated": is_simulated,
+        "available": bool(ranked),
+        "excluded": excluded,
+        "is_simulated": False,
     }
 
 
 @app.get("/api/market/top-gainers")
 def market_top_gainers(limit: int = 20) -> dict[str, object]:
     """KOSPI 대표 종목 중 금일 등락률 상위 종목을 반환한다."""
-    return _market_top_ranked_components(KOSPI_COMPONENTS, limit, "KOSPI 대표 종목", 777)
+    return _market_top_ranked_components(KOSPI_COMPONENTS, limit, "KOSPI 대표 종목")
 
 
 @app.get("/api/market/top-sobujang")
 def market_top_sobujang(limit: int = 20) -> dict[str, object]:
     """반도체 소부장 대표 종목 중 금일 등락률 상위 종목을 반환한다."""
-    return _market_top_ranked_components(SOBUJANG_COMPONENTS, limit, "국내 반도체 소부장 대표 종목", 1777)
+    return _market_top_ranked_components(SOBUJANG_COMPONENTS, limit, "국내 반도체 소부장 대표 종목")
 
 KOSPI_SECTORS = sorted({c["sector"] for c in KOSPI_COMPONENTS})
 

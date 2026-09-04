@@ -31,8 +31,6 @@ const REGIMES = [
   },
 ];
 
-const CURRENT_REGIME_ID = 'r3';
-
 const ASSET_ROWS = [
   { key: 'globalEquity', name: '글로벌 주식', color: '#22c55e', weight: 59.3, expectedReturn: 7.0, volatility: 16.0 },
   { key: 'globalBond', name: '글로벌 채권', color: '#818cf8', weight: 32.1, expectedReturn: 3.5, volatility: 5.0 },
@@ -42,8 +40,7 @@ const ASSET_ROWS = [
 
 function renderRegimeCards() {
   return REGIMES.map((regime) => `
-    <article class="regime-card${regime.id === CURRENT_REGIME_ID ? ' is-current' : ''}">
-      ${regime.id === CURRENT_REGIME_ID ? '<span class="regime-current-tag">현재 국면</span>' : ''}
+    <article class="regime-card">
       <div class="regime-card-head"><span class="regime-badge" style="background:${regime.color}">${regime.badge}</span><div><b>${regime.title}</b><small>${regime.subtitle}</small></div></div>
       <p class="regime-mapping"><i class="fa-solid fa-diagram-project"></i> ${regime.regime}</p>
       <p class="regime-market">${regime.market}</p>

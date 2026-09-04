@@ -423,13 +423,13 @@ export function homeView(container) {
         </article>
         <article class="jy-overview-card"><span>KOSPI</span><strong data-jy-market="kospi">조회 중</strong><small data-jy-change="kospi">시장 데이터를 불러옵니다</small></article>
         <article class="jy-overview-card"><span>NASDAQ</span><strong data-jy-market="nasdaq">조회 중</strong><small data-jy-change="nasdaq">시장 데이터를 불러옵니다</small></article>
-        <article class="jy-overview-card"><span>전략 상태</span><strong>2개 검증 완료</strong><small>현대차 · 삼성전자 LEAN 결과</small><button type="button" data-jy-route="quant-lean">결과 확인 <i class="fa-solid fa-arrow-right"></i></button></article>
+        <article class="jy-overview-card"><span>전략 상태</span><strong data-jy-strategy-count>확인 중</strong><small data-jy-strategy-summary>저장된 전략을 불러옵니다</small><button type="button" data-jy-route="my-strategies">내 전략 보기 <i class="fa-solid fa-arrow-right"></i></button></article>
       </section>
 
       <section class="jy-decision-grid">
         <article class="jy-panel">
-          <header><div><span class="jy-section-label">ACTION CENTER</span><h2>오늘 확인할 항목</h2></div><span class="jy-count">3</span></header>
-          <button class="jy-action-row" type="button" data-jy-route="risk"><i class="fa-solid fa-shield-halved"></i><span><strong>포트폴리오 위험 점검</strong><small>VaR·CVaR로 예상 손실 범위를 확인하세요.</small></span><i class="fa-solid fa-chevron-right"></i></button>
+          <header><div><span class="jy-section-label">ACTION CENTER</span><h2>오늘 확인할 항목</h2></div><span class="jy-count" data-jy-action-count>-</span></header>
+          <button class="jy-action-row" type="button" data-jy-route="portfolio-risk"><i class="fa-solid fa-shield-halved"></i><span><strong>실제 보유자산 위험 점검</strong><small>내 보유 종목의 평가금액과 위험을 확인하세요.</small></span><i class="fa-solid fa-chevron-right"></i></button>
           <button class="jy-action-row" type="button" data-jy-route="quant-lean"><i class="fa-solid fa-flask-vial"></i><span><strong>검증 전략 리뷰</strong><small>LEAN 백테스트 성과와 낙폭을 비교하세요.</small></span><i class="fa-solid fa-chevron-right"></i></button>
           <button class="jy-action-row" type="button" data-jy-route="today-gainers"><i class="fa-solid fa-arrow-trend-up"></i><span><strong>시장 강도 탐색</strong><small>오늘 거래가 집중된 상승 종목을 살펴보세요.</small></span><i class="fa-solid fa-chevron-right"></i></button>
         </article>
@@ -467,6 +467,36 @@ export function homeView(container) {
   container.querySelectorAll('[data-jy-route]').forEach((button) => {
     button.addEventListener('click', () => window.navigate(button.dataset.jyRoute));
   });
+
+  const actionCountEl = container.querySelector('[data-jy-action-count]');
+  if (actionCountEl) actionCountEl.textContent = String(container.querySelectorAll('.jy-action-row').length);
+
+  async function loadStrategySummary() {
+    const countEl = container.querySelector('[data-jy-strategy-count]');
+    const summaryEl = container.querySelector('[data-jy-strategy-summary]');
+    if (!countEl || !summaryEl) return;
+    if (!isAuthenticated()) {
+      countEl.textContent = '로그인 필요';
+      summaryEl.textContent = '로그인하면 저장한 전략을 볼 수 있습니다';
+      return;
+    }
+    try {
+      const data = await authRequest('/api/strategy');
+      const items = data.items || [];
+      if (!items.length) {
+        countEl.textContent = '0개 저장됨';
+        summaryEl.textContent = '아직 저장한 전략이 없습니다';
+        return;
+      }
+      const latest = items[0];
+      countEl.textContent = `${items.length}개 저장됨`;
+      summaryEl.textContent = `최근: ${latest.name || latest.ticker || latest.symbol || '-'}`;
+    } catch {
+      countEl.textContent = '확인 불가';
+      summaryEl.textContent = '전략 목록을 불러오지 못했습니다';
+    }
+  }
+  loadStrategySummary();
 
   async function loadPersonalPortfolio() {
     if (!isAuthenticated()) return;

@@ -278,12 +278,16 @@ async def save_strategy(payload: StrategySaveRequest, user: dict = Depends(curre
             raise HTTPException(status_code=422, detail="실제 가격 백테스트 저장에는 fast_ma/slow_ma/period/transaction_cost_bps/slippage_bps/benchmark_ticker가 필요합니다.")
         if "metrics" not in payload.snapshot:
             raise HTTPException(status_code=422, detail="백테스트 결과(snapshot.metrics)가 필요합니다.")
+        if payload.params["fast_ma"] >= payload.params["slow_ma"]:
+            raise HTTPException(status_code=422, detail="단기 이동평균은 장기 이동평균보다 작아야 합니다.")
     elif payload.type == "virtual_backtest":
         required = {"fast_ma", "slow_ma", "n_days", "volatility"}
         if not required.issubset(payload.params.keys()):
             raise HTTPException(status_code=422, detail="가상 백테스트 저장에는 fast_ma/slow_ma/n_days/volatility가 필요합니다.")
         if "metrics" not in payload.snapshot:
             raise HTTPException(status_code=422, detail="백테스트 결과(snapshot.metrics)가 필요합니다.")
+        if payload.params["fast_ma"] >= payload.params["slow_ma"]:
+            raise HTTPException(status_code=422, detail="단기 이동평균은 장기 이동평균보다 작아야 합니다.")
     else:  # lean
         symbol = payload.symbol.strip().lower()
         if symbol not in LEAN_RUNS:
@@ -331,6 +335,8 @@ def run_real_backtest(req: RealBacktestRequest) -> dict:
     benchmark_ticker = (req.benchmark_ticker or ticker).strip().upper()
     if not TICKER_PATTERN.fullmatch(benchmark_ticker):
         raise HTTPException(status_code=422, detail="벤치마크 티커 형식이 올바르지 않습니다.")
+    if req.fast_ma >= req.slow_ma:
+        raise HTTPException(status_code=422, detail=f"단기 이동평균(fast_ma={req.fast_ma})은 장기 이동평균(slow_ma={req.slow_ma})보다 작아야 합니다.")
 
     try:
         close = _download_close_series(ticker, req.period)

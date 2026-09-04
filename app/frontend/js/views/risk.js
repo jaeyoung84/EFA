@@ -23,8 +23,8 @@ export function riskView(container) {
           <input id="risk-vol" type="number" value="0.2" min="0.01" max="1.0" step="0.01" class="param-input"/>
         </div>
         <div>
-          <label class="param-label">시뮬레이션 일수</label>
-          <input id="risk-days" type="number" value="252" min="30" max="1260" class="param-input"/>
+          <label class="param-label">시뮬레이션 횟수</label>
+          <input id="risk-scenarios" type="number" value="10000" min="1000" max="100000" step="1000" class="param-input"/>
         </div>
       </div>
       <button class="run-btn" id="risk-run">▶ VaR 계산</button>
@@ -41,7 +41,7 @@ export function riskView(container) {
         portfolio_value: +container.querySelector('#risk-pv').value,
         confidence:      +container.querySelector('#risk-conf').value / 100,
         volatility:      +container.querySelector('#risk-vol').value,
-        n_days:          +container.querySelector('#risk-days').value,
+        n_scenarios:     +container.querySelector('#risk-scenarios').value,
       });
       let html = '';
       if (data.image) html += `<img src="${data.image}" style="width:100%; border-radius:8px; margin-bottom:16px;"/>`;
