@@ -1,0 +1,26 @@
+name: jy-investing-codespaces
+
+# GitHub Codespaces 전용 초경량 Docker Compose 구성
+services:
+  app:
+    image: jaeyoungsong/jy-investing:latest
+    container_name: jy_investing_codespaces
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      MONGODB_DB: jy_investing
+      RAG_EMBEDDING_PROVIDER: hash
+      RAG_LLM_API_KEY: ""
+      RAG_LLM_MODEL: ""
+    volumes:
+      - jy_investing_codespaces_data:/data/db
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  jy_investing_codespaces_data:

@@ -1,5 +1,10 @@
 # Qunat 관련 과정
 
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/jaeyoung84/IV-TEST)
+
+> **🚀 GitHub Codespaces 빠른 실행 & 웹 URL 공유**:  
+> [Codespaces 실행 및 공유 가이드 문서 바로가기](docs/CODESPACES_GUIDE.md) | 터미널에서 `docker compose up -d` 1줄로 웹페이지 구동 후 `https://...app.github.dev` 고유 링크로 공유 가능!
+
 ## WSL, VSCode, Git, GitHub, Docker 기본 사용 
 
 ## 투자분석 기초 방법론	

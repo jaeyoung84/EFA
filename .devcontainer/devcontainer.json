@@ -1,0 +1,16 @@
+{
+  "name": "JY Investing Codespaces",
+  "image": "mcr.microsoft.com/devcontainers/universal:2",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "forwardPorts": [8000],
+  "portsAttributes": {
+    "8000": {
+      "label": "JY Investing Web Application",
+      "onAutoForward": "openBrowser",
+      "visibility": "public"
+    }
+  },
+  "postStartCommand": "docker compose up -d"
+}
