@@ -6,6 +6,7 @@ services:
     build:
       context: ./lean-samsung
     image: samsung-lean-module:local
+    network_mode: host
     environment:
       # Yahoo Finance에서 내려받을 005930.KS 일봉 기간입니다.
       SAMSUNG_START_DATE: ${SAMSUNG_START_DATE:-2024-01-01}
