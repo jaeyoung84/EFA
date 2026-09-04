@@ -240,11 +240,15 @@ async def _get_owned_proposal(proposal_id: str, user: dict) -> dict:
 
 @router.on_event("startup")
 async def _ensure_strategy_indexes() -> None:
-    db = get_db()
-    await db.strategies.create_index([("user_id", 1), ("created_at", -1)])
-    await db.order_proposals.create_index([("user_id", 1), ("created_at", -1)])
-    await db.order_proposals.create_index([("strategy_id", 1), ("status", 1)])
-    await db.paper_fills.create_index([("user_id", 1), ("filled_at", -1)])
+    try:
+        db = get_db()
+        await db.strategies.create_index([("user_id", 1), ("created_at", -1)])
+        await db.order_proposals.create_index([("user_id", 1), ("created_at", -1)])
+        await db.order_proposals.create_index([("strategy_id", 1), ("status", 1)])
+        await db.paper_fills.create_index([("user_id", 1), ("filled_at", -1)])
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("MongoDB not ready during strategy startup indexes creation: %s", exc)
 
 
 @router.post("")

@@ -124,7 +124,11 @@ async def _seed_quiz_questions(*, force: bool = False) -> dict[str, int]:
 @router.on_event("startup")
 async def seed_current_quiz_questions() -> None:
     """Apply a changed quiz revision once when the backend starts."""
-    await _seed_quiz_questions()
+    try:
+        await _seed_quiz_questions()
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("MongoDB not ready during quiz seed on startup: %s", exc)
 
 
 @router.get("/api/quiz/day/{day}")
