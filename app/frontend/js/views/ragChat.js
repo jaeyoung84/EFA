@@ -21,7 +21,7 @@ export function ragChatView(app) {
     }
     return sources.map((source, index) => `
       <article class="rag-source-card">
-        <div class="rag-source-head"><strong>출처 ${index + 1}</strong><span>유사도 ${Number(source.score).toFixed(3)}</span></div>
+        <div class="rag-source-head"><strong>출처 ${index + 1}</strong><span>${source.retrieval === 'hybrid' ? '통합' : source.retrieval === 'keyword' ? '키워드' : '벡터'} 점수 ${Number(source.score).toFixed(3)}</span></div>
         <p class="rag-source-name">${escapeHtml(source.source_doc)}${source.section ? ` · ${escapeHtml(source.section)}` : ''} · 조각 ${Number(source.chunk_index) + 1}</p>
         <p class="rag-source-text">${formatText(source.text)}</p>
       </article>`).join('');
@@ -104,7 +104,7 @@ export function ragChatView(app) {
           : 'Ollama 모델을 준비하면 로컬 답변 생성을 사용할 수 있습니다.';
       if (data.qdrant?.collection_available) {
         status.className = 'badge badge-green';
-        status.textContent = `문서 ${Number(data.qdrant.points_count || 0).toLocaleString()}개 청크 연결됨`;
+        status.textContent = `${data.hybrid_search?.meilisearch_available ? '하이브리드' : '벡터'} · ${Number(data.qdrant.points_count || 0).toLocaleString()}개 청크`;
       } else if (data.qdrant?.available) {
         status.className = 'badge badge-gray';
         status.textContent = '문서 색인 필요';

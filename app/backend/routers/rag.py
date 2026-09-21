@@ -6,6 +6,7 @@ import math
 import os
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from fastapi import APIRouter, HTTPException
@@ -15,6 +16,9 @@ router = APIRouter()
 
 _QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 _QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "investment_docs")
+_MEILI_URL = os.getenv("MEILI_URL", "http://localhost:7700").rstrip("/")
+_MEILI_KEY = os.getenv("MEILI_MASTER_KEY", "")
+_MEILI_INDEX = os.getenv("MEILI_RAG_INDEX", "learning_documents")
 _RAG_EMBEDDING_PROVIDER = os.getenv("RAG_EMBEDDING_PROVIDER", "ollama").lower()
 _RAG_EMBEDDING_URL = os.getenv("RAG_EMBEDDING_URL", "").rstrip("/")
 _RAG_EMBEDDING_MODEL = os.getenv("RAG_EMBEDDING_MODEL", "")
@@ -111,13 +115,18 @@ class RagSearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=2000, description="검색 질문")
     top_k: int = Field(default=5, ge=1, le=20, description="반환할 최대 청크 수")
     score_threshold: float = Field(default=0.0, ge=0.0, le=1.0, description="최소 유사도 점수")
+    search_mode: str = Field(
+        default="hybrid",
+        pattern="^(hybrid|vector)$",
+        description="hybrid는 벡터·키워드 검색을 RRF로 결합하고 vector는 Qdrant만 사용",
+    )
 
 
 class RagAskRequest(RagSearchRequest):
     provider: str = Field(default="rag", pattern="^(rag|openai_compatible)$", description="답변 다듬기에 사용할 외부 AI 모듈")
 
 
-def _search(query: str, top_k: int, score_threshold: float) -> list[dict[str, object]]:
+def _vector_search(query: str, top_k: int, score_threshold: float) -> list[dict[str, object]]:
     payload: dict[str, object] = {"vector": _embed_query(query), "limit": top_k, "with_payload": True, "with_vector": False}
     if score_threshold > 0:
         payload["score_threshold"] = score_threshold
@@ -129,6 +138,90 @@ def _search(query: str, top_k: int, score_threshold: float) -> list[dict[str, ob
         "chunk_index": hit.get("payload", {}).get("chunk_index", 0),
         "text": hit.get("payload", {}).get("text", ""),
     } for hit in result.get("result", [])]
+
+
+def _meili_request(path: str, payload: dict | None = None) -> dict:
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
+    headers = {"Content-Type": "application/json"}
+    if _MEILI_KEY:
+        headers["Authorization"] = f"Bearer {_MEILI_KEY}"
+    request = urllib.request.Request(f"{_MEILI_URL}{path}", data=data, method="POST" if data else "GET", headers=headers)
+    with urllib.request.urlopen(request, timeout=5) as response:
+        body = response.read().decode("utf-8")
+    return json.loads(body) if body else {}
+
+
+def _keyword_search(query: str, limit: int) -> list[dict[str, object]]:
+    """Search the existing learning-document index without making Meilisearch mandatory."""
+    try:
+        result = _meili_request(
+            f"/indexes/{urllib.parse.quote(_MEILI_INDEX, safe='')}/search",
+            {"q": query, "limit": limit, "attributesToRetrieve": ["id", "doc_id", "title", "content"]},
+        )
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, ValueError):
+        return []
+    return [hit for hit in result.get("hits", []) if isinstance(hit, dict)]
+
+
+def _meili_available() -> bool:
+    try:
+        return _meili_request("/health").get("status") == "available"
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, ValueError):
+        return False
+
+
+def _document_key(value: object) -> str:
+    return str(value or "").rsplit("/", 1)[-1].removesuffix(".md")
+
+
+def _hybrid_search(query: str, top_k: int, score_threshold: float) -> tuple[list[dict[str, object]], str]:
+    """Fuse semantic chunks and exact keyword documents with Reciprocal Rank Fusion."""
+    vector_results = _vector_search(query, top_k * 2, score_threshold)
+    keyword_results = _keyword_search(query, top_k * 2)
+    if not keyword_results:
+        return vector_results[:top_k], "vector"
+
+    rrf_k = 60
+    keyword_ranks = {
+        _document_key(hit.get("doc_id") or hit.get("id")): rank
+        for rank, hit in enumerate(keyword_results, start=1)
+    }
+    ranked: list[dict[str, object]] = []
+    seen_docs: set[str] = set()
+    for rank, chunk in enumerate(vector_results, start=1):
+        item = dict(chunk)
+        doc_key = _document_key(item.get("source_doc"))
+        score = 1.0 / (rrf_k + rank)
+        if doc_key in keyword_ranks:
+            score += 1.0 / (rrf_k + keyword_ranks[doc_key])
+            seen_docs.add(doc_key)
+        item["score"] = round(score, 6)
+        item["retrieval"] = "hybrid" if doc_key in keyword_ranks else "vector"
+        ranked.append(item)
+
+    # Exact keyword hits remain useful even when the embedding model misses them.
+    for hit in keyword_results:
+        doc_key = _document_key(hit.get("doc_id") or hit.get("id"))
+        if doc_key in seen_docs:
+            continue
+        content = " ".join(str(hit.get("content", "")).split())
+        ranked.append({
+            "score": round(1.0 / (rrf_k + keyword_ranks[doc_key]), 6),
+            "source_doc": f"{doc_key}.md",
+            "section": str(hit.get("title", "")),
+            "chunk_index": 0,
+            "text": content[:1500],
+            "retrieval": "keyword",
+        })
+
+    ranked.sort(key=lambda item: float(item["score"]), reverse=True)
+    return ranked[:top_k], "hybrid"
+
+
+def _search(query: str, top_k: int, score_threshold: float, search_mode: str = "hybrid") -> tuple[list[dict[str, object]], str]:
+    if search_mode == "vector":
+        return _vector_search(query, top_k, score_threshold), "vector"
+    return _hybrid_search(query, top_k, score_threshold)
 
 
 def _require_qdrant() -> None:
@@ -214,21 +307,22 @@ def _openai_compatible_answer(query: str, chunks: list[dict[str, object]]) -> st
 def rag_search(req: RagSearchRequest) -> dict[str, object]:
     """Qdrant에서 관련 문서 청크를 검색합니다."""
     _require_qdrant()
-    chunks = _search(req.query, req.top_k, req.score_threshold)
-    return {"query": req.query, "embed_method": _embedding_method(), "count": len(chunks), "results": chunks}
+    chunks, actual_mode = _search(req.query, req.top_k, req.score_threshold, req.search_mode)
+    return {"query": req.query, "embed_method": _embedding_method(), "search_mode": actual_mode, "count": len(chunks), "results": chunks}
 
 
 @router.post("/api/rag/ask")
 def rag_ask(req: RagAskRequest) -> dict[str, object]:
     """RAG 검색 결과만으로 답변을 만들고, 선택 시 외부 AI로 문장만 다듬습니다."""
     _require_qdrant()
-    chunks = _search(req.query, req.top_k, req.score_threshold)
+    chunks, actual_mode = _search(req.query, req.top_k, req.score_threshold, req.search_mode)
     answer = _rag_only_answer(chunks) if req.provider == "rag" else _openai_compatible_answer(req.query, chunks)
     return {
         "query": req.query,
         "answer": answer,
         "provider": req.provider,
         "embed_method": _embedding_method(),
+        "search_mode": actual_mode,
         "sources": chunks,
         "source_count": len(chunks),
     }
@@ -252,6 +346,7 @@ def rag_status() -> dict[str, object]:
             info = {"error": "컬렉션이 없거나 조회 실패"}
     return {
         "qdrant": {"available": available, "collection_available": collection_available, "url": _QDRANT_URL, "collection": _QDRANT_COLLECTION, **info},
+        "hybrid_search": {"meilisearch_available": _meili_available(), "index": _MEILI_INDEX},
         "external_ai": {"openai_compatible_available": bool(os.getenv("RAG_LLM_API_KEY") and os.getenv("RAG_LLM_MODEL"))},
         "embedding": {
             "provider": _RAG_EMBEDDING_PROVIDER,

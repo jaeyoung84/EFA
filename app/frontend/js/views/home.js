@@ -414,7 +414,7 @@ export function homeView(container) {
           <h1 id="jy-dashboard-title">오늘의 투자 대시보드</h1>
           <p>시장 흐름, 포트폴리오 위험, 전략 신호를 한눈에 확인하세요.</p>
         </div>
-        <div class="jy-data-status"><span class="jy-live-dot"></span><strong>시장 데이터</strong><small>Yahoo Finance · 지연 시세</small></div>
+        <div class="jy-data-status" id="jy-market-data-status"><span class="jy-live-dot"></span><strong>시장 데이터</strong><small>일봉 수집 상태를 확인하는 중…</small></div>
       </section>
 
       <section class="jy-overview-grid" aria-label="투자 현황 요약">
@@ -471,6 +471,26 @@ export function homeView(container) {
 
   const actionCountEl = container.querySelector('[data-jy-action-count]');
   if (actionCountEl) actionCountEl.textContent = String(container.querySelectorAll('.jy-action-row').length);
+
+  async function loadMarketRefreshStatus() {
+    const root = container.querySelector('#jy-market-data-status');
+    if (!root) return;
+    try {
+      const response = await fetch('/api/market/refresh-status');
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      const job = data.last_job;
+      const text = root.querySelector('small');
+      if (!job) text.textContent = '자동 일봉 수집 대기 중';
+      else if (data.stale_tickers?.length) text.textContent = `일봉 최신성 확인 필요 · ${data.stale_tickers.join(', ')}`;
+      else if (data.active_alert_count) text.textContent = `데이터 품질 경고 ${data.active_alert_count}건 · 운영 리포트에서 확인`;
+      else if (job.status === 'success') text.textContent = `일봉 갱신 완료 · ${job.success_count}개 대상 · ${String(job.finished_at || job.started_at).slice(0, 10)}`;
+      else text.textContent = `일봉 수집 일부 실패 · 성공 ${job.success_count || 0} / 실패 ${job.failure_count || 0}`;
+    } catch {
+      root.querySelector('small').textContent = '일봉 수집 상태를 확인하지 못했습니다';
+    }
+  }
+  loadMarketRefreshStatus();
 
   async function loadStrategySummary() {
     const countEl = container.querySelector('[data-jy-strategy-count]');
@@ -585,19 +605,20 @@ export function homeView(container) {
       // 다를 수 있다. loadMarketSnapshot()이 이 함수 이후에 더 정확한 값으로
       // 덮어쓴다 — 이 값은 그게 실패했을 때의 폴백일 뿐이다.
       const last = ohlcv.at(-1);
+      const latestDate = String(last.date || '').slice(0, 10);
       const previousClose = ohlcv.length > 1 ? ohlcv.at(-2).c : last.o;
       const changePercent = ((last.c / previousClose) - 1) * 100;
       const isUp = changePercent >= 0;
       price.textContent = last.c.toLocaleString(undefined, { maximumFractionDigits: 2 });
       change.textContent = `${isUp ? '▲' : '▼'} ${Math.abs(changePercent).toFixed(2)}%`;
       change.className = isUp ? 'is-up' : 'is-down';
-      source.textContent = data.is_simulated ? '시뮬레이션 데이터' : 'Yahoo Finance · 15분 지연';
+      source.textContent = data.is_simulated ? '시뮬레이션 데이터' : data.data_source === 'cached' ? `검증 캐시 · ${latestDate} 일봉 종가` : `Yahoo Finance · ${latestDate} 일봉 종가`;
       source.classList.toggle('is-simulated', Boolean(data.is_simulated));
       const overviewValue = container.querySelector(`[data-jy-market="${id}"]`);
       const overviewChange = container.querySelector(`[data-jy-change="${id}"]`);
       if (overviewValue) overviewValue.textContent = last.c.toLocaleString(undefined, { maximumFractionDigits: 2 });
       if (overviewChange) {
-        overviewChange.textContent = `${isUp ? '+' : '-'}${Math.abs(changePercent).toFixed(2)}% · ${data.is_simulated ? '가상 데이터' : '지연 시세'}`;
+        overviewChange.textContent = `${isUp ? '+' : '-'}${Math.abs(changePercent).toFixed(2)}% · ${data.is_simulated ? '가상 데이터' : `${latestDate} 마감 기준`}`;
         overviewChange.className = isUp ? 'is-up' : 'is-down';
       }
       footLabel.innerHTML = `<i class="fa-solid fa-chart-line"></i> ${barsFootLabel(period)}`;
@@ -643,13 +664,14 @@ export function homeView(container) {
       if (!ohlcv.length) throw new Error('데이터 없음');
 
       const last = ohlcv.at(-1);
+      const latestDate = String(last.date || '').slice(0, 10);
       const previousClose = ohlcv.length > 1 ? ohlcv.at(-2).c : last.o;
       const changePercent = ((last.c / previousClose) - 1) * 100;
       const isUp = changePercent >= 0;
       price.textContent = last.c.toLocaleString(undefined, { maximumFractionDigits: 2 });
       change.textContent = `${isUp ? '▲' : '▼'} ${Math.abs(changePercent).toFixed(2)}%`;
       change.className = isUp ? 'is-up' : 'is-down';
-      source.textContent = data.is_simulated ? '시뮬레이션 데이터' : 'Yahoo Finance · 15분 지연';
+      source.textContent = data.is_simulated ? '시뮬레이션 데이터' : data.data_source === 'cached' ? `검증 캐시 · ${latestDate} 일봉 종가` : `Yahoo Finance · ${latestDate} 일봉 종가`;
       source.classList.toggle('is-simulated', Boolean(data.is_simulated));
       footLabel.innerHTML = `<i class="fa-solid fa-chart-line"></i> ${barsFootLabel(period, true, interval)}`;
 

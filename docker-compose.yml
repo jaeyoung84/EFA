@@ -7,29 +7,83 @@ services:
     image: jaeyoungsong/jy-investing:latest
     build:
       context: .
-      dockerfile: Dockerfile.desktop
+      dockerfile: Dockerfile.service
     container_name: investment_backend
     restart: unless-stopped
-    ports:
-      - "${APP_PORT:-8000}:8000"
+    # 일부 WSL2 환경은 Docker FORWARD 규칙이 컨테이너 간 통신과 외부 시세
+    # 요청을 함께 차단한다. 로컬 백엔드만 host 네트워크를 사용해 이를 피한다.
+    network_mode: host
+    command: ["sh", "-c", "uvicorn app.backend.main:app --host 0.0.0.0 --port ${APP_PORT:-8000}"]
     environment:
-      MONGODB_URL: mongodb://mongo:27017
+      APP_PORT: ${APP_PORT:-8000}
+      MONGODB_URL: mongodb://127.0.0.1:${MONGO_PORT:-27017}
       MONGODB_DB: ${MONGODB_DB:-investment_db}
-      QDRANT_URL: http://qdrant:6333
+      QDRANT_URL: http://127.0.0.1:${QDRANT_PORT:-6333}
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-investment_docs}
-      MEILI_URL: http://meilisearch:7700
+      MEILI_URL: http://127.0.0.1:${MEILI_PORT:-7700}
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-local-development-search-key-change-me}
       RAG_EMBEDDING_PROVIDER: ${RAG_EMBEDDING_PROVIDER:-hash}
-      RAG_EMBEDDING_URL: ${RAG_EMBEDDING_URL:-http://ollama:11434/api/embed}
+      RAG_EMBEDDING_URL: ${RAG_EMBEDDING_URL:-http://127.0.0.1:11434/api/embed}
       RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-embeddinggemma}
       RAG_EMBEDDING_TIMEOUT_SECONDS: ${RAG_EMBEDDING_TIMEOUT_SECONDS:-180}
-      RAG_LLM_BASE_URL: ${RAG_LLM_BASE_URL:-http://ollama:11434/v1}
+      RAG_LLM_BASE_URL: ${RAG_LLM_BASE_URL:-http://127.0.0.1:11434/v1}
       RAG_LLM_API_KEY: ${RAG_LLM_API_KEY:-ollama}
       RAG_LLM_MODEL: ${RAG_LLM_MODEL:-qwen3:8b}
       RAG_LLM_TIMEOUT_SECONDS: ${RAG_LLM_TIMEOUT_SECONDS:-180}
       DART_API_KEY: ${DART_API_KEY:-}
+      KRX_COMPANY_LIST_URL: ${KRX_COMPANY_LIST_URL:-}
+      KRX_COMPANY_LIST_TIMEOUT_SECONDS: ${KRX_COMPANY_LIST_TIMEOUT_SECONDS:-4}
+      MARKET_DATA_PROVIDERS: ${MARKET_DATA_PROVIDERS:-yahoo,stooq,fred}
+      MARKET_DATA_REVIEW_REJECTION_PCT: ${MARKET_DATA_REVIEW_REJECTION_PCT:-1}
+      FRED_SERIES_MAP: ${FRED_SERIES_MAP:-KRW=X=DEXKOUS}
+      FX_CROSSCHECK_MAX_DEVIATION_PCT: ${FX_CROSSCHECK_MAX_DEVIATION_PCT:-3}
+      MARKET_DATA_PROVIDER_MIN_ATTEMPTS: ${MARKET_DATA_PROVIDER_MIN_ATTEMPTS:-3}
+      MARKET_DATA_PROVIDER_MAX_ERROR_RATE_PCT: ${MARKET_DATA_PROVIDER_MAX_ERROR_RATE_PCT:-20}
+      MARKET_DATA_PROVIDER_MAX_REJECTION_RATE_PCT: ${MARKET_DATA_PROVIDER_MAX_REJECTION_RATE_PCT:-5}
+      MARKET_DATA_PROVIDER_SLOW_LATENCY_MS: ${MARKET_DATA_PROVIDER_SLOW_LATENCY_MS:-5000}
+      MARKET_DATA_PROVIDER_LATENCY_BASELINE_DAYS: ${MARKET_DATA_PROVIDER_LATENCY_BASELINE_DAYS:-7}
+      MARKET_DATA_PROVIDER_LATENCY_MIN_BASELINE_SNAPSHOTS: ${MARKET_DATA_PROVIDER_LATENCY_MIN_BASELINE_SNAPSHOTS:-3}
+      MARKET_DATA_PROVIDER_LATENCY_REGRESSION_PCT: ${MARKET_DATA_PROVIDER_LATENCY_REGRESSION_PCT:-75}
+      MARKET_DATA_PROVIDER_BACKOFF_BASE_MINUTES: ${MARKET_DATA_PROVIDER_BACKOFF_BASE_MINUTES:-5}
+      MARKET_DATA_PROVIDER_BACKOFF_MAX_MINUTES: ${MARKET_DATA_PROVIDER_BACKOFF_MAX_MINUTES:-120}
+      MARKET_DATA_DAILY_REFRESH_ENABLED: ${MARKET_DATA_DAILY_REFRESH_ENABLED:-true}
+      MARKET_DATA_DAILY_REFRESH_HOUR_KST: ${MARKET_DATA_DAILY_REFRESH_HOUR_KST:-18}
+      MARKET_DATA_DAILY_REFRESH_MINUTE_KST: ${MARKET_DATA_DAILY_REFRESH_MINUTE_KST:-25}
+      MARKET_DATA_REFRESH_DAYS: ${MARKET_DATA_REFRESH_DAYS:-370}
+      MARKET_DATA_CORE_TICKERS: ${MARKET_DATA_CORE_TICKERS:-^KS11,^KQ11,^GSPC,^IXIC,KRW=X}
+      KQS_BRIDGE_URL: ${KQS_BRIDGE_URL:-http://127.0.0.1:18100}
+      KQS_REVIEW_SLA_HOURS: ${KQS_REVIEW_SLA_HOURS:-4}
+      KQS_REVIEW_DUE_SOON_MINUTES: ${KQS_REVIEW_DUE_SOON_MINUTES:-60}
+      KQS_OPERATIONS_ACK_SLA_HOURS: ${KQS_OPERATIONS_ACK_SLA_HOURS:-8}
+      KQS_OUTCOME_MIN_SAMPLE_SIZE: ${KQS_OUTCOME_MIN_SAMPLE_SIZE:-20}
+      RESEARCH_REVALIDATION_MAX_AGE_DAYS: ${RESEARCH_REVALIDATION_MAX_AGE_DAYS:-31}
       KOSIS_API_KEY: ${KOSIS_API_KEY:-}
       BOK_API_KEY: ${BOK_API_KEY:-}
+      EXECUTION_MODE: ${EXECUTION_MODE:-paper}
+      EXECUTION_GLOBAL_KILL_SWITCH: ${EXECUTION_GLOBAL_KILL_SWITCH:-false}
+      LIVE_TRADING_ENABLED: ${LIVE_TRADING_ENABLED:-false}
+      LIVE_TRADING_KILL_SWITCH: ${LIVE_TRADING_KILL_SWITCH:-true}
+      BROKER_ADAPTER: ${BROKER_ADAPTER:-}
+      BROKER_SANDBOX_ENABLED: ${BROKER_SANDBOX_ENABLED:-false}
+      BROKER_SECRET_SOURCE: ${BROKER_SECRET_SOURCE:-none}
+      BROKER_API_KEY_REF: ${BROKER_API_KEY_REF:-}
+      BROKER_API_SECRET_REF: ${BROKER_API_SECRET_REF:-}
+      BROKER_ACCOUNT_ID_REF: ${BROKER_ACCOUNT_ID_REF:-}
+      EXECUTION_OPERATOR_EMAILS: ${EXECUTION_OPERATOR_EMAILS:-}
+      STRATEGY_PROMOTION_REVIEW_DAYS: ${STRATEGY_PROMOTION_REVIEW_DAYS:-30}
+      STRATEGY_PROMOTION_PERFORMANCE_GAP_PCT: ${STRATEGY_PROMOTION_PERFORMANCE_GAP_PCT:-10}
+      PAPER_ORDER_REQUIRE_PROMOTION_APPROVAL: ${PAPER_ORDER_REQUIRE_PROMOTION_APPROVAL:-false}
+      PAPER_ORDER_BLOCK_PROMOTION_ALERTS: ${PAPER_ORDER_BLOCK_PROMOTION_ALERTS:-true}
+      PAPER_LIVE_REVIEW_MIN_TRADING_DAYS: ${PAPER_LIVE_REVIEW_MIN_TRADING_DAYS:-20}
+      PAPER_LIVE_REVIEW_MIN_ORDER_DECISIONS: ${PAPER_LIVE_REVIEW_MIN_ORDER_DECISIONS:-3}
+      PAPER_LIVE_REVIEW_MAX_MDD_PCT: ${PAPER_LIVE_REVIEW_MAX_MDD_PCT:-10}
+      PAPER_LIVE_REVIEW_MAX_PERFORMANCE_GAP_PCT: ${PAPER_LIVE_REVIEW_MAX_PERFORMANCE_GAP_PCT:-10}
+      PAPER_LIVE_REVIEW_MAX_BLOCK_RATE_PCT: ${PAPER_LIVE_REVIEW_MAX_BLOCK_RATE_PCT:-20}
+      PAPER_LIVE_REVIEW_MAX_REDUCED_RATE_PCT: ${PAPER_LIVE_REVIEW_MAX_REDUCED_RATE_PCT:-20}
+      PAPER_LIVE_REVIEW_MAX_SANDBOX_REJECTION_RATE_PCT: ${PAPER_LIVE_REVIEW_MAX_SANDBOX_REJECTION_RATE_PCT:-10}
+      BROKER_API_KEY: ${BROKER_API_KEY:-}
+      BROKER_API_SECRET: ${BROKER_API_SECRET:-}
+      BROKER_ACCOUNT_ID: ${BROKER_ACCOUNT_ID:-}
       AWS_REGION: ${AWS_REGION:-}
       LEX_BOT_ID: ${LEX_BOT_ID:-}
       LEX_BOT_ALIAS_ID: ${LEX_BOT_ALIAS_ID:-}
@@ -37,17 +91,17 @@ services:
       AWS_PROFILE: ${AWS_PROFILE:-investment-analysis-lex}
     volumes:
       - ./docs:/app/docs:ro
+      # 백업 파일은 실행 컨테이너에 쓰지 않고, 복구 준비 상태 점검용으로만 읽는다.
+      - ./backups:/app/backups:ro
     depends_on:
       mongo:
         condition: service_healthy
       qdrant:
-        condition: service_started
+        condition: service_healthy
       meilisearch:
         condition: service_healthy
-      ollama:
-        condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8000/api/health"]
+      test: ["CMD-SHELL", "curl --fail http://127.0.0.1:${APP_PORT:-8000}/api/health"]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -80,11 +134,18 @@ services:
       - "${QDRANT_GRPC_PORT:-6334}:6334"
     volumes:
       - investment_qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/6333'"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
   meilisearch:
     image: getmeili/meilisearch:v1.15.2
     container_name: investment_meilisearch
     restart: unless-stopped
+    ports:
+      - "${MEILI_PORT:-7700}:7700"
     environment:
       MEILI_ENV: development
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-local-development-search-key-change-me}
@@ -112,9 +173,12 @@ services:
     command: ["python", "/app/scripts/index_docs_meilisearch.py"]
 
   ollama:
+    profiles: ["ai", "ollama-init"]
     image: ollama/ollama:latest
     container_name: investment_ollama
     restart: unless-stopped
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
     volumes:
       - investment_ollama_data:/root/.ollama
     healthcheck:
@@ -150,7 +214,7 @@ services:
 
   # 문서를 변경한 뒤 `docker compose --profile tools run --rm docs-index`로 실행합니다.
   docs-index:
-    profiles: ["tools"]
+    profiles: ["init", "tools"]
     image: jaeyoungsong/jy-investing:latest
     restart: "no"
     environment:
@@ -164,8 +228,6 @@ services:
       - ./docs:/app/docs:ro
     depends_on:
       qdrant:
-        condition: service_started
-      ollama:
         condition: service_healthy
     command: ["/app/scripts/upload_docs_to_qdrant.sh"]
 

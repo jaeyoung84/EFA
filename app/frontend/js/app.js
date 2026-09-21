@@ -26,6 +26,7 @@ import { portfolioHoldingsView } from './views/portfolioHoldings.js';
 import { portfolioRiskView } from './views/portfolioRisk.js';
 import { strategyBacktestView } from './views/strategyBacktest.js';
 import { strategyListView } from './views/strategyList.js';
+import { leverageDcaView } from './views/leverageDca.js';
 import { portfolioCombinationView } from './views/portfolioCombination.js';
 import { portfolioGuideView } from './views/portfolioGuide.js';
 import { portfolioRegimeView } from './views/portfolioRegime.js';
@@ -212,6 +213,7 @@ const routes = {
   'backtest':          { label: '백테스트 엔진',          render: () => backtestView(app) },
   'strategy-backtest': { label: '실제 가격 백테스트',      render: () => strategyBacktestView(app) },
   'my-strategies':     { label: '내 전략',                render: () => strategyListView(app) },
+  'leverage-dca':      { label: '레버리지 DCA 자동매매(모의)', render: () => leverageDcaView(app) },
   'quant-lean':        { label: 'Quant · LEAN 백테스트 리포트', render: () => quantView(app) },
   'portfolio':         { label: '포트폴리오 최적화',      render: () => portfolioView(app) },
   'portfolio-holdings': { label: '내 보유자산',           render: () => portfolioHoldingsView(app) },
@@ -410,7 +412,7 @@ function navigate(view) {
 
   // 현재 화면이 속한 사이드바 섹션만 펼치고 나머지는 닫는다 (사용 중인 메뉴만 열림)
   const marketViews = ['world-markets','asset-classes','today-gainers','today-sobujang','technical-chart','company-financial','dart-company-search','industry-analysis'];
-  const strategyViews = ['backtest','strategy-backtest','my-strategies','quant-lean','pipeline','cross-validation','chart-drawing'];
+  const strategyViews = ['backtest','strategy-backtest','my-strategies','leverage-dca','quant-lean','pipeline','cross-validation','chart-drawing'];
   const portfolioViews = ['portfolio','portfolio-holdings','portfolio-risk','portfolio-combination','portfolio-guide','portfolio-regime','portfolio-simulation','risk'];
   const researchViews = ['macro-realtime','valuation','financial-statement','rag-chat','quiz-home','learn-11'];
   const settingsViews = ['server-resources','tax-accounting'];

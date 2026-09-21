@@ -15,6 +15,8 @@ openpyxl
 yfinance
 pykrx
 matplotlib
+pandas_market_calendars
+apscheduler
 
 # 백엔드 라우터의 분석·이미지 처리 기능
 scikit-learn

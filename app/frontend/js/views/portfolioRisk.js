@@ -29,6 +29,9 @@ function metricCard(label, value, note, tone = '') {
 
 function availableView(data) {
   const currencyRows = Object.entries(data.currency_exposure || {}).map(([ccy, weight]) => `<div><span>${ccy}</span><strong>${pct(weight, 1)}</strong></div>`).join('');
+  const sectorRows = Object.entries(data.sector_exposure || {}).map(([sector, weight]) => `<div><span>${escapeHtml(sector)}</span><strong>${pct(weight, 1)}</strong></div>`).join('');
+  const alerts = (data.policy_alerts || []).map((alert) => `<li><b>${escapeHtml(alert.message)}</b><small>${pct(alert.actual_pct, 1)} / 한도 ${pct(alert.limit_pct, 1)}</small></li>`).join('');
+  const target = data.volatility_target || {};
   const maxPosition = data.max_position;
   return `
     <section class="risk-basis-note">
@@ -51,6 +54,8 @@ function availableView(data) {
       ${metricCard('평가 총액', money(data.total_value_krw), '지연 시세 기준 원화 환산')}
     </div>
     <section class="risk-currency"><h3>통화 노출</h3><div class="risk-currency-grid">${currencyRows}</div></section>
+    <section class="risk-currency"><h3>업종 노출</h3><div class="risk-currency-grid">${sectorRows || '<div><span>업종 미입력</span><strong>-</strong></div>'}</div></section>
+    <section class="risk-basis-note"><i class="fa-solid fa-scale-balanced"></i><p><b>위험 정책</b> ${alerts ? `</p><ul>${alerts}</ul>` : ' 모든 현재 한도가 충족됩니다.</p>'}${target.available ? `<p>목표 변동성 ${pct(target.target_annual_volatility_pct, 1)} 기준 위험자산 비중 ${pct(target.risky_asset_scale * 100, 1)}, 권고 현금 버퍼 ${pct(target.cash_buffer_pct, 1)}</p>` : ''}</section>
     ${excludedList(data.excluded)}`;
 }
 

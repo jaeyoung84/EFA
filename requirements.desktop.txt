@@ -14,6 +14,7 @@ openpyxl
 yfinance
 pykrx
 matplotlib
+pandas_market_calendars
 scikit-learn
 scipy
 apscheduler

@@ -11,15 +11,21 @@ function renderResult(container, req, data) {
   const result = container.querySelector('#sbt-result');
   const m = data.metrics;
   const b = data.benchmark_metrics;
+  const v = data.benchmark_validation || {};
+  const costs = data.cost_sensitivity || [];
   result.innerHTML = `
     <p style="margin:0 0 14px; padding:12px 14px; background:rgba(59,130,246,.08); border:1px solid rgba(59,130,246,.35); border-radius:9px; color:#93c5fd; font-size:.78rem; line-height:1.6;">
-      <i class="fa-solid fa-circle-check"></i> <b>실제 종가 데이터</b>(Yahoo Finance 일별 종가, 기준일 ${data.as_of})로 계산했습니다. GBM 가상 시뮬레이션은 <b>전략 백테스트</b> 화면을 참고하세요.
+      <i class="fa-solid fa-circle-check"></i> <b>실제 OHLC 데이터</b>(Yahoo Finance, 기준일 ${data.as_of})로 계산했습니다. ${data.execution.execution_rule} · 실행 ID <code>${data.execution.run_id}</code>
     </p>
     <img src="${data.image}" style="width:100%; border-radius:8px; margin-bottom:16px;"/>
     <div style="display:flex; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
       <div class="metric-box"><div style="font-size:.7rem; color:#64748b;">현재 상태</div><div style="font-size:1rem; font-weight:700; color:${data.current_position.startsWith('매수') ? '#22c55e' : '#94a3b8'};">${data.current_position}</div></div>
       <div class="metric-box"><div style="font-size:.7rem; color:#64748b;">최근 신호 변경일</div><div style="font-size:1rem; font-weight:700; color:var(--text);">${data.last_signal_change_at || '-'}</div></div>
       <div class="metric-box"><div style="font-size:.7rem; color:#64748b;">거래횟수</div><div style="font-size:1rem; font-weight:700; color:var(--text);">${data.n_trades}회</div></div>
+    </div>
+    <div style="margin:0 0 16px; padding:12px; background:#0f172a; border:1px solid #232938; border-radius:8px; font-size:.76rem; color:#cbd5e1;">
+      <b style="color:var(--text);">벤치마크 검증</b> · 초과수익률 ${v.excess_return == null ? '-' : pct(v.excess_return, 2)} · 연환산 알파 ${v.alpha_annualized == null ? '-' : pct(v.alpha_annualized, 2)} · 베타 ${v.beta ?? '-'} · 상관계수 ${v.correlation ?? '-'}<br>
+      <span style="color:#94a3b8;">비용 민감도(동일 신호): ${costs.map((row) => `${row.cost_multiplier}× 비용 → ${pct(row.total_return, 2)}`).join(' / ') || '-'}</span>
     </div>
     <div style="overflow-x:auto; margin-bottom:16px;">
       <table style="width:100%; min-width:420px; border-collapse:collapse; font-size:.8rem;">
@@ -61,12 +67,15 @@ function renderResult(container, req, data) {
             params: {
               fast_ma: req.fast_ma, slow_ma: req.slow_ma, period: req.period,
               transaction_cost_bps: req.transaction_cost_bps, slippage_bps: req.slippage_bps,
+              initial_capital: data.initial_capital,
               benchmark_ticker: data.benchmark_ticker,
             },
             snapshot: {
-              metrics: m, benchmark_metrics: b, benchmark_label: data.benchmark_label,
+              metrics: m, benchmark_metrics: b, benchmark_label: data.benchmark_label, benchmark_validation: v, cost_sensitivity: costs,
+              strategy_return_series: data.strategy_return_series,
               n_trades: data.n_trades, current_position: data.current_position,
               last_signal_change_at: data.last_signal_change_at, as_of: data.as_of,
+              backtest_execution: data.execution,
             },
           }),
         });

@@ -1,4 +1,9 @@
-# Qunat 관련 과정
+# Quant 관련 과정
+
+> `IV-TEST`의 퀀트 학습·포트폴리오·전략 기능과
+> [`edumgt/domain-rag-lab`](https://github.com/edumgt/domain-rag-lab)의 도메인 RAG 설계를
+> 하나의 기본 플랫폼으로 통합했습니다. 상세 구조와 확장 순서는
+> [통합 퀀트 플랫폼 아키텍처](docs/QUANT_PLATFORM_ARCHITECTURE.md)를 참고하세요.
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/jaeyoung84/IV-TEST)
 
@@ -83,10 +88,11 @@
 저장소 최상위 폴더에서 실행합니다.
 
 ```bash
-# 최초 실행: 앱·MongoDB·Qdrant·Ollama를 시작하고 퀴즈 데이터를 적재합니다.
+# 최초 실행: 앱·MongoDB·Qdrant·Meilisearch를 시작하고 초기 데이터를 적재합니다.
 docker compose --profile init up --build -d
 
 # 최초 한 번: 로컬 답변 모델과 임베딩 모델을 받습니다.
+docker compose --profile ai up -d ollama
 docker compose --profile ollama-init run --rm ollama-init
 
 # 모델을 받은 뒤 문서를 Ollama 임베딩으로 색인합니다.
@@ -105,6 +111,9 @@ http://localhost:8000/api/health
 ```
 
 ## 삼성전자 LEAN 백테스트 (별도 Compose 구성)
+
+QuantConnect 공식 저장소 도입 판단과 격리된 LEAN CLI 설치 방법은
+[docs/QUANTCONNECT_REVIEW.md](docs/QUANTCONNECT_REVIEW.md)를 참고하세요.
 
 웹앱과 독립적으로 QuantConnect LEAN 기반 삼성전자(`005930.KS`) 일봉 예제를
 실행할 수 있습니다. 실행 이미지에는 전략 모듈이 포함되며, 컨테이너가 시작할 때
@@ -159,12 +168,18 @@ APP_PORT=8080
 MONGO_PORT=27018
 QDRANT_PORT=6335
 QDRANT_GRPC_PORT=6336
+MEILI_PORT=7701
+OLLAMA_PORT=11434
 
 # 선택 사항: 공시·통계 API 기능
 DART_API_KEY=
 ```
 
 `APP_PORT`를 바꿨다면 접속 주소도 예를 들어 <http://localhost:8080>으로 바뀝니다.
+로컬 Compose는 WSL2에서 컨테이너 간 전달 규칙과 외부 시세 요청이 차단되는 경우에도
+동작하도록 백엔드에 host 네트워크를 사용합니다. MongoDB·Qdrant·Meilisearch·Ollama는
+호스트에 공개된 로컬 포트로 연결됩니다. Ollama의 `OLLAMA_PORT`를 11434가 아닌 값으로 바꿀 때는
+`RAG_EMBEDDING_URL`과 `RAG_LLM_BASE_URL`에도 같은 포트를 지정해야 합니다.
 
 ### 문서 검색 색인 만들기
 
@@ -295,7 +310,23 @@ Lex 봇은 배포한 버전의 별칭을 사용하세요. 애플리케이션을 
 | `LEX_BOT_ALIAS_ID` | AI 투자 도우미 | 배포한 Amazon Lex V2 별칭 ID입니다. |
 | `LEX_LOCALE_ID` | AI 투자 도우미 | Lex 로캘입니다. 기본값은 `ko_KR`입니다. |
 | `DART_API_KEY` | 기업·공시 분석 | OpenDART 인증키입니다. 키를 공개 저장소나 화면 캡처에 포함하지 마세요. |
+| `KRX_COMPANY_LIST_URL` | 국내 종목 검색 | 선택 설정입니다. KIND 직접 접근이 제한된 운영 환경에서 `name`·`code`·`market` 필드를 가진 상장법인 JSON 미러를 지정합니다. |
+| `KRX_COMPANY_LIST_TIMEOUT_SECONDS` | 국내 종목 검색 | KIND 또는 JSON 미러를 처음 불러올 때의 제한 시간입니다. 성공 결과는 24시간 캐시합니다. |
+| `MARKET_DATA_PROVIDERS` | 시장 데이터 | 일봉 OHLCV 공급자 우선순위입니다. 기본값은 `yahoo,stooq`이며 저장된 검증 데이터가 장애 시 폴백합니다. |
+| `STOOQ_SYMBOL_MAP` | 시장 데이터 | Stooq 보조 공급자에 사용할 명시적 심볼 매핑입니다. 예: `SPY=spy.us` |
+| `MARKET_DATA_PROVIDER_SLOW_LATENCY_MS` | 시장 데이터 | 최소 표본을 충족한 공급자의 평균 응답 시간이 이 값(ms) 이상이면 느린 공급자로 후순위 배치합니다. 기본값은 `5000`입니다. |
+| `MARKET_DATA_PROVIDER_LATENCY_BASELINE_DAYS` | 시장 데이터 | 지연 악화 추세의 일일 기준선 조회 기간입니다. 기본값은 `7`일입니다. |
+| `MARKET_DATA_PROVIDER_LATENCY_MIN_BASELINE_SNAPSHOTS` | 시장 데이터 | 지연 악화 경고를 내기 위한 최소 과거 스냅샷 수입니다. 기본값은 `3`입니다. |
+| `MARKET_DATA_PROVIDER_LATENCY_REGRESSION_PCT` | 시장 데이터 | 평균 응답 시간이 기준선보다 이 비율 이상 늘면 운영 경고를 만듭니다. 기본값은 `75`입니다. |
 | `DIFFUSERS_MODEL_ID` | 텍스트-이미지 생성 | 선택 설정입니다. 기본 모델을 바꾸려는 GPU 환경에서만 사용합니다. |
+
+시장 일봉 데이터의 수집·품질 검사·버전 기록과 재수집 명령은 [MARKET_DATA.md](docs/MARKET_DATA.md)를 참고하세요.
+저장된 검증 일봉으로 계산하는 관측 팩터와 기준일·데이터셋 추적은 [FACTOR_ENGINE.md](docs/FACTOR_ENGINE.md)를 참고하세요.
+실제 일봉 백테스트의 체결·비용·재현 규칙은 [BACKTEST_ENGINE.md](docs/BACKTEST_ENGINE.md)를 참고하세요.
+훈련·검증·테스트 분리와 워크포워드 기반 전략 연구는 [STRATEGY_RESEARCH.md](docs/STRATEGY_RESEARCH.md)를 참고하세요.
+포트폴리오 한도·노출·VaR·CVaR·변동성 타기팅은 [RISK_POLICY.md](docs/RISK_POLICY.md)를 참고하세요.
+주문 제안의 모의 체결·현금·집중도 통제는 [PAPER_EXECUTION_CONTROL.md](docs/PAPER_EXECUTION_CONTROL.md)를 참고하세요.
+실거래 연동 전 권한·킬스위치·비밀값 관리 점검은 [EXECUTION_READINESS.md](docs/EXECUTION_READINESS.md)를 참고하세요.
 
 MongoDB·Qdrant·Ollama를 모두 로컬에 설치하지 않았다면, Docker Compose로 세 서비스를 실행한 뒤
 Python 백엔드를 직접 실행할 수도 있습니다.

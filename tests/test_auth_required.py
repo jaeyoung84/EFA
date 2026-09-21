@@ -36,8 +36,14 @@ async def test_strategy_fills_requires_auth(client):
     assert resp.status_code == 401
 
 
-async def test_strategy_backtest_preview_does_not_require_auth(client):
+async def test_strategy_backtest_preview_does_not_require_auth(client, monkeypatch):
     """미저장 백테스트 미리보기는 로그인 없이도 가능해야 한다(저장만 인증 필요)."""
+    import pandas as pd
+    from app.backend.routers import strategy
+
+    dates = pd.date_range("2024-01-02", periods=220, freq="B")
+    close = pd.Series([100 + index * 0.2 + (index % 9) for index in range(len(dates))], index=dates)
+    monkeypatch.setattr(strategy, "_download_ohlc_frame", lambda _ticker, _period: pd.DataFrame({"Open": close, "Close": close}))
     resp = await client.post(
         "/api/strategy/backtest",
         json={"ticker": "AAPL", "fast_ma": 20, "slow_ma": 60, "period": "1y"},

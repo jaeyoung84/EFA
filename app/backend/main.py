@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import base64
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import io
 import json
 import os
@@ -37,6 +37,20 @@ try:
     from .db import get_db
 except ImportError:
     from db import get_db
+
+try:
+    from .instrument_catalog import search_krx_instruments
+except ImportError:
+    from instrument_catalog import search_krx_instruments  # type: ignore
+
+try:
+    from .market_data import (MarketDataError, core_market_freshness, ensure_market_data_indexes,
+                              get_daily_ohlcv, market_data_operations_report, market_data_status, market_factor_snapshot,
+                              market_factor_universe_snapshot)
+except ImportError:
+    from market_data import (MarketDataError, core_market_freshness, ensure_market_data_indexes,
+                             get_daily_ohlcv, market_data_operations_report, market_data_status, market_factor_snapshot,
+                             market_factor_universe_snapshot)  # type: ignore
 
 try:
     import orjson
@@ -127,6 +141,7 @@ try:
     from .routers.auth import router as auth_router
     from .routers.portfolio import router as portfolio_router
     from .routers.strategy import router as strategy_router
+    from .routers.kqs import router as kqs_router
     from . import pattern_detection
 except ImportError:  # Allows `uvicorn main:app` from app/backend.
     from routers.ml import router as ml_router  # type: ignore
@@ -140,6 +155,7 @@ except ImportError:  # Allows `uvicorn main:app` from app/backend.
     from routers.auth import router as auth_router  # type: ignore
     from routers.portfolio import router as portfolio_router  # type: ignore
     from routers.strategy import router as strategy_router  # type: ignore
+    from routers.kqs import router as kqs_router  # type: ignore
     import pattern_detection  # type: ignore
 app.include_router(ml_router)
 app.include_router(quant_router)
@@ -149,6 +165,7 @@ app.include_router(lex_router)
 app.include_router(auth_router)
 app.include_router(portfolio_router)
 app.include_router(strategy_router)
+app.include_router(kqs_router)
 # Routers registered below are also included before the schema is first requested;
 # the OpenAPI factory is installed at the bottom of this module.
 
@@ -160,6 +177,11 @@ except ImportError:
 
 @app.on_event("startup")
 async def _start_background_scheduler() -> None:
+    try:
+        await ensure_market_data_indexes()
+    except Exception as exc:
+        # 시세 DB가 잠시 준비되지 않아도 기존 화면과 스케줄러 기동은 유지한다.
+        print(f"Market-data indexes not ready during startup: {exc}")
     start_scheduler()
 
 
@@ -1193,6 +1215,11 @@ class MarketSnapshotRequest(BaseModel):
     tickers: list[str] = ["^KS11", "^IXIC", "KRW=X"]
 
 
+class MarketDataRefreshRequest(BaseModel):
+    tickers: list[str] = Field(default_factory=lambda: ["^KS11", "^KQ11", "^GSPC", "^IXIC", "KRW=X"], min_length=1, max_length=10)
+    days: int = Field(default=370, ge=1, le=3650)
+
+
 class PortfolioCombinationRequest(BaseModel):
     ticker_a: str = Field(default="AAPL", min_length=1, max_length=20)
     ticker_b: str = Field(default="JNJ", min_length=1, max_length=20)
@@ -1390,6 +1417,90 @@ def market_snapshot(req: MarketSnapshotRequest) -> dict[str, object]:
         "items": items,
         "fetched_at": fetched_at.isoformat(),
     }
+
+
+@app.post("/api/market/data/refresh")
+async def refresh_market_data(req: MarketDataRefreshRequest) -> dict[str, object]:
+    """지정 종목의 검증된 일봉을 수집·버전 기록 후 저장한다.
+
+    로컬 운영자용 API이며 호출당 종목 수와 기간을 제한해 공급자 과부하를 막는다.
+    """
+    import datetime as _dt
+
+    end = _dt.date.today() + _dt.timedelta(days=1)
+    start = end - _dt.timedelta(days=req.days)
+    items: list[dict[str, object]] = []
+    for raw_ticker in req.tickers:
+        ticker = raw_ticker.strip().upper()
+        if not re.fullmatch(r"[A-Z0-9.^=\-]{1,24}", ticker):
+            items.append({"ticker": raw_ticker, "status": "error", "error": "유효하지 않은 티커입니다."})
+            continue
+        try:
+            result = await get_daily_ohlcv(ticker, start, end)
+            items.append({"ticker": ticker, "status": "ok", "bars": len(result["bars"]), "source": result["source"],
+                          "dataset_version": result["dataset_version"], "quality": result["quality"],
+                          "provider_attempts": result.get("provider_attempts", []),
+                          "provider_routing": result.get("provider_routing", [])})
+        except MarketDataError as exc:
+            items.append({"ticker": ticker, "status": "error", "error": str(exc)})
+    return {"start": start.isoformat(), "end": end.isoformat(), "items": items}
+
+
+@app.get("/api/market/data-status")
+async def get_market_data_status(ticker: str = "^KS11") -> dict[str, object]:
+    """저장된 최신 OHLCV와 마지막 수집 실행의 출처·품질·버전을 반환한다."""
+    if not re.fullmatch(r"[A-Za-z0-9.^=\-]{1,24}", ticker):
+        raise HTTPException(status_code=400, detail="유효하지 않은 티커입니다.")
+    return await market_data_status(ticker)
+
+
+@app.get("/api/market/factors")
+async def get_market_factors(ticker: str = "^KS11", as_of: str | None = None) -> dict[str, object]:
+    """저장된 검증 일봉의 관측 팩터와 데이터 기준일을 읽는다."""
+    if not re.fullmatch(r"[A-Za-z0-9.^=\-]{1,24}", ticker):
+        raise HTTPException(status_code=400, detail="유효하지 않은 티커입니다.")
+    try:
+        snapshot = await market_factor_snapshot(ticker, as_of)
+    except MarketDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    snapshot["computed_at"] = snapshot["computed_at"].isoformat()
+    return snapshot
+
+
+@app.get("/api/market/factor-universe")
+async def get_market_factor_universe(tickers: str, as_of: str | None = None) -> dict[str, object]:
+    """공통 기준일을 만족하는 종목만 관측 팩터 상대순위로 비교한다."""
+    names = [ticker.strip().upper() for ticker in tickers.split(",") if ticker.strip()]
+    if not names or any(not re.fullmatch(r"[A-Z0-9.^=\-]{1,24}", ticker) for ticker in names):
+        raise HTTPException(status_code=400, detail="쉼표로 구분한 유효 티커를 입력하세요.")
+    try:
+        snapshot = await market_factor_universe_snapshot(names, as_of)
+    except MarketDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    snapshot["computed_at"] = snapshot["computed_at"].isoformat()
+    return snapshot
+
+
+@app.get("/api/market/refresh-status")
+async def get_market_refresh_status() -> dict[str, object]:
+    """최근 자동 일봉 수집 결과와 핵심 시장 캐시 최신성을 반환한다."""
+    db = get_db()
+    job = await db.market_data_refresh_jobs.find_one({}, {"_id": 0}, sort=[("started_at", -1)])
+    freshness = await core_market_freshness()
+    cache = {ticker: {"latest": status["latest"], "source": status["source"]} for ticker, status in freshness.items()}
+    active_alerts = await db.market_data_alerts.find(
+        {"condition_active": True}, {"_id": 0, "title": 1, "severity": 1, "type": 1},
+    ).sort("updated_at", -1).to_list(20)
+    return {"last_job": job, "core_cache": cache,
+            "stale_tickers": [ticker for ticker, status in freshness.items() if status["stale"]],
+            "active_alert_count": len(active_alerts), "active_alerts": active_alerts,
+            "automatic_action": "일봉 수집 실패 시 마지막 검증 캐시를 유지하며, 주문·포트폴리오 원장은 변경하지 않습니다."}
+
+
+@app.get("/api/market/operations-report")
+async def get_market_operations_report(days: int = 7) -> dict[str, object]:
+    """최근 일봉 수집·품질 경고·핵심 지수 최신성의 읽기 전용 운영 리포트다."""
+    return await market_data_operations_report(days)
 
 
 @app.get("/api/market/volume-cloud")
@@ -3256,16 +3367,18 @@ KOREAN_SEARCH_ALIASES = {
 
 @app.get("/api/home/chart-search")
 def home_chart_search(q: str = "") -> dict[str, object]:
-    """Yahoo Finance 자동완성과 기본 대표 종목으로 차트 검색 결과를 제공한다."""
+    """KRX 전체 상장사와 Yahoo Finance 자동완성으로 종목을 검색한다."""
     query = q.strip()
     if len(query) < 1:
         return {"items": []}
     items: list[dict[str, str]] = []
     lowered = query.lower()
-    # 한글 검색은 먼저 KRX 별칭을 확인한다. 부분 검색도 지원한다.
+    # 국내 종목은 KIND 상장법인 목록을 우선 사용한다. 운영 환경에서 KIND 접근이
+    # 제한되면 KRX_COMPANY_LIST_URL JSON 미러 또는 아래 정적 별칭으로 폴백한다.
+    items.extend(search_krx_instruments(query, limit=12))
     for alias, (ticker, name) in KOREAN_SEARCH_ALIASES.items():
         if lowered in alias.lower() or lowered in name.lower():
-            items.append({"ticker": ticker, "name": name, "exchange": "Korea Exchange"})
+            items.append({"ticker": ticker, "name": name, "exchange": "Korea Exchange", "source": "static_alias"})
     try:
         url = "https://query1.finance.yahoo.com/v1/finance/search?" + urllib.parse.urlencode({"q": query, "quotesCount": 12, "newsCount": 0})
         request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -3276,18 +3389,26 @@ def home_chart_search(q: str = "") -> dict[str, object]:
             ticker = str(quote.get("symbol", "")).upper()
             if quote.get("quoteType") not in allowed_types or not re.fullmatch(r"[A-Z0-9.^=\-]{1,24}", ticker):
                 continue
-            items.append({"ticker": ticker, "name": str(quote.get("shortname") or quote.get("longname") or ticker), "exchange": str(quote.get("exchange", ""))})
+            items.append({"ticker": ticker, "name": str(quote.get("shortname") or quote.get("longname") or ticker), "exchange": str(quote.get("exchange", "")), "source": "yahoo_finance"})
     except Exception:
         pass
     if not items:
         for config in MODAL_CHART_INSTRUMENTS.values():
             if lowered in config["ticker"].lower() or lowered in config["name"].lower():
-                items.append({"ticker": config["ticker"], "name": config["name"], "exchange": ""})
-    return {"items": items[:12]}
+                items.append({"ticker": config["ticker"], "name": config["name"], "exchange": "", "source": "static_fallback"})
+    deduplicated: list[dict[str, str]] = []
+    seen_tickers: set[str] = set()
+    for item in items:
+        ticker = item["ticker"]
+        if ticker in seen_tickers:
+            continue
+        seen_tickers.add(ticker)
+        deduplicated.append(item)
+    return {"items": deduplicated[:12]}
 
 
 @app.get("/api/home/market-candle")
-def home_market_candle(market: str = "kospi", period: str = "3mo", interval: str = "5m", ticker: str = "", timeframe: str = "") -> dict[str, object]:
+async def home_market_candle(market: str = "kospi", period: str = "3mo", interval: str = "5m", ticker: str = "", timeframe: str = "") -> dict[str, object]:
     if period not in PERIOD_DAYS and period not in INTRADAY_PERIODS:
         period = "3mo"
     if interval not in INTRADAY_INTERVALS:
@@ -3300,9 +3421,13 @@ def home_market_candle(market: str = "kospi", period: str = "3mo", interval: str
         interval, history_days = CHART_TIMEFRAMES[timeframe]
         intraday = interval in INTRADAY_INTERVALS
         display_days = history_days
+        response_interval = interval
     else:
         intraday = period in INTRADAY_PERIODS
         display_days = PERIOD_DAYS.get(period, 90)
+        # 기간 버튼(1M·3M 등)은 항상 일봉을 반환한다. 기본 interval=5m은
+        # 1일 화면에서만 의미가 있으므로 일봉 응답에 그대로 노출하면 안 된다.
+        response_interval = interval if intraday else "1d"
     import pandas as pd
     import datetime as _dt
     display_from: str | None = None
@@ -3325,13 +3450,23 @@ def home_market_candle(market: str = "kospi", period: str = "3mo", interval: str
             end_date = _dt.date.today() + _dt.timedelta(days=1)
             start_date = end_date - _dt.timedelta(days=days + MA_LOOKBACK_BUFFER_DAYS)
             display_from = (end_date - _dt.timedelta(days=days)).isoformat()
-            df = yf.download(config["ticker"], start=start_date.isoformat(), end=end_date.isoformat(),
-                             interval="1d", progress=False, auto_adjust=True, threads=False)
-            if timeframe in {"1wk", "1mo", "1y"} and not df.empty:
-                if isinstance(df.columns, pd.MultiIndex):
-                    df.columns = df.columns.get_level_values(0)
+            # 홈 차트는 마지막 검증 캐시가 있으면 즉시 표시한다. 명시적 데이터
+            # 수집 API·배치는 prefer_cached=False로 최신 공급자를 계속 조회한다.
+            stored = await get_daily_ohlcv(config["ticker"], start_date, end_date, adjusted=True, prefer_cached=True)
+            frame = pd.DataFrame(stored["bars"])
+            if frame.empty:
+                raise ValueError("empty")
+            frame.index = pd.to_datetime(frame["timestamp"])
+            if timeframe in {"1wk", "1mo", "1y"}:
                 rule = {"1wk": "W-FRI", "1mo": "ME", "1y": "YE"}[timeframe]
-                df = df.resample(rule).agg({"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}).dropna(subset=["Open", "High", "Low", "Close"])
+                frame = frame.resample(rule).agg({"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}).dropna(subset=["open", "high", "low", "close"])
+            ohlcv = [{"date": str(idx)[:10], "o": round(float(row["open"]), 2), "h": round(float(row["high"]), 2),
+                      "l": round(float(row["low"]), 2), "c": round(float(row["close"]), 2), "v": int(row["volume"] or 0)}
+                     for idx, row in frame.iterrows()]
+            return {"market": market, "name": config["name"], "ticker": config["ticker"], "ohlcv": ohlcv,
+                    "is_simulated": False, "display_from": display_from, "interval": response_interval,
+                    "data_source": stored["source"], "dataset_version": stored["dataset_version"],
+                    "data_quality": stored["quality"]}
         if df.empty:
             raise ValueError("empty")
         ohlcv = []
@@ -3344,13 +3479,11 @@ def home_market_candle(market: str = "kospi", period: str = "3mo", interval: str
                     v = list(v)[0]
                 return round(float(v), 2)
             ohlcv.append({
-                "date": idx.isoformat() if intraday else str(idx)[:10],
-                "o": _f("Open"), "h": _f("High"),
-                "l": _f("Low"),  "c": _f("Close"),
-                "v": int(_f("Volume") or 0),
+                "date": idx.isoformat(), "o": _f("Open"), "h": _f("High"),
+                "l": _f("Low"), "c": _f("Close"), "v": int(_f("Volume") or 0),
             })
         return {"market": market, "name": config["name"], "ticker": config["ticker"], "ohlcv": ohlcv,
-                "is_simulated": False, "display_from": display_from, "interval": interval}
+                "is_simulated": False, "display_from": display_from, "interval": response_interval, "data_source": "yahoo_intraday"}
     except Exception:
         import math
         rng_state = config["seed"]
@@ -3394,13 +3527,13 @@ def home_market_candle(market: str = "kospi", period: str = "3mo", interval: str
                               "l": round(l, 2), "c": round(c, 2), "v": int(_rand() * 1e8)})
                 price = c
         return {"market": market, "name": config["name"], "ticker": config["ticker"], "ohlcv": ohlcv,
-                "is_simulated": True, "display_from": display_from, "interval": interval}
+                "is_simulated": True, "display_from": display_from, "interval": response_interval}
 
 
 @app.get("/api/home/kospi-candle")
-def home_kospi_candle(period: str = "3mo") -> dict[str, object]:
+async def home_kospi_candle(period: str = "3mo") -> dict[str, object]:
     """Backward-compatible KOSPI endpoint for older clients."""
-    return home_market_candle("kospi", period)
+    return await home_market_candle("kospi", period)
 
 
 @app.get("/api/home/box-range")

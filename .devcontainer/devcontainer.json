@@ -4,13 +4,19 @@
   "features": {
     "ghcr.io/devcontainers/features/docker-in-docker:2": {}
   },
-  "forwardPorts": [8000],
+  "postCreateCommand": "bash scripts/setup_lean_cli.sh",
+  "forwardPorts": [8000, 6333],
   "portsAttributes": {
     "8000": {
       "label": "JY Investing Web Application",
       "onAutoForward": "openBrowser",
       "visibility": "public"
+    },
+    "6333": {
+      "label": "Qdrant Dashboard",
+      "onAutoForward": "silent",
+      "visibility": "private"
     }
   },
-  "postStartCommand": "docker compose up -d"
+  "postStartCommand": "docker compose --profile init up -d"
 }

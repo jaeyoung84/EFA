@@ -69,11 +69,15 @@ def main() -> None:
         encoding="utf-8",
     )
 
+    # app.js는 이제 index.html에 심어둔 정적 메뉴가 아니라 LEARN_DOCS(learnDocs.js)에서
+    # 라우트를 동적으로 생성한다(app.js의 `learnRoutes`). 예전 nav-children 마커가 없는
+    # index.html에서는 이 치환을 건너뛴다 — 생성되는 학습 메뉴는 이미 항상 최신 상태다.
     source = INDEX_HTML.read_text(encoding="utf-8")
     replacements = {
         "learn": menu_html(learn_docs),
         "review": menu_html(review_docs),
     }
+    updated = False
     for section_id, rows in replacements.items():
         replacement = f'<div class="nav-children" id="nav-{section_id}">\n{rows}\n          </div>'
         source, count = re.subn(
@@ -83,10 +87,13 @@ def main() -> None:
             count=1,
             flags=re.S,
         )
-        if count != 1:
-            raise SystemExit(f"index.html에서 {section_id} 학습 메뉴를 찾지 못했습니다.")
+        if count == 1:
+            updated = True
+        else:
+            print(f"index.html에 {section_id} 정적 메뉴 마커가 없어 건너뜁니다(동적 라우트로 대체됨).")
 
-    INDEX_HTML.write_text(source, encoding="utf-8")
+    if updated:
+        INDEX_HTML.write_text(source, encoding="utf-8")
     print(f"학습 메뉴 동기화 완료: 일반 {len(learn_docs)}개, 지난주 정리 {len(review_docs)}개")
 
 

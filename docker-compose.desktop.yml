@@ -2,6 +2,10 @@ name: jy-investing-desktop
 
 # 개인 데스크톱에서 포트폴리오·시장·전략 화면을 빠르게 실행하는 경량 구성입니다.
 # 문서 AI(RAG), Ollama, Qdrant, Meilisearch가 필요하면 기존 docker-compose.yml을 사용합니다.
+#
+# MongoDB는 이 구성 전용 컨테이너를 새로 띄우지 않고, docker-compose.yml(프로젝트명
+# investment-analysis)이 이미 실행 중인 investment_mongo를 그대로 공유한다. 기존
+# 회원·전략 데이터를 유지하기 위한 선택이며, investment_mongo가 먼저 떠 있어야 한다.
 services:
   backend:
     build:
@@ -16,7 +20,7 @@ services:
       - path: .env.desktop
         required: false
     environment:
-      MONGODB_URL: mongodb://mongo:27017
+      MONGODB_URL: mongodb://investment_mongo:27017
       MONGODB_DB: ${MONGODB_DB:-jy_investing}
       # 경량 실행에서는 RAG 서버 의존성을 만들지 않는다.
       RAG_EMBEDDING_PROVIDER: hash
@@ -25,9 +29,9 @@ services:
       # DART_API_KEY는 위 env_file(.env.desktop)에서 주입한다. 여기서 다시 선언하면
       # environment:가 env_file:보다 우선순위가 높아 항상 빈 문자열로 덮어써진다.
       # 미설정 시 DART 기업 검색·재무제표 화면만 502를 반환하고 나머지는 정상 동작한다.
-    depends_on:
-      mongo:
-        condition: service_healthy
+    networks:
+      - default
+      - investment_analysis_shared
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8000/api/health"]
       interval: 15s
@@ -35,19 +39,7 @@ services:
       retries: 10
       start_period: 25s
 
-  mongo:
-    image: mongo:7
-    container_name: jy_investing_mongo
-    restart: unless-stopped
-    environment:
-      MONGO_INITDB_DATABASE: ${MONGODB_DB:-jy_investing}
-    volumes:
-      - jy_investing_mongo_data:/data/db
-    healthcheck:
-      test: ["CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping').ok\"" ]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-volumes:
-  jy_investing_mongo_data:
+networks:
+  investment_analysis_shared:
+    name: investment-analysis_default
+    external: true

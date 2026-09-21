@@ -1,32 +1,13 @@
 import { authRequest, isAuthenticated, openAuthModal } from '../auth.js';
 
-const emptyHolding = () => ({ ticker: '', name: '', quantity: '', average_price: '', currency: 'KRW' });
+const emptyHolding = () => ({ ticker: '', name: '', quantity: '', average_price: '', currency: 'KRW', sector: '미분류' });
 const money = (value) => new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 }).format(Number(value) || 0);
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
 
 export async function portfolioValuation(portfolio) {
   const holdings = portfolio.holdings || [];
   if (!holdings.length) return { available: true, value_krw: Number(portfolio.cash_krw) || 0, profit_krw: 0, return_pct: 0, priced_count: 0, holding_count: 0, positions: [] };
-  const tickers = [...new Set([...holdings.map((item) => item.ticker), ...(holdings.some((item) => item.currency === 'USD') ? ['KRW=X'] : [])])];
-  const response = await fetch('/api/market/snapshot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tickers }) });
-  if (!response.ok) throw new Error('시세를 불러오지 못했습니다.');
-  const quoteByTicker = new Map((await response.json()).items.filter((item) => item.status === 'ok').map((item) => [item.ticker, Number(item.value)]));
-  const usdKrw = quoteByTicker.get('KRW=X');
-  let valueKrw = Number(portfolio.cash_krw) || 0;
-  let costKrw = Number(portfolio.cash_krw) || 0;
-  let pricedCount = 0;
-  const positions = [];
-  holdings.forEach((item) => {
-    const price = quoteByTicker.get(item.ticker);
-    const fx = item.currency === 'USD' ? usdKrw : 1;
-    if (!Number.isFinite(price) || !Number.isFinite(fx)) return;
-    valueKrw += price * item.quantity * fx;
-    costKrw += item.average_price * item.quantity * fx;
-    pricedCount += 1;
-    positions.push({ ...item, value_krw: price * item.quantity * fx, cost_krw: item.average_price * item.quantity * fx, profit_krw: (price - item.average_price) * item.quantity * fx });
-  });
-  const profitKrw = valueKrw - costKrw;
-  return { available: pricedCount === holdings.length, value_krw: valueKrw, profit_krw: profitKrw, return_pct: costKrw ? profitKrw / costKrw * 100 : 0, priced_count: pricedCount, holding_count: holdings.length, positions };
+  return authRequest('/api/portfolio/valuation');
 }
 
 export function portfolioInsights(portfolio, valuation) {
@@ -43,11 +24,16 @@ export function portfolioInsights(portfolio, valuation) {
 
 function holdingRow(holding, index) {
   return `<tr data-holding-row="${index}">
-    <td><input data-field="ticker" value="${escapeHtml(holding.ticker)}" placeholder="005930.KS" maxlength="20" aria-label="티커"></td>
-    <td><div class="holdings-ticker-search"><input data-field="name" value="${escapeHtml(holding.name)}" placeholder="종목명 입력 (자동 검색)" maxlength="80" autocomplete="off" aria-label="종목명 검색"><ul class="holdings-search-results" hidden></ul></div></td>
+    <td><div class="holdings-ticker-search" data-selected-name="${escapeHtml(holding.name)}">
+      <input data-field="name" value="${escapeHtml(holding.name)}" placeholder="예: 삼성전자, Apple" maxlength="80" autocomplete="off" aria-label="종목명 검색">
+      <input data-field="ticker" type="hidden" value="${escapeHtml(holding.ticker)}">
+      <small class="holdings-selected-ticker" ${holding.ticker ? '' : 'hidden'}>${holding.ticker ? `자동 연결: ${escapeHtml(holding.ticker)}` : ''}</small>
+      <ul class="holdings-search-results" hidden></ul>
+    </div></td>
     <td><input data-field="quantity" type="number" min="0.000001" step="any" value="${escapeHtml(holding.quantity)}" aria-label="수량"></td>
     <td><input data-field="average_price" type="number" min="0" step="any" value="${escapeHtml(holding.average_price)}" aria-label="평균 단가"></td>
     <td><select data-field="currency" aria-label="통화"><option value="KRW" ${holding.currency === 'KRW' ? 'selected' : ''}>KRW</option><option value="USD" ${holding.currency === 'USD' ? 'selected' : ''}>USD</option></select></td>
+    <td><input data-field="sector" value="${escapeHtml(holding.sector || '미분류')}" placeholder="예: 반도체" maxlength="40" aria-label="업종"></td>
     <td><button type="button" class="holdings-remove" aria-label="종목 삭제"><i class="fa-solid fa-trash-can"></i></button></td>
   </tr>`;
 }
@@ -59,7 +45,16 @@ function readHoldings(container) {
     quantity: Number(row.querySelector('[data-field="quantity"]').value),
     average_price: Number(row.querySelector('[data-field="average_price"]').value),
     currency: row.querySelector('[data-field="currency"]').value,
+    sector: row.querySelector('[data-field="sector"]').value.trim() || '미분류',
   })).filter((holding) => holding.ticker || holding.name || holding.quantity || holding.average_price);
+}
+
+function factorExposureHtml(data) {
+  if (!data.available) return `<header><div><span class="jy-section-label">FACTOR EXPOSURE</span><h2>보유 팩터 노출</h2></div></header><p class="holdings-valuation-note">${escapeHtml(data.reason || '팩터 데이터를 준비 중입니다.')}</p>`;
+  const factors = data.weighted_factors || {};
+  const pct = (value) => value == null ? '-' : `${(Number(value) * 100).toFixed(2)}%`;
+  const rows = (data.positions || []).map((position) => `<tr><td>${escapeHtml(position.name || position.ticker)}</td><td>${position.weight_pct.toFixed(1)}%</td><td>${pct(position.factors.return_20d)}</td><td>${pct(position.factors.realized_volatility_20d)}</td><td>${pct(position.factors.max_drawdown_60d)}</td></tr>`).join('');
+  return `<header><div><span class="jy-section-label">FACTOR EXPOSURE</span><h2>보유 팩터 노출</h2></div><small>${escapeHtml(data.as_of)} 기준 · 종목 커버리지 ${data.coverage_pct}%</small></header><div class="holdings-insight-grid"><article><span>20일 수익률</span><strong>${pct(factors.return_20d)}</strong><small>보유비중 가중 관측값</small></article><article><span>20일 변동성</span><strong>${pct(factors.realized_volatility_20d)}</strong><small>연율화 실현변동성</small></article><article><span>60일 최대낙폭</span><strong>${pct(factors.max_drawdown_60d)}</strong><small>보유비중 가중 관측값</small></article></div><div class="holdings-table-wrap"><table><thead><tr><th>종목</th><th>비중</th><th>20일 수익률</th><th>20일 변동성</th><th>60일 MDD</th></tr></thead><tbody>${rows}</tbody></table></div><p class="holdings-valuation-note">${escapeHtml(data.disclaimer)}</p>`;
 }
 
 export function portfolioHoldingsView(container) {
@@ -73,7 +68,8 @@ export function portfolioHoldingsView(container) {
     <header class="holdings-head"><div><span class="jy-section-label">MY PORTFOLIO</span><h1>보유 자산</h1><p>장부 기준 보유 내역입니다. 시세 평가와 주문 연동은 다음 단계에서 추가됩니다.</p></div><div><strong id="holdings-book-value">₩0</strong><small>장부 기준 자산</small></div></header>
     <div class="holdings-summary"><article><span>현금</span><strong id="holdings-cash-summary">₩0</strong></article><article><span>보유 종목</span><strong id="holdings-count">0개</strong></article><article><span>취득금액</span><strong id="holdings-cost">₩0</strong></article><article><span>평가손익</span><strong id="holdings-profit">조회 전</strong></article></div><p id="holdings-valuation-note" class="holdings-valuation-note">가격 데이터를 불러오는 중…</p>
     <section class="holdings-insights" id="holdings-insights" hidden></section>
-    <section class="holdings-editor"><header><h2>보유 내역 입력</h2><p>종목명을 입력하면 티커가 자동으로 채워집니다. 직접 검색되지 않으면 국내 종목은 <b>005930.KS</b>, 미국 종목은 <b>AAPL</b> 형식으로 티커를 입력하세요.</p></header><label class="holdings-cash-label">보유 현금 (KRW)<input id="holdings-cash" type="number" min="0" step="1000" value="0"></label><div class="holdings-table-wrap"><table><thead><tr><th>티커</th><th>종목명</th><th>수량</th><th>평균 단가</th><th>통화</th><th></th></tr></thead><tbody id="holdings-rows"></tbody></table></div><div class="holdings-actions"><button type="button" id="holdings-add"><i class="fa-solid fa-plus"></i> 종목 추가</button><button type="button" class="run-btn" id="holdings-save"><i class="fa-solid fa-floppy-disk"></i> 포트폴리오 저장</button></div><p id="holdings-status" class="holdings-status" aria-live="polite"></p></section>
+    <section class="holdings-insights" id="holdings-factor-exposure" hidden></section>
+    <section class="holdings-editor"><header><h2>보유 내역 입력</h2><p>종목명만 입력하세요. 정확히 일치하는 종목은 자동으로 연결되며, 이름이 비슷한 종목이 여러 개면 검색 목록에서 선택할 수 있습니다. 업종을 입력하면 리스크 화면에서 업종별 쏠림도 점검합니다.</p></header><label class="holdings-cash-label">보유 현금 (KRW)<input id="holdings-cash" type="number" min="0" step="1000" value="0"></label><div class="holdings-table-wrap"><table><thead><tr><th>종목명</th><th>수량</th><th>평균 단가</th><th>통화</th><th>업종</th><th></th></tr></thead><tbody id="holdings-rows"></tbody></table></div><div class="holdings-actions"><button type="button" id="holdings-add"><i class="fa-solid fa-plus"></i> 종목 추가</button><button type="button" class="run-btn" id="holdings-save"><i class="fa-solid fa-floppy-disk"></i> 포트폴리오 저장</button></div><p id="holdings-status" class="holdings-status" aria-live="polite"></p></section>
   </section>`;
 
   const rows = container.querySelector('#holdings-rows');
@@ -88,12 +84,20 @@ export function portfolioHoldingsView(container) {
   const renderValuation = (valuation) => {
     const profit = container.querySelector('#holdings-profit');
     const note = container.querySelector('#holdings-valuation-note');
+    if (!valuation.available) {
+      container.querySelector('#holdings-book-value').textContent = '평가 불가';
+      profit.textContent = '시세 확인 필요';
+      profit.className = '';
+      const reasons = (valuation.excluded || []).slice(0, 2).map((item) => `${item.name || item.ticker}: ${item.reason}`).join(' · ');
+      note.textContent = `일부 시세를 확인하지 못했습니다. ${valuation.priced_count}/${valuation.holding_count}개 종목만 평가되었습니다.${reasons ? ` ${reasons}` : ''}`;
+      return;
+    }
     container.querySelector('#holdings-book-value').textContent = `₩${money(valuation.value_krw)}`;
     profit.textContent = `${valuation.profit_krw >= 0 ? '+' : '-'}₩${money(Math.abs(valuation.profit_krw))} (${valuation.return_pct >= 0 ? '+' : ''}${valuation.return_pct.toFixed(2)}%)`;
     profit.className = valuation.profit_krw >= 0 ? 'is-profit' : 'is-loss';
-    note.textContent = valuation.available
-      ? `Yahoo Finance 지연 시세 기준 · ${valuation.priced_count}개 종목 평가 완료${valuation.holding_count > valuation.priced_count ? ` (${valuation.holding_count - valuation.priced_count}개 종목은 제외)` : ''} · USD 자산은 현재 USD/KRW 환율로 원화 환산`
-      : `일부 시세를 불러오지 못했습니다. ${valuation.priced_count}/${valuation.holding_count}개 종목만 평가에 반영했습니다.`;
+    const source = valuation.source === 'market_data_cache_daily' ? '검증 캐시 · 일봉 종가' : '지연 시세·검증 캐시 혼합';
+    const asOf = (valuation.positions || []).map((item) => item.quoted_at).filter(Boolean).sort().at(-1);
+    note.textContent = `${source}${asOf ? ` · 기준일 ${asOf.slice(0, 10)}` : ''} · ${valuation.priced_count}개 종목 평가 완료 · USD 자산은 USD/KRW 환율로 원화 환산`;
   };
   const renderInsights = (data, valuation) => {
     const insight = portfolioInsights(data, valuation);
@@ -104,6 +108,10 @@ export function portfolioHoldingsView(container) {
     root.innerHTML = `<header><div><span class="jy-section-label">PORTFOLIO INSIGHTS</span><h2>비중과 집중도</h2></div><span class="holdings-concentration is-${insight.concentration === '높음' ? 'high' : insight.concentration === '보통' ? 'mid' : 'low'}">집중도 ${insight.concentration}</span></header><div class="holdings-insight-grid"><article><span>최대 비중</span><strong>${insight.max_position ? `${escapeHtml(insight.max_position.name || insight.max_position.ticker)} ${insight.max_position.weight_pct.toFixed(1)}%` : '-'}</strong><small>현금도 하나의 자산으로 포함합니다.</small></article><article><span>통화 노출</span><div class="holdings-currency">${currencies}</div><small>USD는 현재 환율 기준 원화 환산입니다.</small></article></div><ol class="holdings-weight-list">${positions}</ol>`;
     root.hidden = false;
   };
+  const loadFactorExposure = async () => {
+    const root = container.querySelector('#holdings-factor-exposure');
+    try { const data = await authRequest('/api/portfolio/factor-exposure'); root.hidden = false; root.innerHTML = factorExposureHtml(data); } catch { root.hidden = false; root.innerHTML = factorExposureHtml({ available: false, reason: '팩터 노출 데이터를 불러오지 못했습니다.' }); }
+  };
   const load = async () => {
     try {
       const data = await authRequest('/api/portfolio');
@@ -111,17 +119,59 @@ export function portfolioHoldingsView(container) {
       (data.holdings?.length ? data.holdings : [emptyHolding()]).forEach(append);
       renderSummary(data);
       try { const valuation = await portfolioValuation(data); renderValuation(valuation); renderInsights(data, valuation); } catch { container.querySelector('#holdings-valuation-note').textContent = '시세를 불러오지 못해 장부 기준 금액을 표시합니다.'; }
+      await loadFactorExposure();
     } catch (error) { status.textContent = error.message; status.classList.add('is-error'); append(); }
   };
   rows.addEventListener('click', (event) => { if (event.target.closest('.holdings-remove')) { event.target.closest('tr').remove(); if (!rows.children.length) append(); } });
 
   let tickerSearchTimer = null;
   let tickerSearchAbort = null;
+  const normalizedName = (value) => String(value || '').trim().toLocaleLowerCase().replace(/\s+/g, '');
+  const selectInstrument = (row, item) => {
+    const wrapper = row.querySelector('.holdings-ticker-search');
+    const nameInput = row.querySelector('[data-field="name"]');
+    const tickerInput = row.querySelector('[data-field="ticker"]');
+    const badge = row.querySelector('.holdings-selected-ticker');
+    nameInput.value = item.name;
+    tickerInput.value = item.ticker;
+    wrapper.dataset.selectedName = item.name;
+    badge.textContent = `자동 연결: ${item.ticker}`;
+    badge.hidden = false;
+    row.querySelector('[data-field="currency"]').value = /\.(KS|KQ)$/.test(item.ticker) ? 'KRW' : 'USD';
+    const list = row.querySelector('.holdings-search-results');
+    list.hidden = true;
+    list.replaceChildren();
+  };
+  const searchInstruments = async (query, signal) => {
+    const response = await fetch(`/api/home/chart-search?q=${encodeURIComponent(query)}`, { signal });
+    if (!response.ok) throw new Error('종목 검색에 실패했습니다.');
+    return (await response.json()).items || [];
+  };
+  const resolveRowTicker = async (row) => {
+    const nameInput = row.querySelector('[data-field="name"]');
+    const tickerInput = row.querySelector('[data-field="ticker"]');
+    const query = nameInput.value.trim();
+    const selectedName = row.querySelector('.holdings-ticker-search').dataset.selectedName;
+    if (!query || (tickerInput.value && normalizedName(query) === normalizedName(selectedName))) return;
+    const items = await searchInstruments(query);
+    const exact = items.find((item) => normalizedName(item.name) === normalizedName(query));
+    const selected = exact || (items.length === 1 ? items[0] : null);
+    if (!selected) throw new Error(`“${query}” 종목을 하나로 결정할 수 없습니다. 검색 목록에서 종목을 선택하세요.`);
+    selectInstrument(row, selected);
+  };
   rows.addEventListener('input', (event) => {
     const nameInput = event.target.closest('[data-field="name"]');
     if (!nameInput) return;
-    const list = nameInput.nextElementSibling;
+    const row = nameInput.closest('tr');
+    const wrapper = nameInput.closest('.holdings-ticker-search');
+    const list = wrapper.querySelector('.holdings-search-results');
     const query = nameInput.value.trim();
+    if (normalizedName(query) !== normalizedName(wrapper.dataset.selectedName)) {
+      row.querySelector('[data-field="ticker"]').value = '';
+      const badge = row.querySelector('.holdings-selected-ticker');
+      badge.textContent = '';
+      badge.hidden = true;
+    }
     clearTimeout(tickerSearchTimer);
     tickerSearchAbort?.abort();
     list.hidden = true;
@@ -130,22 +180,15 @@ export function portfolioHoldingsView(container) {
     tickerSearchTimer = setTimeout(async () => {
       tickerSearchAbort = new AbortController();
       try {
-        const response = await fetch(`/api/home/chart-search?q=${encodeURIComponent(query)}`, { signal: tickerSearchAbort.signal });
-        if (!response.ok) return;
-        const data = await response.json();
-        (data.items || []).forEach((item) => {
+        const items = await searchInstruments(query, tickerSearchAbort.signal);
+        const exact = items.find((item) => normalizedName(item.name) === normalizedName(query));
+        if (exact) { selectInstrument(row, exact); return; }
+        items.forEach((item) => {
           const li = document.createElement('li');
           const button = document.createElement('button');
           button.type = 'button';
           button.textContent = `${item.name} · ${item.ticker}${item.exchange ? ` (${item.exchange})` : ''}`;
-          button.addEventListener('click', () => {
-            const row = nameInput.closest('tr');
-            nameInput.value = item.name;
-            row.querySelector('[data-field="ticker"]').value = item.ticker;
-            row.querySelector('[data-field="currency"]').value = /\.(KS|KQ)$/.test(item.ticker) ? 'KRW' : 'USD';
-            list.hidden = true;
-            list.replaceChildren();
-          });
+          button.addEventListener('click', () => selectInstrument(row, item));
           li.appendChild(button);
           list.appendChild(li);
         });
@@ -161,14 +204,15 @@ export function portfolioHoldingsView(container) {
   container.querySelector('#holdings-add').addEventListener('click', () => append());
   container.querySelector('#holdings-save').addEventListener('click', async () => {
     const button = container.querySelector('#holdings-save');
-    const holdings = readHoldings(container);
-    if (holdings.some((item) => !item.ticker || !Number.isFinite(item.quantity) || item.quantity <= 0 || !Number.isFinite(item.average_price) || item.average_price < 0)) {
-      status.textContent = '각 종목의 티커, 수량, 평균 단가를 올바르게 입력하세요.'; status.className = 'holdings-status is-error'; return;
-    }
     button.disabled = true; status.textContent = '저장 중…'; status.className = 'holdings-status';
     try {
+      await Promise.all([...rows.querySelectorAll('[data-holding-row]')].map(resolveRowTicker));
+      const holdings = readHoldings(container);
+      if (holdings.some((item) => !item.name || !item.ticker || !Number.isFinite(item.quantity) || item.quantity <= 0 || !Number.isFinite(item.average_price) || item.average_price < 0)) {
+        throw new Error('각 종목의 종목명, 수량, 평균 단가를 올바르게 입력하세요.');
+      }
       const data = await authRequest('/api/portfolio', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cash_krw: Number(container.querySelector('#holdings-cash').value) || 0, holdings }) });
-      renderSummary(data); try { const valuation = await portfolioValuation(data); renderValuation(valuation); renderInsights(data, valuation); } catch {} status.textContent = '내 포트폴리오를 저장했습니다.'; status.classList.add('is-success');
+      renderSummary(data); try { const valuation = await portfolioValuation(data); renderValuation(valuation); renderInsights(data, valuation); } catch {} await loadFactorExposure(); status.textContent = '내 포트폴리오를 저장했습니다.'; status.classList.add('is-success');
     } catch (error) { status.textContent = error.message; status.classList.add('is-error'); } finally { button.disabled = false; }
   });
   load();

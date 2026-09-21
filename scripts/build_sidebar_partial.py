@@ -30,7 +30,10 @@ def main() -> None:
     html = INDEX_HTML.read_text(encoding="utf-8")
     match = re.search(r'<nav class="sidebar-nav">.*?</nav>', html, re.S)
     if not match:
-        raise SystemExit("index.html에서 <nav class=\"sidebar-nav\"> 블록을 찾지 못했습니다.")
+        # 상단 드롭다운(mainnav-group) 방식으로 개편된 뒤에는 이 블록이 없다. 정적 MPA
+        # partial은 개편 전 마지막 버전을 그대로 두고, 빌드를 막지 않는다.
+        print('index.html에서 <nav class="sidebar-nav"> 블록을 찾지 못해 건너뜁니다(상단 드롭다운 메뉴로 개편됨).')
+        return
 
     nav = match.group(0)
     # SPA 라우트(data-view)가 있는 항목엔 정적 페이지에서도 동작하도록 href 보강
