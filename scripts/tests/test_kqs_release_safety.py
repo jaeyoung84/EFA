@@ -10,7 +10,7 @@ sys.path.insert(0, str(ROOT))
 from scripts.check_kqs_release import inspect_configuration
 
 FILES = ("docker-compose.prod.yml", "infra/docker/docker-compose.engine.yml",
-         ".github/workflows/kqs-runtime.yml", ".github/workflows/deploy.yml")
+         ".github/workflows/kqs-runtime.yml", ".github/workflows/deploy.yml", "infra/ops/deploy-backend-release.sh")
 
 
 class ReleaseSafetyTests(unittest.TestCase):
@@ -69,6 +69,19 @@ class ReleaseSafetyTests(unittest.TestCase):
         result = inspect_configuration(self.root)
         self.assertFalse(result["deployment_configuration_ready"])
         self.assertTrue(result["deployment_warnings"])
+
+    def test_current_ssm_deployment_is_ready(self):
+        self.assertTrue(inspect_configuration(self.root)["deployment_configuration_ready"])
+
+    def test_ssm_deployment_without_host_rollback_guard_is_reported(self):
+        self.replace("infra/ops/deploy-backend-release.sh", 'previous_image="$(docker inspect', 'current="$(docker inspect')
+        result = inspect_configuration(self.root)
+        self.assertFalse(result["deployment_configuration_ready"])
+        self.assertTrue(result["deployment_warnings"])
+
+    def test_ssm_deployment_without_preflight_is_reported(self):
+        self.replace("infra/ops/deploy-backend-release.sh", 'bash infra/ops/kqs-deployment-preflight.sh', 'echo investing-app')
+        self.assertFalse(inspect_configuration(self.root)["deployment_configuration_ready"])
 
     def test_malformed_yaml_fails_closed(self):
         (self.root / "docker-compose.prod.yml").write_text("services: [unterminated")

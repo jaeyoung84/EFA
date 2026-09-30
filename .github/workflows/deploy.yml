@@ -1,5 +1,7 @@
 name: Build and Deploy
 
+# main push -> KQS/leverage regression gate -> tested commit to private S3 -> SSM command on EC2.
+# No SSH port, no long-lived AWS keys (GitHub OIDC), no registry token on the server.
 on:
   push:
     branches: [main]
@@ -12,15 +14,18 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: investment-analysis-main
-  cancel-in-progress: true
+  # Never cancel a running deployment: the SSM command keeps running on the host even if CI stops.
+  cancel-in-progress: false
 
 env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/investment-analysis-backend
   DEPLOY_PATH: /opt/investing-app
+  AWS_REGION: ap-northeast-2
+  AWS_DEPLOY_ROLE: arn:aws:iam::125022369601:role/github-actions-investing-deploy
+  DEPLOY_BUCKET: investing-app-deploy-125022369601
+  INSTANCE_ID: i-0dc146c28dca4089b
 
 jobs:
   kqs-checks:
@@ -29,104 +34,64 @@ jobs:
   build:
     needs: kqs-checks
     runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ env.IMAGE }}:latest
-            ${{ env.IMAGE }}:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Upload exactly the tested commit (tracked files only)
+        run: |
+          git archive --format=tar.gz -o "$RUNNER_TEMP/release.tar.gz" "$GITHUB_SHA"
+          aws s3 cp "$RUNNER_TEMP/release.tar.gz" "s3://$DEPLOY_BUCKET/gha/$GITHUB_SHA/release.tar.gz" --no-progress
 
   deploy:
     needs: build
     runs-on: ubuntu-latest
     environment: production
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - name: Configure SSH
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Build on the host, preflight, swap only the backend, roll back if unhealthy (via SSM)
+        # Server side: infra/ops/deploy-backend-release.sh from the same commit runs
+        # kqs-deployment-preflight.sh (COMPOSE_PROJECT_NAME from the existing deployment),
+        # records previous_image= and runs "docker compose up -d --no-deps backend".
         run: |
-          mkdir -p ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          for attempt in 1 2 3 4 5; do
-            if ssh-keyscan -T 10 -H "$SSH_HOST" > "$RUNNER_TEMP/known_hosts" 2>/dev/null && test -s "$RUNNER_TEMP/known_hosts"; then
-              cat "$RUNNER_TEMP/known_hosts" >> ~/.ssh/known_hosts
-              break
-            fi
-            if [ "$attempt" = 5 ]; then
-              echo "Unable to read the SSH host key for $SSH_HOST" >&2
-              exit 1
-            fi
-            sleep 5
+          release="/opt/investing-app-releases/$GITHUB_SHA"
+          python3 - "$release" > "$RUNNER_TEMP/ssm.json" <<'PY'
+          import json, os, sys
+          release, sha, bucket = sys.argv[1], os.environ["GITHUB_SHA"], os.environ["DEPLOY_BUCKET"]
+          commands = [
+              "set -eu",
+              f"mkdir -p {release}",
+              f"aws s3 cp s3://{bucket}/gha/{sha}/release.tar.gz /tmp/release-{sha}.tar.gz --no-progress",
+              f"tar xzf /tmp/release-{sha}.tar.gz -C {release}",
+              f"rm -f /tmp/release-{sha}.tar.gz",
+              f"bash {release}/infra/ops/deploy-backend-release.sh {sha} {release}",
+          ]
+          print(json.dumps({"commands": commands, "executionTimeout": ["3600"]}))
+          PY
+          command_id=$(aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript \
+            --comment "deploy ${GITHUB_SHA::12}" --timeout-seconds 600 \
+            --parameters "file://$RUNNER_TEMP/ssm.json" --query Command.CommandId --output text)
+          echo "SSM command: $command_id"
+          status=Pending
+          for _ in $(seq 1 360); do
+            status=$(aws ssm get-command-invocation --command-id "$command_id" --instance-id "$INSTANCE_ID" \
+              --query Status --output text 2>/dev/null || echo Pending)
+            case "$status" in Success|Failed|Cancelled|TimedOut|Cancelling) break ;; esac
+            sleep 10
           done
-        env:
-          SSH_KEY: ${{ secrets.SSH_KEY }}
-          SSH_HOST: ${{ secrets.SSH_HOST }}
+          aws ssm get-command-invocation --command-id "$command_id" --instance-id "$INSTANCE_ID" \
+            --query '[StandardOutputContent,StandardErrorContent]' --output text
+          test "$status" = Success
 
-      - name: Verify existing deployment identity before any upload
-        id: preflight
-        run: |
-          scp -i ~/.ssh/deploy_key infra/ops/kqs-deployment-preflight.sh "$SSH_USER@$SSH_HOST:/tmp/kqs-deployment-preflight.sh"
-          project="$(ssh -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" "sudo bash /tmp/kqs-deployment-preflight.sh $DEPLOY_PATH")"
-          case "$project" in
-            ''|*[!a-z0-9_-]*) echo "Invalid existing Compose project" >&2; exit 1 ;;
-          esac
-          echo "project=$project" >> "$GITHUB_OUTPUT"
-        env:
-          SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-
-      - name: Upload compose definition only
-        run: |
-          scp -i ~/.ssh/deploy_key docker-compose.prod.yml "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/docker-compose.prod.yml"
-        env:
-          SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-
-      - name: Pull only backend image, preserve environment and roll back unhealthy startup
-        run: |
-          echo "$GHCR_TOKEN" | ssh -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" "sudo docker login ghcr.io -u $GHCR_ACTOR --password-stdin"
-          ssh -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" "
-            set -euo pipefail
-            cd $DEPLOY_PATH
-            test -r app/backend/.env
-            previous_image=\$(sudo docker inspect --format '{{.Config.Image}}' investment_backend)
-            export COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME
-            export BACKEND_IMAGE=$IMAGE:$GITHUB_SHA
-            sudo -E docker compose -f docker-compose.prod.yml pull backend
-            sudo -E docker compose -f docker-compose.prod.yml up -d --no-deps backend
-            healthy=false
-            for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
-              if curl -fsS http://127.0.0.1:8801/api/health >/dev/null; then healthy=true; break; fi
-              sleep 5
-            done
-            if [ "\$healthy" != true ]; then
-              echo "New backend health check failed; restoring prior image" >&2
-              export BACKEND_IMAGE="\$previous_image"
-              sudo -E docker compose -f docker-compose.prod.yml up -d --no-deps backend
-              exit 1
-            fi
-          "
-        env:
-          SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          COMPOSE_PROJECT_NAME: ${{ steps.preflight.outputs.project }}
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GHCR_ACTOR: ${{ github.actor }}
-          IMAGE: ${{ env.IMAGE }}
-
-      - name: Confirm deployed backend health
-        run: ssh -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" "curl -fsS http://127.0.0.1:8801/api/health"
-        env:
-          SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_HOST: ${{ secrets.SSH_HOST }}

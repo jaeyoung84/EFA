@@ -5,6 +5,25 @@
 주문·자동 모의체결·실거래·개인 원장 쓰기는 어느 단계에도 없다. 원본 `Ubuntu-26.04`의
 기존 파이프라인(08:20 KST, 자동 모의체결 포함 `daily_picks_cli`)은 건드리지 않는다.
 
+## 백엔드 자동 배포 — GitHub Actions → SSM (2026-09-30부터)
+
+main에 푸시하면 `.github/workflows/deploy.yml`이 다음 순서로 실행한다. SSH 포트·장기 AWS 키·레지스트리 토큰은 쓰지 않는다.
+
+1. `kqs-checks`: KQS·수동 원장·학습 데이터 회귀와 **레버리지 DCA·NYSE 캘린더 회귀**(격리 Mongo, 운영 DB 미접근).
+2. `build`: 통과한 커밋의 추적 파일만 `git archive`로 묶어 비공개 S3 `investing-app-deploy-…/gha/<sha>/`에 올린다(14일 뒤 자동 삭제).
+3. `deploy`: GitHub OIDC로 `github-actions-investing-deploy` 역할을 받아 EC2에 SSM 명령을 보낸다.
+   서버는 `/opt/investing-app-releases/<sha>`에 풀고 같은 커밋의 `infra/ops/deploy-backend-release.sh`를 실행한다:
+   읽기 전용 사전검사(`kqs-deployment-preflight.sh`) → 서버에서 이미지 빌드(기존 pip 캐시 재사용) → **백엔드만** 교체 →
+   2분 안에 `/api/health`가 정상이 아니면 직전 이미지·compose로 자동 복구 → `DEPLOYED_COMMIT` 기록 → 이 앱 이미지만 정리(현재·직전 유지).
+
+- 권한: 역할은 `repo:jaeyoung84/IV-TEST:environment:production`만 받을 수 있고, `production` 환경은 main 브랜치만 허용한다.
+  권한은 S3 `gha/*` 업로드, 이 인스턴스·`AWS-RunShellScript`에 대한 SendCommand, 명령 결과 조회뿐이다.
+- 이 배포는 Mongo/Qdrant/Meilisearch 볼륨, `app/backend/.env`, KQS 상태 DB, systemd 타이머, 엔진 worker 이미지를 건드리지 않는다.
+  엔진 코드·타이머·`infra/systemd` 변경은 이 절 아래의 수동 절차로 따로 반영한다.
+- 이미지를 GitHub에서 빌드하지 않는 이유: 백엔드 이미지가 3.66GB이고 서버 여유 공간이 약 6GB라, 레이어를 공유하지 않는
+  외부 이미지를 받으면 디스크가 부족하다. 서버 빌드는 변경된 레이어만 다시 만든다.
+- 확인: GitHub Actions의 `Build and Deploy` 실행 기록, 서버 `/opt/investing-app/DEPLOYED_COMMIT`.
+
 ## EINT-010 로컬 보완 — 운영에 아직 적용하지 않음
 
 - 현재 자동배포 workflow는 `/opt/investment-analysis`를 사용하지만 아래 AWS 운영 기록은

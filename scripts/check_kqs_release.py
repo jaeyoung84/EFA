@@ -67,6 +67,10 @@ def inspect_configuration(root=ROOT):
                 or deploy["jobs"]["build"].get("needs") != "kqs-checks"):
             deployment_warnings.append("Automatic deployment does not require the KQS regression gate.")
         deploy_commands = "\n".join(step.get("run", "") for step in deploy["jobs"]["deploy"]["steps"])
+        # The SSM deployment runs its guards on the host from the same commit; inspect that script too.
+        server_script = "infra/ops/deploy-backend-release.sh"
+        if server_script in deploy_commands:
+            deploy_commands += "\n" + (root / server_script).read_text()
         if "kqs-deployment-preflight.sh" not in deploy_commands or "COMPOSE_PROJECT_NAME" not in deploy_commands:
             deployment_warnings.append("Automatic deployment does not preserve verified existing state/volume identity.")
         if "/tmp/backend.env" in deploy_commands:
@@ -106,7 +110,7 @@ def inspect_git(root=ROOT):
         "scripts/test_database_safety.py", "scripts/check_kqs_release.py",
         "scripts/tests/test_database_safety.py", "scripts/tests/test_kqs_release_safety.py",
         "scripts/tests/test_kqs_deployment_preflight.py", "scripts/tests/requirements.kqs-backend.txt",
-        ".github/workflows/kqs-runtime.yml", "infra/ops/kqs-deployment-preflight.sh",
+        ".github/workflows/kqs-runtime.yml", "infra/ops/kqs-deployment-preflight.sh", "infra/ops/deploy-backend-release.sh",
         "infra/docker/docker-compose.engine.yml", "engine/kqs/pyproject.toml", "engine/kqs/requirements.lock",
         "engine/kqs/revisions/EINT-007A.json", "engine/kqs/migration_manifest.json",
         "docs/engine/evidence_registry.json", "docs/engine/source_manifest.json",
