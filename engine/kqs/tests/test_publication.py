@@ -274,6 +274,45 @@ class PublicationTests(unittest.TestCase):
         self.assertFalse(calendar.is_session(date(2026, 9, 25)))
         self.assertEqual(calendar.next_session(date(2026, 9, 23)), date(2026, 9, 28))
 
+    def test_krx_2027_calendar_uses_reviewed_closures_and_2026_law(self):
+        calendar = calendar_for_session(date(2027, 2, 5))
+        self.assertEqual(calendar.calendar_id, "krx-equity-2027")
+        # 설날(2/7 일) 연휴 + 대체휴일(2/9): 2/5 금 다음 세션은 2/10 수
+        self.assertEqual(calendar.next_session(date(2027, 2, 5)), date(2027, 2, 10))
+        # 2026 개정법: 노동절(5/1 토)·제헌절(7/17 토) 대체휴일은 휴장
+        for closed in (date(2027, 5, 3), date(2027, 7, 19), date(2027, 12, 27), date(2027, 12, 31)):
+            self.assertFalse(calendar.is_session(closed), closed)
+        self.assertEqual(calendar.next_session(date(2027, 9, 13)), date(2027, 9, 17))
+
+    def test_krx_year_boundary_crosses_only_into_reviewed_adjacent_calendars(self):
+        cal_2026 = calendar_for_session(date(2026, 12, 30))
+        # 12/31 연말 휴장, 1/1 신정 → 다음 세션은 2027-01-04
+        self.assertEqual(cal_2026.next_session(date(2026, 12, 30)), date(2027, 1, 4))
+        kst = ZoneInfo("Asia/Seoul")
+        # 2027-01-04 아침에는 1/4 자료가 아직 없으므로 가장 최신 공개 세션은 전년 12/30
+        self.assertEqual(calendar_for_session(date(2027, 1, 4)).latest_available_session(
+            datetime(2027, 1, 4, 8, 30, tzinfo=kst)), date(2026, 12, 30))
+        self.assertEqual(calendar_for_session(date(2027, 1, 5)).latest_available_session(
+            datetime(2027, 1, 5, 8, 30, tzinfo=kst)), date(2027, 1, 4))
+        # 검토되지 않은 2028년으로는 넘어가지 않는다
+        with self.assertRaisesRegex(Exception, "2028"):
+            calendar_for_session(date(2027, 12, 30)).next_session(date(2027, 12, 30))
+        with self.assertRaises(Exception):
+            calendar_for_session(date(2028, 1, 3))
+
+    def test_year_end_session_publishes_across_the_boundary_with_capped_expiry(self):
+        offset = (date(2026, 12, 30) - date.fromisoformat(self.runtime["as_of"])).days
+        runtime = run(offset=offset)
+        kst = ZoneInfo("Asia/Seoul")
+        generated = datetime(2027, 1, 4, 8, 30, tzinfo=kst)
+        payload = publish(self.path, runtime, expected_as_of="2026-12-30", generated_at=generated,
+                          expires_at=datetime(2027, 1, 5, 5, 59, tzinfo=kst))
+        self.assertEqual(payload["engine"]["data_as_of"], "2026-12-30")
+        self.assertEqual(payload["publication"]["calendar"]["calendar_id"], "krx-equity-2026")
+        with self.assertRaisesRegex(KqsContractError, "next expected KRX"):
+            publish(Path(self.directory.name) / "late.sqlite3", runtime, expected_as_of="2026-12-30",
+                    generated_at=generated, expires_at=datetime(2027, 1, 5, 6, 30, tzinfo=kst))
+
     def test_krx_holiday_window_accepts_last_available_session_and_caps_expiry(self):
         offset = (date(2026, 9, 23) - date.fromisoformat(self.runtime["as_of"])).days
         runtime = run(offset=offset)

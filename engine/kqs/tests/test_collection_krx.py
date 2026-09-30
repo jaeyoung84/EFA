@@ -49,7 +49,7 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(self.counts(), {"KOSPI": 1, "KOSDAQ": 1, "ETF": 2})
 
     def test_closure_or_uncovered_year_is_never_requested(self):
-        for closed in (date(2026, 9, 24), date(2026, 9, 26), date(2027, 1, 4)):
+        for closed in (date(2026, 9, 24), date(2026, 9, 26), date(2027, 2, 9), date(2028, 1, 3)):
             with self.subTest(day=closed), self.assertRaises(CalendarError):
                 collect_session(self.client, MarketStore(self.market), closed)
         self.assertEqual(self.fake.urls, [])

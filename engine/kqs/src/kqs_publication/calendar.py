@@ -3,6 +3,9 @@
 This is deliberately not a generic business-day helper.  The source configuration
 must cover the year being published and carries the KRX closure exceptions used by
 the worker and the web reader.  A new year requires a reviewed configuration.
+
+Session walks (next session, latest available session) may cross into the adjacent
+year, but only through that year's own reviewed file; an unreviewed year fails closed.
 """
 
 from __future__ import annotations
@@ -18,6 +21,12 @@ from zoneinfo import ZoneInfo
 KST = ZoneInfo("Asia/Seoul")
 SCHEMA = "krx-equity-calendar/v1"
 POLICY = "krx-session-expiry/v1"
+REVIEWED_CALENDARS = {
+    "krx-equity-2026": "krx_equity_2026.json",
+    "krx-equity-2027": "krx_equity_2027.json",
+}
+# Upper bound for a backwards/forwards walk; KRX never closes longer than this.
+_MAX_WALK_DAYS = 31
 
 
 class CalendarError(ValueError):
@@ -61,20 +70,31 @@ class KRXCalendar:
         self.require_session(session)
         return datetime.combine(session + timedelta(days=1), self.available_time, tzinfo=KST).astimezone(timezone.utc)
 
+    def _for(self, value: date) -> "KRXCalendar":
+        """This calendar for its own year, otherwise the adjacent year's reviewed calendar."""
+        if value.year == self.year:
+            return self
+        if abs(value.year - self.year) != 1:
+            raise CalendarError(f"KRX calendar {self.calendar_id} does not cover {value.isoformat()}.")
+        try:
+            return load_calendar(f"krx-equity-{value.year}")
+        except CalendarError as exc:
+            raise CalendarError(f"{value.isoformat()} requires a reviewed KRX calendar for {value.year}.") from exc
+
     def next_session(self, session: date) -> date:
         self.require_session(session)
         candidate = session + timedelta(days=1)
-        while candidate.year == self.year:
-            if self.is_session(candidate):
+        for _ in range(_MAX_WALK_DAYS):
+            if self._for(candidate).is_session(candidate):
                 return candidate
             candidate += timedelta(days=1)
-        raise CalendarError("The next KRX session requires a reviewed calendar for the following year.")
+        raise CalendarError("No KRX session found after the reviewed closure window.")
 
     def latest_available_session(self, generated_at: datetime) -> date:
         current = generated_at.astimezone(KST).date()
-        self._covered(current)
-        while current.year == self.year:
-            if self.is_session(current) and self.availability_at(current) <= generated_at:
+        for _ in range(_MAX_WALK_DAYS):
+            calendar = self._for(current)
+            if calendar.is_session(current) and calendar.availability_at(current) <= generated_at:
                 return current
             current -= timedelta(days=1)
         raise CalendarError("No reviewed KRX session is available before publication time.")
@@ -89,7 +109,8 @@ class KRXCalendar:
         available_at = self.availability_at(session)
         if generated_at < available_at:
             raise CalendarError("KRX data publication delay has not elapsed for data_as_of.")
-        return self.availability_at(self.next_session(session))
+        following = self.next_session(session)
+        return self._for(following).availability_at(following)
 
     def public_metadata(self) -> dict:
         return {"calendar_id": self.calendar_id, "calendar_sha256": self.digest,
@@ -97,9 +118,10 @@ class KRXCalendar:
 
 
 def _path(calendar_id: str) -> Path:
-    if calendar_id != "krx-equity-2026":
+    filename = REVIEWED_CALENDARS.get(calendar_id)
+    if filename is None:
         raise CalendarError("Unknown reviewed KRX calendar.")
-    return Path(__file__).with_name("calendars") / "krx_equity_2026.json"
+    return Path(__file__).with_name("calendars") / filename
 
 
 def load_calendar(calendar_id: str) -> KRXCalendar:

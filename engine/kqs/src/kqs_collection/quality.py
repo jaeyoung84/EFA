@@ -84,7 +84,7 @@ def load_coverage_manifest(path: Path, *, as_of: str) -> tuple[dict, str]:
 def _code_identity() -> dict:
     root = Path(__file__).resolve().parents[1]
     paths = list((root / "kqs_collection").glob("*.py"))
-    paths += [root / "kqs_publication/calendar.py", root / "kqs_publication/calendars/krx_equity_2026.json"]
+    paths += [root / "kqs_publication/calendar.py", *sorted((root / "kqs_publication/calendars").glob("*.json"))]
     components = {path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
                   for path in sorted(paths)}
     return {"code_sha256": canonical_digest(components), "component_sha256": components}
