@@ -1,0 +1,62 @@
+"""CLI for the cross-sectional KRX momentum portfolio."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+from korea_quant.krx import KrxDailyStore
+from korea_quant.momentum import MomentumConfig, run_momentum, write_momentum_report
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Backtest KRX cross-sectional momentum.")
+    parser.add_argument("--krx-db", type=Path, required=True)
+    parser.add_argument("--start", required=True)
+    parser.add_argument("--end", default=None)
+    parser.add_argument("--market", choices=("ALL", "KOSPI", "KOSDAQ"), default="ALL")
+    parser.add_argument(
+        "--universe", default=None,
+        help="Optional stored point-in-time universe, for example KOSPI200",
+    )
+    parser.add_argument("--lookback", type=int, default=126)
+    parser.add_argument("--liquidity-window", type=int, default=20)
+    parser.add_argument("--top", type=int, default=20)
+    parser.add_argument("--fee", type=float, default=0.00015)
+    parser.add_argument("--slippage", type=float, default=0.0005)
+    parser.add_argument("--cash", type=float, default=10_000_000)
+    parser.add_argument("--report", type=Path, default=Path("reports/momentum.html"))
+    parser.add_argument("--csv", type=Path, default=None)
+    args = parser.parse_args()
+
+    markets = ("KOSPI", "KOSDAQ") if args.market == "ALL" else (args.market,)
+    store = KrxDailyStore(args.krx_db)
+    history = store.market_history(args.start, args.end, markets)
+    eligible = None
+    if args.universe and not history.empty:
+        dates = history["Date"].drop_duplicates().sort_values()
+        symbols = sorted(history["Symbol"].unique())
+        eligible = store.universe_membership_panel(args.universe, dates, symbols)
+        if not eligible.to_numpy().any():
+            raise SystemExit(
+                f"No knowable {args.universe} members overlap the requested period."
+            )
+    config = MomentumConfig(
+        initial_cash=args.cash, fee_rate=args.fee, slippage_rate=args.slippage,
+        lookback_sessions=args.lookback, liquidity_sessions=args.liquidity_window,
+        top_n=args.top,
+    )
+    try:
+        result = run_momentum(history, config, eligible)
+    except ValueError as exc:
+        raise SystemExit(f"Cannot run momentum backtest: {exc}") from exc
+    csv_output = args.csv or args.report.with_suffix(".csv")
+    write_momentum_report(
+        result, args.report, csv_output,
+        f"KRX {args.universe or args.market} Cross-sectional Momentum",
+    )
+    print(f"Report: {args.report.resolve()} | {csv_output.resolve()}")
+
+
+if __name__ == "__main__":
+    main()

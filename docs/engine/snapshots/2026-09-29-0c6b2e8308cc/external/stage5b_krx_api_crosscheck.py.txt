@@ -1,0 +1,118 @@
+"""D-36 Stage 5B: cross-check the 38 KRX-site target dates (7 file boundaries +
+24 random sample dates minus the 3 that fall in the sqlite3 overlap window)
+between the Stage 5A merged locked-window price file and a fresh call to the
+KRX Open API (KrxOpenApiClient, reused read-only from src/korea_quant/krx.py).
+
+Note (source-independence caveat, disclosed to and accepted by the user
+2026-09-09): this cross-check queries the same underlying KRX Open API that
+also very likely populated data/krx_daily.sqlite3. It is NOT a check against
+a second independent data provider. Its purpose is limited to catching
+transcription / file-boundary errors in the manually downloaded CSVs by
+re-deriving the same dates independently of those CSV files.
+
+Prints ONLY match/mismatch flags, never the actual price values.
+"""
+
+from __future__ import annotations
+
+import sys
+import time
+from pathlib import Path
+
+import pandas as pd
+
+sys.path.insert(0, "src")
+from korea_quant.krx import KrxApiError, KrxOpenApiClient  # noqa: E402
+
+MERGED_PRICE = Path("data/locked_window/index_tsmom_v1/price_merged.csv")
+SYMBOL = "069500"
+
+KRX_TARGET_DATES = [
+    "2002-10-28", "2002-12-30",
+    "2003-09-30", "2003-10-01",
+    "2003-11-20",
+    "2004-04-20", "2004-11-05",
+    "2005-06-02", "2005-06-14",
+    "2005-09-30", "2005-10-04",
+    "2006-01-09", "2006-09-20",
+    "2007-07-10", "2007-07-30",
+    "2007-09-28", "2007-10-01",
+    "2008-10-21",
+    "2009-03-02",
+    "2009-09-30", "2009-10-01",
+    "2010-04-13", "2010-08-04", "2010-08-09",
+    "2011-09-30", "2011-10-04", "2011-10-10",
+    "2012-07-17",
+    "2013-09-30", "2013-10-01",
+    "2013-12-23", "2013-12-27",
+    "2014-06-17",
+    "2015-03-19",
+    "2015-07-16", "2015-08-04",
+    "2015-09-30", "2015-10-01",
+]
+
+FIELD_MAP = {
+    "시가": "open",
+    "고가": "high",
+    "저가": "low",
+    "종가": "close",
+    "거래량": "volume",
+}
+
+
+def main() -> None:
+    assert len(KRX_TARGET_DATES) == 38, f"expected 38 targets, got {len(KRX_TARGET_DATES)}"
+
+    merged = pd.read_csv(MERGED_PRICE, parse_dates=["일자"])
+    merged["일자"] = merged["일자"].dt.date
+
+    client = KrxOpenApiClient.from_env()
+
+    print("=== Stage 5B: KRX Open API 재조회 대조 결과 (38일) ===")
+    print("주의: sqlite3 겹침구간 대조와 동일 제공처(KRX Open API) 사용 — 독립 제공처 대조 아님(사용자 승인 사항)")
+    print()
+
+    all_match = True
+    skipped = 0
+    errors = 0
+    for d in KRX_TARGET_DATES:
+        target = pd.Timestamp(d).date()
+        row_csv = merged[merged["일자"] == target]
+        if row_csv.empty:
+            print(f"  {d}: CSV 측 데이터 없음 (SKIP)")
+            skipped += 1
+            continue
+
+        try:
+            rows = client.fetch_market_day("ETF", target)
+        except KrxApiError as exc:
+            print(f"  {d}: API 오류 ({type(exc).__name__}) -> ERROR")
+            errors += 1
+            all_match = False
+            continue
+
+        row_api = next((r for r in rows if r["symbol"] == SYMBOL), None)
+        if row_api is None:
+            print(f"  {d}: API 응답에 종목 없음 (SKIP)")
+            skipped += 1
+            continue
+
+        csv_vals = {k: int(row_csv.iloc[0][k]) for k in FIELD_MAP}
+        api_vals = {k: row_api[FIELD_MAP[k]] for k in FIELD_MAP}
+
+        mismatches = [k for k in FIELD_MAP if csv_vals[k] != api_vals[k]]
+        if mismatches:
+            all_match = False
+            print(f"  {d}: 불일치 필드 = {mismatches}")
+        else:
+            print(f"  {d}: 전 필드(시가/고가/저가/종가/거래량) 일치")
+
+        time.sleep(0.3)
+
+    print()
+    print(f"검사 완료: {len(KRX_TARGET_DATES)}일 중 SKIP {skipped}건, ERROR {errors}건")
+    print("결과:", "PASS (전체 일치)" if all_match else "FAIL (불일치/오류 발견)")
+
+
+if __name__ == "__main__":
+    main()

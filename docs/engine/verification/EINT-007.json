@@ -1,0 +1,223 @@
+{
+ "change_id": "EINT-007",
+ "verified_at": "2026-09-29T02:31:51.130818+00:00",
+ "package": "iv-kqs-engine 0.6.0",
+ "code": {
+  "package_version": "0.6.0",
+  "source_commit": "0c6b2e8308cc783ea5c4a50c18ff213203631ba2",
+  "code_sha256": "3a52f38a8d7a1d0d22482a3531a5bc23cb2316524c81a718a6ad18fc19b974d0",
+  "component_sha256": {
+   "korea_quant/__init__.py": "960d03eca7c45577aea05e6d71dea5269a209ad02c7f15f584f53d535da6a405",
+   "korea_quant/eligibility.py": "f363ec556a14adfdad06af331f3f94f35beb9de405cb047b83b1677f8da1836d",
+   "korea_quant/reversion_scanner.py": "c9bc74ff52f2c79e4e4197679d4ea967bb9aa91b37fa2cf643cc5538c0bd1d99",
+   "korea_quant/strategy.py": "bdf8506cf1371f9b5aca1f4001649ca509c132651d749a550062a452c3b3c9d8",
+   "kqs_collection/__init__.py": "99e384cc6de3f53eb35caf61a8f68e8224705ccd195287f60af234f0d1988ffc",
+   "kqs_collection/cli.py": "05fb03c1024eee29e12838ffe9f27ec2d02c088b5fe2212021170a57387378e8",
+   "kqs_collection/coverage.py": "64848e30d98a254c97053275bf34cd3d7ec97b3b914ef292edeb2418d9906da0",
+   "kqs_collection/krx.py": "fb6d5fbd23009fe4e29cef71f90680d81c53906d0c2e51ce4eb9215d0e7a43df",
+   "kqs_collection/quality.py": "3f50e8d2df2cb94ad3e94abe7ec4b613a811015917eba90aa1b76a993341e1f7",
+   "kqs_collection/store.py": "094bfb5388e70d43835c2ba456ff2349005d8956a27f908f07335d7a02eb47ad",
+   "kqs_ops/__init__.py": "cad9fb03eee68f911d2c23541c2ae7e4095a63d4f5df594e7f324a4072355a9c",
+   "kqs_ops/backup.py": "01fdb35eef67c72d7213c6d422a1874037b8a5c217eeec0b4bdee21daf347955",
+   "kqs_ops/paths.py": "b05f2ae5f8809dd1bb74650788f60322d07daa51901a76707d7efb557949eb11",
+   "kqs_ops/runlog.py": "70999197f1c4190b0d3cf776913742be4f1c4361ecd96c90841e6a05dffb82f2",
+   "kqs_ops/status.py": "1f1a50c63c90b3755daf8d40622b3be11846b19686d257d1a66561d9a51ae0f8",
+   "kqs_publication/__init__.py": "c66278f32a047b596624280f0fafd4e29b5a7a4527792546ffaba488b342016d",
+   "kqs_publication/attempts.py": "5699f5e1607a395844a7c78b965f29ef3861a16caf1b19066ff2f8efaddbba1c",
+   "kqs_publication/calendar.py": "bc4b4badb87c948a7cf1b955b9a909c98df3400e0fb9882821000cb27756389e",
+   "kqs_publication/calendars/krx_equity_2026.json": "c35228678b6f1059fcd944ec34f20f620207bf5b577d063d0cee52a3f8ab11b9",
+   "kqs_publication/contract.py": "b0668aaffc2ec677d0b21567239f04f4714a73cc7751ea99e0c7c0ec8b0adb6d",
+   "kqs_publication/publisher.py": "b6029705c4c94e750b1a2ad85eac959d861b73fa0490931d9f11351dbc76fc9b",
+   "kqs_publication/store.py": "8ec9d63b3a7e55e8b01f30861cff12113330112cfb38cdbd455f53ee042bf829",
+   "kqs_publication/writer.py": "a1dd5c1379dd9e684f38681e42ca0460a9ebf1d40463381b0d8d18bd6e9e6685",
+   "kqs_runtime/__init__.py": "02cda8978398b4c7f9a4c3ce2399cd8ea250aefc69c124c6140a6552b6df3a8a",
+   "kqs_runtime/cli.py": "31b2a207fe870a9ffa16c51339c42a198838cbe9bd4218702a7154ffecbcc35f",
+   "kqs_runtime/inputs.py": "74f8bd2d4e8f2e78d553b1adc8011d22c9b577c789929388c762ab5cab4730c5",
+   "kqs_runtime/pipeline.py": "904d4cc9bbf962dacaa4a103a7e95f459637c451c67ae20d26d358e0f7eb32b1",
+   "kqs_runtime/provenance.py": "1a548c3bef535cab795e187e130ee75ed1c5bf9565782c405f9c237ef4a1998b",
+   "kqs_runtime/recommendations.py": "9f08ae80ccf0c30700a49dbbaf8052840c5a096918685ce2ac67c4e8220681f0",
+   "kqs_runtime/sqlite_reader.py": "ffc0fa4b5d576b41e5235307b90a08f997a16476dc302737aeb9f43112a27cfb",
+   "kqs_runtime/worker.py": "a05720f3c52d2ad34fe96b9a7ae49280fa7b45eff74be47e8a3531e16851b3c6"
+  },
+  "python": "3.14.4",
+  "dependencies": {
+   "pandas": "2.3.3",
+   "numpy": "2.3.5",
+   "python-dateutil": "2.9.0.post0",
+   "pytz": "2026.4",
+   "tzdata": "2026.4",
+   "six": "1.17.0"
+  }
+ },
+ "initial_manifest_unchanged": {
+  "path": "engine/kqs/migration_manifest.json",
+  "sha256": "989dd536a3aa1bb7e96e55e5ef903b50d259594c98ef2445dbe173d364355580"
+ },
+ "previous_revision_unchanged": {
+  "path": "engine/kqs/revisions/EINT-006.json",
+  "sha256": "25713599913af738f6b331e0597064273694a23d94164108c96834787f2eaff1"
+ },
+ "previous_verification_unchanged": {
+  "path": "docs/engine/verification/EINT-006.json",
+  "sha256": "b143ae7ca34dc452bfdcdbf73989548546710bc09b9d7a9ecb0c5cb587b298cc"
+ },
+ "successor_manifest": "engine/kqs/revisions/EINT-007.json",
+ "user_decisions": {
+  "data_source": "Port the KRX collector; upload the existing market DB once; then daily collection on the server",
+  "compute": "Resize the existing EC2 from t3.micro to t3.small",
+  "scope": "Local implementation and verification only; AWS changes after separate approval"
+ },
+ "real_data_readonly_checks": {
+  "source": "Ubuntu-26.04:/home/gram/korea-quant-system/data/krx_daily.sqlite3 opened with mode=ro, query_only",
+  "db_span": "2016-08-29..2026-09-28, 2471 sessions, 1,396,367,360 bytes",
+  "halted_rows_per_session": "KOSPI ~28-30, KOSDAQ ~85, ETF 4-14; open/high/low 0, volume/value 0, close/cap positive",
+  "eint005_rule_outcome": "every real session would be rejected (non-positive OHLCV rows)",
+  "new_rule_2026": {
+   "sessions": 180,
+   "rows": 498897,
+   "invalid": 0,
+   "no_trade_valid": 21545
+  },
+  "collection_log_vs_stored_2025_on": {
+   "records": 908,
+   "mismatches": 0,
+   "zero_count_weekday_holidays": 64
+  },
+  "max_day_to_day_count_change": {
+   "KOSPI": 2,
+   "KOSDAQ": 3
+  },
+  "session_2026_09_28": {
+   "coverage": {
+    "KOSPI": 942,
+    "KOSDAQ": 1821
+   },
+   "quality_status": "ready",
+   "no_trade_rows": {
+    "KOSPI": 28,
+    "KOSDAQ": 85
+   }
+  },
+  "wal_readonly": "mode=ro works on a WAL DB only when its directory is writable",
+  "writes_to_source": 0,
+  "recommendation_generation_on_real_data": 0,
+  "research_reruns": 0
+ },
+ "artifacts": {
+  "engine/kqs/src/kqs_collection/krx.py": "fb6d5fbd23009fe4e29cef71f90680d81c53906d0c2e51ce4eb9215d0e7a43df",
+  "engine/kqs/src/kqs_collection/coverage.py": "64848e30d98a254c97053275bf34cd3d7ec97b3b914ef292edeb2418d9906da0",
+  "engine/kqs/src/kqs_collection/quality.py": "3f50e8d2df2cb94ad3e94abe7ec4b613a811015917eba90aa1b76a993341e1f7",
+  "engine/kqs/src/kqs_runtime/pipeline.py": "904d4cc9bbf962dacaa4a103a7e95f459637c451c67ae20d26d358e0f7eb32b1",
+  "engine/kqs/src/kqs_ops/__init__.py": "cad9fb03eee68f911d2c23541c2ae7e4095a63d4f5df594e7f324a4072355a9c",
+  "engine/kqs/src/kqs_ops/runlog.py": "70999197f1c4190b0d3cf776913742be4f1c4361ecd96c90841e6a05dffb82f2",
+  "engine/kqs/src/kqs_ops/backup.py": "01fdb35eef67c72d7213c6d422a1874037b8a5c217eeec0b4bdee21daf347955",
+  "engine/kqs/src/kqs_ops/status.py": "1f1a50c63c90b3755daf8d40622b3be11846b19686d257d1a66561d9a51ae0f8",
+  "engine/kqs/src/kqs_ops/paths.py": "b05f2ae5f8809dd1bb74650788f60322d07daa51901a76707d7efb557949eb11",
+  "engine/kqs/src/kqs_runtime/provenance.py": "1a548c3bef535cab795e187e130ee75ed1c5bf9565782c405f9c237ef4a1998b",
+  "engine/kqs/pyproject.toml": "f08730305884250a3a8bd0dd8740d3f0ef8b20788c61775ee059c97f79a4a04c",
+  "engine/kqs/tests/krx_fixture.py": "f37689d08b82555ef51d328f4326fe8f6c160c73ef815fc815789ad1998c39e9",
+  "engine/kqs/tests/test_collection_krx.py": "9741ace7884dbbfe4a128ce817190ca3ef7aed69b3f00fbf6b2b6d9985d84bcc",
+  "engine/kqs/tests/test_pipeline.py": "7c4ce88d2812f874d8052f6d37200793d02ca18cc697b6c85880f917ea3c7442",
+  "engine/kqs/tests/test_quality.py": "c26b52ed070407f2d04ac3795e815138e2eabb2ee7a3e7b9a43107291539ce05",
+  "engine/kqs/tests/test_publication.py": "03d768991e1223ed903f8434daf27e98fbe06c7ea5c6583ed862c5bdcf2ea017",
+  "infra/docker/engine-worker.Dockerfile": "a85c2cd1e522a2b659db79af8a69a3bd8a50ac08d59a6d31c7351285d116c849",
+  "infra/docker/docker-compose.engine.yml": "76f5edd1a9090e5444db244b02aab1943a22f527391262a1922fc135833c0328",
+  "infra/systemd/kqs-daily-pipeline.service": "ed75c82f5e54abc1e874fddc01bbd77585495d5f251a03d2207f35a43dfe10b1",
+  "infra/systemd/kqs-daily-pipeline.timer": "ba057ccfa4970469733af0d4f64e2e91de26fb7546f3624a23cee067a0f580fa",
+  "infra/systemd/kqs-backup.service": "f6b4a0bd9ee30e88c87437fb1d32464ddcdd95d2e119b671591267f03dded83b",
+  "infra/systemd/kqs-backup.timer": "12aefe7d787530bce7e0afb3c63b2d9dfae91d8cb06580fad41b75d3eebe4bd9",
+  "infra/systemd/kqs-health.service": "2055ff8a9f7221223d0ca3b5ae0ac372f888a0120b0ae111bee616229bfa9e76",
+  "infra/systemd/kqs-health.timer": "9436bb8bbd2154435f12a1916ac3f73078f5ce37eee2cd51915ea9eb1537ec12",
+  "infra/systemd/kqs-alert@.service": "27bc5ea669049dcffa4de0f11cee73c52630d39cdcef9ece5e988a5ad9c44fa5",
+  "infra/ops/kqs-backup-upload.sh": "dffdb39b1348fbb4ed21bd3bae26ff9dc88b4db0e83ff44c5403c8cf7f4265f3",
+  "infra/ops/kqs-alert.sh": "58e68148b4fe3a2eb773eb732d5ce7e5f085432e1b7f7ac00e6cb45efccaffc2",
+  ".dockerignore": "117e591981352ced24b169eb04d603a5f216667dfa7fd675bc60099ca817bddb",
+  ".github/workflows/kqs-runtime.yml": "feb959c85c821fb3c268c23a94ecc32e25471ac2b48357b636e68738bd21bd88",
+  "docs/engine/OPERATIONS.md": "8378643ed25a2cdf16e04e58569e974c98aecadbe77cdd93e64e842f13b2448e",
+  "engine/kqs/tools/check_revision.py": "07ebfabfd9a7bd48c3dae906303df7dc2d4b8d3050fa06f50e02a886bcb4589a",
+  "engine/kqs/revisions/EINT-007.json": "f16d5ea43d0f216664f8a3071c54c69d5fc538840f8beaad32fabdbc4a72235d"
+ },
+ "tests": [
+  {
+   "environment": "Python 3.14.4 venv engine/kqs/.venv, installed 0.6.0 package",
+   "command": "python -m unittest discover -s engine/kqs/tests",
+   "passed": 99
+  },
+  {
+   "environment": "Python 3.14.4 testenv, source imports",
+   "command": "python -m unittest discover -s engine/kqs/tests",
+   "passed": 98,
+   "note": "install-only import test excluded"
+  },
+  {
+   "environment": "worker image python:3.12-slim-bookworm, UID 10001, read-only rootfs, --network none",
+   "command": "python -m unittest test_collection_krx test_pipeline test_worker test_quality test_publication",
+   "passed": 65,
+   "note": "2 source-tree python -S isolation tests fail by design because the image contains no source tree"
+  },
+  {
+   "environment": "Python 3.14.4 venv",
+   "command": "scripts/tests test_kqs_publication_api.py",
+   "passed": 12
+  },
+  {
+   "environment": "Python 3.14.4 venv",
+   "command": "scripts/tests test_kqs_revision.py",
+   "passed": 6
+  },
+  {
+   "environment": "Python 3.14.4 venv",
+   "command": "scripts/tests test_engine_evidence.py",
+   "passed": 15
+  },
+  {
+   "environment": "Python 3.14.4 testenv (backend)",
+   "command": "pytest tests/test_kqs_bridge.py tests/test_kqs_contract.py",
+   "passed": 51
+  }
+ ],
+ "new_tests": [
+  "test_collection_krx.py: 7 collector + 4 coverage",
+  "test_quality.py: halted rows valid, 5 inconsistent-bar cases",
+  "test_pipeline.py: 8 (end-to-end, idempotent rerun, provider not ready + health grace, truncation, bad bars, busy, separate paths, backup/verify/rotation/corruption)"
+ ],
+ "other_checks": [
+  "worker image built locally; all six entry points ran as UID 10001; pip check passed; image then removed",
+  "docker compose engine profile config valid; ops shell scripts sh -n; systemd OnCalendar Asia/Seoul parsed",
+  "collection/coverage/ops modules import without pandas",
+  "EINT-007 successor checker: errors 0; migration checker: errors 0",
+  "Evidence checker: archive 167, decisions 45, metadata-only 1735, errors 0"
+ ],
+ "reused_decisions": [
+  "D-11",
+  "D-19",
+  "D-24",
+  "D-27",
+  "D-28",
+  "D-30",
+  "D-31",
+  "D-44"
+ ],
+ "historical_research_runs": 0,
+ "market_api_calls": 0,
+ "actual_market_data_scan_runs": 0,
+ "readonly_real_market_quality_inspections": 1,
+ "orders_or_automatic_fills_created": 0,
+ "production_publications_created": 0,
+ "real_manual_ledger_writes": 0,
+ "aws_changes": 0,
+ "deployment_performed": false,
+ "containers_restarted": false,
+ "source_wsl_modified": false,
+ "committed_or_pushed": false,
+ "user_dirty_changes_preserved": true,
+ "scope": "Local implementation and verification for PC-independent operation; nothing installed on or sent to AWS.",
+ "limits": [
+  "Coverage expectations are KRX's own response counts; storage gaps are caught but a small provider omission is not.",
+  "Quality rules check row form/consistency, not price corrections or adjustments.",
+  "flock and SQLite assume one host with a local disk.",
+  "Only the 2026 calendar is reviewed; 2027 sessions fail and alert until a 2027 calendar is added.",
+  "The collector port was verified with a fake transport; no live KRX API call was made in this change.",
+  "Deployment steps in docs/engine/OPERATIONS.md are unexecuted and need approval."
+ ]
+}

@@ -1,0 +1,112 @@
+import pandas as pd
+import pytest
+
+from korea_quant.eligibility import (
+    benchmark_fingerprint,
+    build_market_cap_tiers,
+    entry_eligibility,
+    market_regime_allowances,
+    market_regime_entry_allowed,
+    validate_market_cap_tiers,
+)
+
+
+def _history(specs, periods=30):
+    dates = pd.bdate_range("2024-01-01", periods=periods)
+    rows = []
+    for symbol, market, cap in specs:
+        for number, day in enumerate(dates):
+            price = 100 + number * 0.1
+            rows.append(
+                {
+                    "Date": day, "Symbol": symbol, "Name": symbol, "Market": market,
+                    "Open": price, "High": price + 1, "Low": price - 1, "Close": price,
+                    "Volume": 10_000, "TradingValue": 6_000_000_000, "MarketCap": cap,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def _eligible(history, tiers):
+    ranked = entry_eligibility(
+        history,
+        market_cap_tiers=tiers,
+        liquidity_window=5,
+        minimum_average_trading_value=5_000_000_000,
+        minimum_history_sessions=10,
+        outlier_gap_threshold=0.50,
+        outlier_cooldown_sessions=60,
+    )
+    allowed = ranked.groupby("Symbol")["EntryAllowed"].any()
+    return set(allowed[allowed].index)
+
+
+def test_each_market_is_cut_at_its_own_tier_depth():
+    # A shared cutoff would judge KOSDAQ's second name by KOSPI's depth; the
+    # KOSPI200/KOSDAQ150 split means each market answers to its own number.
+    history = _history(
+        (
+            ("A", "KOSPI", 2_000_000_000_000), ("B", "KOSPI", 1_000_000_000_000),
+            ("C", "KOSDAQ", 2_000_000_000), ("D", "KOSDAQ", 1_000_000_000),
+        )
+    )
+    assert _eligible(history, build_market_cap_tiers(2, 1)) == {"A", "B", "C"}
+
+
+def test_market_outside_the_tier_mapping_is_excluded():
+    history = _history((("A", "KOSPI", 1_000_000_000_000), ("C", "KOSDAQ", 2_000_000_000)))
+    assert _eligible(history, (("KOSPI", 200),)) == {"A"}
+
+
+def _benchmark() -> pd.Series:
+    # Rolling 3-session averages are 10, 11, 10, 9, so the close is above its own
+    # average only at index 3 and below it only at indexes 4 and 5.
+    return pd.Series(
+        [10.0, 10.0, 10.0, 13.0, 7.0, 7.0], index=pd.bdate_range("2024-01-01", periods=6)
+    )
+
+
+def test_market_regime_gate_lags_one_session_and_flips_when_inverted():
+    # Entries fill at the next session's open, so a close observed on session t
+    # can only gate session t+1 -- the same convention as EntryAllowed.
+    bullish = market_regime_entry_allowed(_benchmark(), 3)
+    bearish = market_regime_entry_allowed(_benchmark(), 3, inverted=True)
+    assert bullish.tolist() == [False, False, False, False, True, False]
+    assert bearish.tolist() == [False, False, False, False, False, True]
+    # Warm-up sessions have no average yet and stay blocked in both orientations.
+    assert not bullish.iloc[:3].any()
+    assert not bearish.iloc[:3].any()
+
+
+def test_market_regime_gate_rejects_an_unusable_window_or_series():
+    with pytest.raises(ValueError, match="at least two"):
+        market_regime_entry_allowed(_benchmark(), 1)
+    negative = _benchmark()
+    negative.iloc[2] = -1.0
+    with pytest.raises(ValueError, match="must be positive"):
+        market_regime_entry_allowed(negative, 3)
+
+
+def test_market_regime_allowances_stays_off_until_a_window_is_configured():
+    assert market_regime_allowances({"KOSPI": _benchmark()}, ["KOSPI"], 0) == {}
+    with pytest.raises(ValueError, match="requires a benchmark"):
+        market_regime_allowances(None, ["KOSPI"], 3)
+    with pytest.raises(ValueError, match="missing markets: KOSDAQ"):
+        market_regime_allowances({"KOSPI": _benchmark()}, ["KOSPI", "KOSDAQ"], 3)
+
+
+def test_benchmark_fingerprint_changes_when_the_series_does():
+    original = benchmark_fingerprint({"KOSPI": _benchmark()})
+    moved = _benchmark()
+    moved.iloc[-1] = 8.0
+    assert benchmark_fingerprint({"KOSPI": moved}) != original
+    assert benchmark_fingerprint(None) == {}
+
+
+def test_validate_market_cap_tiers_rejects_unknown_and_non_positive():
+    with pytest.raises(ValueError, match="Unsupported markets"):
+        validate_market_cap_tiers((("KONEX", 100),))
+    with pytest.raises(ValueError, match="must be positive"):
+        validate_market_cap_tiers((("KOSPI", 0),))
+    with pytest.raises(ValueError, match="must not be empty"):
+        validate_market_cap_tiers(())

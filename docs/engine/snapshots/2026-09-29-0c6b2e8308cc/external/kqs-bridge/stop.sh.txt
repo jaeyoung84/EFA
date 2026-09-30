@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# kqs-bridge 정지. pid 파일이 없어도 bridge.py 프로세스를 찾아 정지한다.
+set -u
+DIR="$(cd "$(dirname "$0")" && pwd)"
+PIDFILE="$DIR/bridge.pid"
+if [ -f "$PIDFILE" ]; then
+  PID="$(cat "$PIDFILE")"
+  if kill -0 "$PID" 2>/dev/null; then
+    kill "$PID" && echo "stopped: pid $PID"
+  else
+    echo "not running (stale pid file removed)"
+  fi
+  rm -f "$PIDFILE"
+  exit 0
+fi
+PIDS="$(pgrep -f "$DIR/bridge.py" || true)"
+if [ -n "$PIDS" ]; then
+  kill $PIDS && echo "stopped: pid $PIDS (no pid file)"
+else
+  echo "not running"
+fi

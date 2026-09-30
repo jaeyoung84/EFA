@@ -1,0 +1,320 @@
+{
+  "schema": "kqs-change-verification/v1",
+  "change_id": "EINT-012",
+  "verified_at_utc": "2026-09-29 16:01:41 UTC",
+  "local_date_kst": "2026-09-30",
+  "status": "manual_ledger_safety_locally_verified; no_deployment",
+  "request": "12진행하자",
+  "scope": "KQS human manual recording timestamps, durable request deduplication, per-user serialization and append-only FIFO consistency. Leverage DCA is a separate unchanged item.",
+  "authorization": {
+    "user_constraint": "레버리지는 별개에 아이템이야 아무것도 변경하지마",
+    "aws_deployment_authorized": false,
+    "automatic_deployment_workflow_authorized": false,
+    "operating_user_data_writes_authorized": false
+  },
+  "reused_decisions": [
+    "D-27 provenance/observation noninterference",
+    "D-28 engine automatic versus human ledgers",
+    "D-44 legacy automated records do not authorize new automatic fills",
+    "EINT-008 FIFO lots and manual position exits",
+    "EINT-009 immutable dataset/holdout",
+    "EINT-011/011A source boundaries"
+  ],
+  "engine": {
+    "version": "0.6.0",
+    "registered_revision": "EINT-007A",
+    "source_unchanged": true,
+    "revision_check_passed": true,
+    "revision_sha256": "ebc166f5d0fd7c93b9b0fa294e34d0c6a439c22365bed9ae5c7a15533cc9e380",
+    "historical_101_synthetic_results_reused_not_rerun": "docs/engine/verification/EINT-011.json"
+  },
+  "preserved": {
+    "previous_verification": {
+      "path": "docs/engine/verification/EINT-011A.json",
+      "sha256": "66ec2bec55661fb52927359529fdfae1a0feb8353410d27a30cb60b785b6237e",
+      "unchanged": true
+    },
+    "protected_before_sha256": {
+      "app/backend/scheduler.py": "aef47e6da0e9e752ae8ad1e6317c1338b312dd96d9e7ceba926f7a42e06291ce",
+      "app/backend/leverage_dca_strategy.py": "b28f1eaf4784071f437d85d0e1800c70dfd8695ae031a25a39e2171a82f03d6a",
+      "app/backend/routers/strategy.py": "7a934a7d62231026f8774b19eed4145a1ad62c94a5059bced4b2e6aecc3a73bd",
+      "app/frontend/js/views/leverageDca.js": "ff46a21ab342415be90a27e8eecfb0f6087aa1f50d176ce68579481c33b8cafe",
+      "app/backend/market_calendar.py": "607e191dd4701c4d5423fedb4f4399958cd767404250160777bbcc9042c46469",
+      ".github/workflows/deploy.yml": "5d2cad7b568800528a2c6f456388132148acf2b6d7b64fa16f0e39599e6c8e83"
+    },
+    "protected_after_sha256": {
+      "app/backend/scheduler.py": "aef47e6da0e9e752ae8ad1e6317c1338b312dd96d9e7ceba926f7a42e06291ce",
+      "app/backend/leverage_dca_strategy.py": "b28f1eaf4784071f437d85d0e1800c70dfd8695ae031a25a39e2171a82f03d6a",
+      "app/backend/routers/strategy.py": "7a934a7d62231026f8774b19eed4145a1ad62c94a5059bced4b2e6aecc3a73bd",
+      "app/frontend/js/views/leverageDca.js": "ff46a21ab342415be90a27e8eecfb0f6087aa1f50d176ce68579481c33b8cafe",
+      "app/backend/market_calendar.py": "607e191dd4701c4d5423fedb4f4399958cd767404250160777bbcc9042c46469",
+      ".github/workflows/deploy.yml": "5d2cad7b568800528a2c6f456388132148acf2b6d7b64fa16f0e39599e6c8e83"
+    },
+    "all_protected_files_unchanged": true,
+    "original_training_feature_example_hash_and_manifest_read_helpers_exactly_preserved": true,
+    "legacy_user_rows_rewritten": false,
+    "existing_manifest_schema": "kqs-human-decisions/v2",
+    "existing_frozen_manifest_recomputed_or_modified": false,
+    "legacy_fifo_order_preserved": true,
+    "new_record_tie_order": [
+      "decided_at",
+      "recorded_order_us",
+      "_id"
+    ]
+  },
+  "artifacts": {
+    "app/backend/kqs_manual_records.py": "f52cced48f921ec0ce2da820339c816a5cb735f7b1013d6828205df52167ee80",
+    "app/backend/routers/kqs.py": "a67ba671626a7f870817c7a8718b6f78a66e96fb9b9d28606461d511d51de4ce",
+    "app/frontend/js/views/kqsManualRecords.js": "7df0c13a02162f53b51791e8da1745fbc69b75fa57045209aece99494fa0d71a",
+    "app/frontend/js/views/kqsRecommendations.js": "f249aad4879607d15c047d06681804393a16d6bdc4fdaf7b229500a0dd46f384",
+    "app/frontend/js/views/strategyList.js": "48b84f4c591374322ea57d275d73ca15f116216a444c47736a89d5c0d64d1c13",
+    "tests/test_kqs_manual_records.py": "12496fd6192ab6cf1b227f54e2d3ef26f9da254d82300584ddddc65edbe42153",
+    "tests/test_kqs_bridge.py": "9bed6b7a105318666878af442cd606a24c5b6fd0296f4dd4b707eee955c8275f",
+    "tests/conftest.py": "14a01f05e2e48123c11d35186172a3ee399645bf5f03c1d8f602f651efe5392d",
+    "scripts/tests/test_kqs_publication_api.py": "9f7fbef02687bc1910425efdaa078c684953253c473c25b6423b3f5706449fab",
+    "scripts/tests/kqs_manual_records_render.mjs": "bc2ee1e3387cd47a016ead4bd99227060310f15d7c0cf3ffbe42b3708a6e576a",
+    ".github/workflows/kqs-runtime.yml": "b00ecb4bb1d50e3ee0f6b86d007b95da4590821f5f725b454a975a7b9c74edd0",
+    "docs/engine/MANUAL_RECORDS.md": "23d4e63de55e655a89e73be4e1f0eac5374c0f35db8a049fb988ae30b0994d03",
+    "docs/engine/README.md": "7e8442398e12e51b01fa7ceb127515aa831c6fab40b8ca453a648ae8a76e35c3",
+    "docs/engine/CHANGES.md": "dcb8d4e97a738de833c645922c4d9eafaea40fd6dfaa0e0621bded41e806e824",
+    "docs/KQS_HUMAN_DECISION_DATASET.md": "4d92e1588bf62f73a0cdb6a09ac00d8fdb8928a97ac205645e1f5d580bc3bea1",
+    "docs/engine/verification/EINT-011.json": "b6ad9db24775a5273a0d368956bd89e0326094040b76de9de32653efc8fef997",
+    "docs/engine/verification/EINT-011A.json": "66ec2bec55661fb52927359529fdfae1a0feb8353410d27a30cb60b785b6237e",
+    "engine/kqs/revisions/EINT-007A.json": "ebc166f5d0fd7c93b9b0fa294e34d0c6a439c22365bed9ae5c7a15533cc9e380",
+    "app/backend/scheduler.py": "aef47e6da0e9e752ae8ad1e6317c1338b312dd96d9e7ceba926f7a42e06291ce",
+    "app/backend/leverage_dca_strategy.py": "b28f1eaf4784071f437d85d0e1800c70dfd8695ae031a25a39e2171a82f03d6a",
+    "app/backend/routers/strategy.py": "7a934a7d62231026f8774b19eed4145a1ad62c94a5059bced4b2e6aecc3a73bd",
+    "app/frontend/js/views/leverageDca.js": "ff46a21ab342415be90a27e8eecfb0f6087aa1f50d176ce68579481c33b8cafe",
+    "app/backend/market_calendar.py": "607e191dd4701c4d5423fedb4f4399958cd767404250160777bbcc9042c46469",
+    ".github/workflows/deploy.yml": "5d2cad7b568800528a2c6f456388132148acf2b6d7b64fa16f0e39599e6c8e83"
+  },
+  "implementation": {
+    "paths": [
+      "POST /api/kqs/decisions",
+      "POST /api/kqs/decisions/positions/{symbol_key}/sell"
+    ],
+    "request_id": {
+      "optional": true,
+      "min_length": 8,
+      "max_length": 128,
+      "user_scoped": true,
+      "canonical_input_fingerprint": true,
+      "database_atomic_dedup": "deterministic ObjectId derived from user_id/request_id; Mongo built-in _id uniqueness",
+      "same_request_replays_original": true,
+      "changed_input_or_route_scope_conflicts": 409,
+      "accepted_request_replay_after_expiry_or_full_exit": true,
+      "legacy_requests_without_id_supported_but_not_deduplicated": true
+    },
+    "timestamps": {
+      "recorded_at": "created_at fallback decided_at; server UTC",
+      "trade_at": "timezone-aware input normalized to UTC/milliseconds",
+      "trade_date": "KST date; must agree with explicit trade_at",
+      "sources": [
+        "user_time",
+        "user_date_only",
+        "record_time_default",
+        "legacy_unspecified"
+      ],
+      "legacy_naive_mongo_time_display": "UTC -> KST",
+      "same_day_unknown_time_order_proven": false
+    },
+    "serialization": {
+      "collection": "kqs_manual_write_locks",
+      "per_user": true,
+      "unique_id": true,
+      "token_owned_cleanup": true,
+      "ttl_or_automatic_expiry": false,
+      "active_lock_conflict": 409,
+      "insert_then_delete_rollback_not_used_by_new_endpoints": true
+    },
+    "validation": {
+      "future_and_recommendation_prepublication_rejected": true,
+      "backdated_against_known_symbol_history_rejected": true,
+      "existing_oversold_history_blocks_new_trade": true,
+      "nonfinite_or_overflow_money_rejected": 422,
+      "quantity_precision_minimum_exclusive": 1e-8,
+      "account_trade_limit": 10000,
+      "partial_history_balance_for_over_limit_rejected": true
+    },
+    "audit": {
+      "after_ledger_commit": true,
+      "best_effort": true,
+      "failure_logged_and_ledger_preserved": true,
+      "durable_outbox": false,
+      "delivery_guaranteed": false
+    },
+    "frontend": {
+      "same_form_unchanged_input_reuses_id": true,
+      "inflight_double_submit_disabled": true,
+      "explicit_new_recommendation_record_button": true,
+      "request_id_survives_page_reload": false,
+      "kst_trade_input_and_display": true,
+      "evidence_tags_escaped": true
+    },
+    "test_fixture_updates": "Three existing historical trade fixtures align new trade_at/trade_date with their intentionally edited decided_at. Disposable test lock collection cleanup and fake API query/count/lock support added. No test skipped."
+  },
+  "tests": [
+    {
+      "command": "MONGODB_URL=loopback-test-uri MONGODB_DB=jy_investing_test_eint012 PYTHONDONTWRITEBYTECODE=1 /tmp/iv-kqs-eint010-ci.5qz9Uk/venv/bin/python -m pytest tests/test_kqs_bridge.py tests/test_kqs_contract.py tests/test_kqs_native_views.py tests/test_kqs_manual_records.py -q -p no:cacheprovider --tb=short",
+      "environment": "Python 3.14.4 / disposable MongoDB 7 tmpfs",
+      "passed": 89,
+      "existing_tests": 69,
+      "new_parameterized_cases": 20,
+      "skipped": 0,
+      "warnings": 13,
+      "final_seconds": 9.18,
+      "data_boundary": {
+        "loopback_port": 32771,
+        "database": "jy_investing_test_eint012",
+        "operating_volumes_used": false
+      },
+      "new_coverage": [
+        "retry after expiry and changed input conflict",
+        "request IDs user-scoped/auth",
+        "full exit replay with zero remaining lots",
+        "concurrent duplicate buys and oversells",
+        "9 invalid time/money/request-id/quantity cases",
+        "user time vs record time vs day-only",
+        "prior-day sell blocked",
+        "audit failure commit replay",
+        "validation exception cleanup and stale lock fails closed",
+        "legacy oversold ledger not repaired",
+        "same-day exact-time reversal blocked",
+        "account 10000 trade cap stops before insert"
+      ]
+    },
+    {
+      "command": "PYTHONPATH=/tmp/iv-kqs-eint010-testdeps PYTHONDONTWRITEBYTECODE=1 engine/kqs/.venv/bin/python -m unittest discover -s scripts/tests -v",
+      "passed": 66,
+      "skipped": 0,
+      "data_boundary": "Synthetic publications, fake API/Docker, temporary files only"
+    },
+    {
+      "command": "node scripts/tests/kqs_manual_records_render.mjs",
+      "environment": "Node 22 --network none/read-only container and repository",
+      "passed": true
+    },
+    {
+      "command": "node scripts/tests/kqs_recommendations_render.mjs",
+      "environment": "Node 22 --network none/read-only container and repository",
+      "passed": true
+    },
+    {
+      "command": "node scripts/tests/kqs_engine_views_render.mjs",
+      "environment": "Node 22 --network none/read-only container and repository",
+      "passed": true
+    },
+    {
+      "command": "node --check app/frontend/js/views/strategyList.js",
+      "passed": true
+    },
+    {
+      "command": "python3 engine/kqs/tools/check_revision.py",
+      "passed": true
+    },
+    {
+      "command": "python3 engine/kqs/tools/check_migration.py",
+      "passed": true,
+      "copied_modules": 4
+    },
+    {
+      "command": "python3 scripts/check_engine_evidence.py --topic 원장",
+      "passed": true,
+      "archived_files": 167,
+      "decision_count": 45,
+      "metadata_only_files": 1735,
+      "full_backup_complete": false
+    },
+    {
+      "command": "PYTHONPATH=/tmp/iv-kqs-eint010-testdeps engine/kqs/.venv/bin/python scripts/check_kqs_release.py",
+      "passed": true,
+      "deployment_configuration_ready": false,
+      "git_ready": false,
+      "production_verified": false
+    },
+    {
+      "command": "git diff --check",
+      "passed": true
+    }
+  ],
+  "current_regression_tests_passed": 155,
+  "current_new_parameterized_cases": 20,
+  "development_findings": [
+    {
+      "initial_suite": {
+        "passed": 84,
+        "failed": 2,
+        "total": 86
+      },
+      "cause": "NaN/Infinity validation-error input broke FastAPI JSONResponse serialization; no ledger write.",
+      "fix": "Reject nonfinite raw JSON before normal model validation with HTTP 422.",
+      "subsequent_runs_passed": [
+        87,
+        87,
+        89
+      ],
+      "tests_skipped": false
+    },
+    {
+      "cause": "Trade quantity below FIFO epsilon could create untracked residue.",
+      "fix": "Reject quantities <= 1e-8 and add a synthetic regression."
+    },
+    {
+      "cause": "Partial capped reads could produce incomplete balances.",
+      "fix": "Fail closed above read cap and stop new trades at the account trade limit; add a mocked count boundary regression."
+    }
+  ],
+  "ci": {
+    "workflow": ".github/workflows/kqs-runtime.yml",
+    "new_manual_backend_suite_and_node_renderer_added": true,
+    "matrix": [
+      "3.12",
+      "3.14"
+    ],
+    "local_versions_tested": [
+      "3.14.4"
+    ],
+    "remote_workflow_executed": false,
+    "automatic_deployment_workflow_modified": false
+  },
+  "cleanup": {
+    "mongo_test_container": "kqs-eint012-test-mongo",
+    "container_id": "3343849197bd0b51d34050b37d9eb390dd1388340e239f069f1ea47cb7b47180",
+    "stopped_and_removed": true,
+    "tmpfs_synthetic_data_discarded": true,
+    "existing_db_volumes_mounted": false,
+    "user_data_deleted": false
+  },
+  "remaining_approval_pending": {
+    "file": ".github/workflows/deploy.yml",
+    "unchanged": true,
+    "sha256": "5d2cad7b568800528a2c6f456388132148acf2b6d7b64fa16f0e39599e6c8e83",
+    "reason": "EINT-010 automated deployment workflow change and AWS application remain separate approvals."
+  },
+  "limits": [
+    "Frontend request ID is in current form memory only, not durable across reload/navigation/tab changes.",
+    "Request ID is optional for legacy clients; missing IDs do not provide durable retry deduplication.",
+    "User-declared trade times/prices are not broker executions or market-calendar validation.",
+    "Same-day records with date-only or legacy unknown times cannot prove chronological order.",
+    "Publication validity is checked at snapshot read; a final pre-insert expiry recheck is not implemented.",
+    "No TTL on locks; crash/ambiguous DB acknowledgements may leave an orphan that blocks writes and requires authorized operator recovery after quiescing writers.",
+    "Audit is best-effort after commit; missing audit events remain possible without an outbox/retry.",
+    "At 10000 trades, further trades including exits stop; larger-account pagination/aggregation is a follow-up, not a deletion workaround.",
+    "Private user Mongo backup/restore and full raw archive backup remain outstanding.",
+    "No AWS deploy/restart/production runtime or browser E2E verification.",
+    "No remote CI or local Python 3.12 execution; not all application tests rerun.",
+    "Dirty/untracked changes and EINT-010 deployment workflow risks remain."
+  ],
+  "historical_research_reexecuted": 0,
+  "actual_holdout_reopened": 0,
+  "model_training_runs": 0,
+  "orders_or_automatic_fills_created": 0,
+  "user_ledger_writes": 0,
+  "leverage_dca_runs": 0,
+  "scheduler_starts": 0,
+  "real_market_requests": 0,
+  "aws_changes": 0,
+  "deployment_performed": false,
+  "committed_or_pushed": false,
+  "next_stage": "EINT-013 recommendation-time engine features versus human annotations/outcomes; schema/provenance/leakage regressions without modifying old manifests/holdouts. Proposed only; not automatically started."
+}

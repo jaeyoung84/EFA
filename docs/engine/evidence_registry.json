@@ -1,0 +1,706 @@
+{
+  "schema": "kqs-evidence-registry/v1",
+  "source_commit": "0c6b2e8308cc783ea5c4a50c18ff213203631ba2",
+  "decision_archive": "docs/engine/snapshots/2026-09-29-0c6b2e8308cc/repo/DECISIONS.md.txt",
+  "scope": "Preserve reported historical evidence, not a new strategy performance certification.",
+  "measurement_protocol": "DECISIONS preamble (D-0 conventions) retained; costs/horizons must remain strategy-family specific.",
+  "decisions": [
+    {
+      "id": "D-1",
+      "title": "유니버스는 KOSPI200 / KOSDAQ150 — 영구 고정",
+      "line": 52,
+      "section_sha256": "8eaf060c3212363de2de8048c90923b4c4479ba012b867c6cadb9cd1c4755435",
+      "verification": "archived_record_not_reexecuted",
+      "status": "historical_decision"
+    },
+    {
+      "id": "D-2",
+      "title": "rsi-obv 청산 = `RSI >= 50`, OBV 게이트 제거",
+      "line": 65,
+      "section_sha256": "760a4426618b9c8f48b3c288dc2d721a10582bd3e151a9a7c2dc926d5f1eb366",
+      "verification": "archived_record_not_reexecuted",
+      "status": "historical_decision"
+    },
+    {
+      "id": "D-3",
+      "title": "회귀 전략에 가격 손절을 넣지 않는다 — 양 전략 모두",
+      "line": 135,
+      "section_sha256": "83ed14fc6c9d620e3bfecfd1dad265fb948358322378f34cc1398d747a3b9f30",
+      "verification": "archived_record_not_reexecuted",
+      "status": "rejected_alternative",
+      "tags": [
+        "손절",
+        "stop"
+      ],
+      "latest_rules": "회귀 전략 가격 손절 대안은 이미 기각. 같은 구간 재탐색 금지."
+    },
+    {
+      "id": "D-4",
+      "title": "회귀 전략에 보유기간 상한을 넣지 않는다",
+      "line": 164,
+      "section_sha256": "25408592fdc65691f2bd7c08542409df59d4436d974279ef10802a21919c5239",
+      "verification": "archived_record_not_reexecuted",
+      "status": "frozen_rule",
+      "tags": [
+        "보유기간",
+        "365"
+      ],
+      "latest_rules": "전략 보유 상한 없음. D-10의 배포평가 365일 상한과 혼동하지 않는다.",
+      "later_decisions": [
+        "D-10"
+      ]
+    },
+    {
+      "id": "D-5",
+      "title": "검증 하네스 = 종목당 연속 백테스트 1회 + 진입일 윈도우 라벨링",
+      "line": 180,
+      "section_sha256": "8e224d5ca8b76ffb8be40c816faae5ff9f8883bcff051d1f76dfb2d8f974aa52",
+      "verification": "archived_record_not_reexecuted",
+      "status": "historical_decision"
+    },
+    {
+      "id": "D-6",
+      "title": "청산 최적화 그리드는 미청산 거래를 최종 시가평가로 보존",
+      "line": 194,
+      "section_sha256": "527156223cdb2bac1f115408b839035c69f30fd84965973a24133c99577af1bc",
+      "verification": "archived_record_not_reexecuted",
+      "status": "historical_decision"
+    },
+    {
+      "id": "D-7",
+      "title": "평가 기준(goal) = 계열별로 분리 + 윈도우 안정성 조건 (U-1 확정)",
+      "line": 222,
+      "section_sha256": "4c93254a9fb75a223a9a826a68064a1eb94e16fccaf362179ed38acefe530ec4",
+      "verification": "archived_record_not_reexecuted",
+      "status": "family_specific_historical_result",
+      "tags": [
+        "darvas",
+        "turtle",
+        "목표"
+      ],
+      "latest_rules": "계열별 goal을 구분한다. darvas/turtle 실패와 회귀 검증을 합치지 않으며 과거 통과는 현재 운용 승인 아님."
+    },
+    {
+      "id": "D-9",
+      "title": "배포 추천은 0~3종목, 성공 목표는 실제 연간 포트폴리오 수익률 20%",
+      "line": 334,
+      "section_sha256": "f313ce749df7d29b05a95d1b51a304b3ca7a292152a772df71b32ab2cc59494f",
+      "verification": "archived_record_not_reexecuted",
+      "status": "historical_decision"
+    },
+    {
+      "id": "D-10",
+      "title": "자본 회계는 진입 시점 원금 기준, 365일 상한은 배포 평가에만 적용",
+      "line": 377,
+      "section_sha256": "49c6a2e86dd0dcc68cc8fab4c038a8dafb44fbd92b3464316b03478965a3e276",
+      "verification": "archived_record_not_reexecuted",
+      "status": "historical_decision"
+    },
+    {
+      "id": "D-8",
+      "title": "회귀형(bollinger-rsi, rsi-obv)에 레짐 필터(W=200, bearish) 채택",
+      "line": 395,
+      "section_sha256": "591252620cbf9501c3a108369b3b9a404442f75755c354a6f454abac1ebf61cf",
+      "verification": "archived_record_not_reexecuted",
+      "status": "historical_decision"
+    },
+    {
+      "id": "D-11",
+      "title": "미래 가격 역채움 금지, hindsight 정렬은 최적화 근거가 아님",
+      "line": 444,
+      "section_sha256": "0590d5bccc31101b6a07d635ad3916c664932d73f1f5fc8805d2908e911b9500",
+      "verification": "archived_record_not_reexecuted",
+      "status": "historical_decision"
+    },
+    {
+      "id": "D-12",
+      "title": "청산 파라미터 학습은 TrainEnd 이후 가격을 읽지 않는다",
+      "line": 456,
+      "section_sha256": "57563833fabbc2e48b624cd47ad7d371f5b96babad9ed8ecd9e781ded8880e08",
+      "verification": "archived_record_not_reexecuted",
+      "status": "historical_decision"
+    },
+    {
+      "id": "D-13",
+      "title": "검증 자본 지표는 스윙+장기보유를 합산한 \"combined\" 행도 함께 낸다",
+      "line": 468,
+      "section_sha256": "318c6e3fd8f96574c323c3060420d579346f4320993e922190caccd159f5d85c",
+      "verification": "archived_record_not_reexecuted",
+      "status": "historical_decision"
+    },
+    {
+      "id": "D-14",
+      "title": "D-8 레짐 필터를 실거래 스캐너에 연결한다 (기본값은 비활성)",
+      "line": 480,
+      "section_sha256": "e1efe171ab23f5bae13e87ee17561048e8cb4a528c76c69ea904f1fafbac4690",
+      "verification": "archived_record_not_reexecuted",
+      "status": "partly_superseded",
+      "tags": [
+        "레짐",
+        "기본값"
+      ],
+      "latest_rules": "CLI 라이브 기본값 OFF 문구는 D-19로 대체. 스캐너 연구 설정 기본값과 구분.",
+      "later_decisions": [
+        "D-19"
+      ]
+    },
+    {
+      "id": "D-15",
+      "title": "`capital_metrics.py`의 슬롯/현금 장부 불일치로 인한 `KeyError` 수정",
+      "line": 492,
+      "section_sha256": "d59646a7428f73dc77bc28759123ce574017b4bf705e6cb6999451f830304b3e",
+      "verification": "archived_record_not_reexecuted",
+      "status": "historical_decision"
+    },
+    {
+      "id": "D-16",
+      "title": "실거래 시가총액 동점 처리 규칙 — 결함도 아니고 엣지도 아님 (Step 0)",
+      "line": 504,
+      "section_sha256": "cb2817ef906489bf3cb5053054ce639903bd84fe71e106c17c3803a3f4ea3c48",
+      "verification": "archived_record_not_reexecuted",
+      "status": "historical_decision"
+    },
+    {
+      "id": "D-17",
+      "title": "통합 20%-목표 재시뮬레이션 — D-13 combined 행, 필터 on/off 비교",
+      "line": 518,
+      "section_sha256": "805c9d6681263e318ec91f71ce2cc5d8b2156adf914f6e14188107ce7fa460dd",
+      "verification": "archived_record_not_reexecuted",
+      "status": "diagnostic_only",
+      "tags": [
+        "기준선",
+        "2.88"
+      ],
+      "latest_rules": "무작위 순서 민감도 실험. 현재 기준선/판정 합격선 아님.",
+      "later_decisions": [
+        "D-25",
+        "D-33",
+        "D-36"
+      ]
+    },
+    {
+      "id": "D-18",
+      "title": "D-17 combined 수익률에서 2020 코로나·2022 약세장 진입분 제외 시 CAGR",
+      "line": 543,
+      "section_sha256": "c38270e30c5dfdf3c6a4fff6468fdffa8ec27e49b46a5fee4424b42d98364ec8",
+      "verification": "archived_record_not_reexecuted",
+      "status": "exploratory_only",
+      "tags": [
+        "코로나",
+        "약세장",
+        "제외"
+      ],
+      "latest_rules": "위기구간 제외 성과는 탐색치이며 현행 기준선이나 채택 근거 아님."
+    },
+    {
+      "id": "D-19",
+      "title": "레짐 필터(D-14) 라이브 기본값을 OFF → ON(W=200, bearish)으로 전환",
+      "line": 575,
+      "section_sha256": "e4adc37a90d8ac7f642c1246a37dacf8b83d8375935b77be30412137e41be98a",
+      "verification": "archived_record_not_reexecuted",
+      "status": "frozen_runtime_rule",
+      "tags": [
+        "레짐",
+        "W200"
+      ],
+      "latest_rules": "CLI 기본 W=200 bearish ON. 무신호/게이트 차단은 별도 관측.",
+      "later_decisions": [
+        "D-34"
+      ]
+    },
+    {
+      "id": "D-20",
+      "title": "당일 후보 랭킹 모델(변동성축 R1) — 사전등록 검증 FAIL, 스캐너 변경 없음",
+      "line": 589,
+      "section_sha256": "cae0f7b6bb80ea882942088d08e016e95c12581cee463b9d607743767a15bc39",
+      "verification": "archived_record_not_reexecuted",
+      "status": "rejected_consumed_holdout",
+      "tags": [
+        "랭킹",
+        "ranking",
+        "R1",
+        "holdout"
+      ],
+      "latest_rules": "R1 랭킹 실패. 시간 holdout 소진. 같은 구간에서 새 랭킹 선택 금지."
+    },
+    {
+      "id": "D-21",
+      "title": "신호밀도 게이트(min_density=9) — 검증 4축 전부 통과, 라이브 반영은 사용자 지시로 보류",
+      "line": 624,
+      "section_sha256": "6faf7fd28516fc0dd66c0534712c183c0ce4d5a4558393e61a271556abaf106e",
+      "verification": "archived_record_not_reexecuted",
+      "status": "user_deferred_and_consumed_holdout",
+      "tags": [
+        "밀도",
+        "min_density",
+        "슬롯",
+        "cap",
+        "손절",
+        "give-back"
+      ],
+      "latest_rules": "min_density=9 연구 결과는 있으나 사용자 보류로 미구현. cap=5 미채택. 시장분할 소진. 손절/청산/슬롯 스윕 반복 금지.",
+      "later_decisions": [
+        "D-22",
+        "D-26"
+      ]
+    },
+    {
+      "id": "D-22",
+      "title": "exposure_share 회계 정의 고정 및 K-6 해소",
+      "line": 748,
+      "section_sha256": "d2985ab559e17c5341d1b16c698e2058b06b66627a96816a2fe6fdc9246611ad",
+      "verification": "archived_record_not_reexecuted",
+      "status": "fixed_measurement_bug",
+      "tags": [
+        "exposure_share",
+        "K-6"
+      ],
+      "latest_rules": "exposure_share 결함 수정 및 회귀 근거 있음. 단독 전략 의사결정 근거 아님."
+    },
+    {
+      "id": "D-23",
+      "title": "PENDING_EXIT 청산 체결일의 동일 종목 재진입을 배포 시뮬레이션에서도 차단",
+      "line": 762,
+      "section_sha256": "d3f3a8f1be47c1ae73e69137f4fa5c19a5691b6c2233ee02d227bea228de831b",
+      "verification": "archived_record_not_reexecuted",
+      "status": "historical_decision"
+    },
+    {
+      "id": "D-24",
+      "title": "라이브 후보 순서와 자본 시뮬레이션의 동일일 선택을 결정적으로 일치",
+      "line": 773,
+      "section_sha256": "340bdcf60373fb85d95dec26e159630620e6a0482965c00d8663eb12ce91596b",
+      "verification": "archived_record_not_reexecuted",
+      "status": "historical_decision"
+    },
+    {
+      "id": "D-25",
+      "title": "D-23/D-24 반영 최종 통합 라이브-재현 성과 — 연 20% 목표 FAIL",
+      "line": 790,
+      "section_sha256": "3dda780e7a988c0426b7e4d7404e187c6d8d6d6e967c273773ee122a5d5d73da",
+      "verification": "archived_record_not_reexecuted",
+      "status": "frozen_historical_price_baseline",
+      "tags": [
+        "기준선",
+        "4.01",
+        "CAGR"
+      ],
+      "latest_rules": "결정적 비용후 가격 CAGR 4.01% 동결 기준선. 배당 포함 실제 총수익 아님. D-17 2.88%와 혼동 금지.",
+      "later_decisions": [
+        "D-33",
+        "D-36"
+      ]
+    },
+    {
+      "id": "D-26",
+      "title": "다음 개선은 새 규칙 탐색이 아니라 전향적 검증 설계부터 시작",
+      "line": 811,
+      "section_sha256": "248990c06979a0f4d9320b99c3988105d5258b609acd2bc667a5323726439330",
+      "verification": "archived_record_not_reexecuted",
+      "status": "research_governance",
+      "tags": [
+        "동결",
+        "재실험",
+        "사전등록"
+      ],
+      "latest_rules": "기존 결과를 보고 같은 구간에서 파라미터를 재선택하지 않는다. 새 가설/독립 표본/사전등록부터."
+    },
+    {
+      "id": "K-5",
+      "title": "OBV 확인 필터로 bollinger-rsi 진입을 거르는 방법 — 기각, 재시도 금지",
+      "line": 825,
+      "section_sha256": "88f1679bb7a79ff8091de719d4b0df2148edf255748f54ed1e18ea1cc6056875",
+      "verification": "archived_record_not_reexecuted",
+      "status": "rejected_alternative",
+      "tags": [
+        "OBV",
+        "AND",
+        "bollinger"
+      ],
+      "latest_rules": "bollinger-rsi에 OBV AND 확인 필터를 붙이는 대안은 기각. 같은 검증 반복 금지."
+    },
+    {
+      "id": "D-27",
+      "title": "전향적 후보 감사 로그 — 추천 규칙 불변의 관측 기반 마련",
+      "line": 1029,
+      "section_sha256": "512a7cd0cfacd13ee83b46aa6c89e6143f8873c2cdc488bb39575a668a17c5ea",
+      "verification": "archived_record_not_reexecuted",
+      "status": "audit_identity_contract",
+      "tags": [
+        "멱등",
+        "감사",
+        "AsOf"
+      ],
+      "latest_rules": "후보 감사는 AsOf+설정 지문에 대해 멱등. 이미 확정된 추천 선정 규칙은 관측 코드와 별개."
+    },
+    {
+      "id": "D-28",
+      "title": "전향 관측의 거래 결과 연결 — CandidateAuditId",
+      "line": 1043,
+      "section_sha256": "37044ab5084ba03afd02c71f853e0a0dbedbcce8c5f6e178d1757dc9792acea1",
+      "verification": "archived_record_not_reexecuted",
+      "status": "legacy_engine_ledger_contract",
+      "tags": [
+        "CandidateAuditId",
+        "원장",
+        "체결"
+      ],
+      "latest_rules": "엔진 자동 모의 이벤트 연결이다. 사용자 수동 판단/체결 원장과 합산·소급 연결 금지."
+    },
+    {
+      "id": "D-29",
+      "title": "전향 감사 리포트는 서술적 관측 도구다",
+      "line": 1057,
+      "section_sha256": "19e5ea17f25a95b5d931fbc6a72facd2b38ffa13d4d2492a8ee867dfe3080a5d",
+      "verification": "archived_record_not_reexecuted",
+      "status": "descriptive_prospective_only",
+      "tags": [
+        "전향",
+        "PASS",
+        "FAIL"
+      ],
+      "latest_rules": "전향 감사는 기술 관측용. 충분한 표본 이전 성과 판정 금지."
+    },
+    {
+      "id": "D-30",
+      "title": "첫 전향 관측은 신호 없음도 그대로 보존한다",
+      "line": 1070,
+      "section_sha256": "db3f6bd58c9fd31eb94ddbfb9bc05d1d74f9f9db1d871cd1c26b0ed4f3c8a681",
+      "verification": "archived_record_not_reexecuted",
+      "status": "normal_no_signal_observation",
+      "tags": [
+        "무신호",
+        "0건"
+      ],
+      "latest_rules": "추천 0건도 정상 관측 가능. 추천을 만들기 위해 동결 규칙을 완화하지 않는다."
+    },
+    {
+      "id": "D-31",
+      "title": "KRX 인증키의 안전한 .env fallback",
+      "line": 1078,
+      "section_sha256": "d1830d0853fd6d5d75a6ac8b4b413cbeac4b7f24fb3c3c58c6ffa1b558e15a98",
+      "verification": "archived_record_not_reexecuted",
+      "status": "historical_decision"
+    },
+    {
+      "id": "D-32",
+      "title": "Codex 인수인계 — 2026-09-08, Claude 재개용",
+      "line": 1091,
+      "section_sha256": "3883d767ba74a81a973d9a466b339e900c0fc70ee46c49c3a1218be5726f5d52",
+      "verification": "archived_record_not_reexecuted",
+      "status": "historical_handoff_not_current_test_run",
+      "tags": [
+        "302",
+        "pytest"
+      ],
+      "latest_rules": "302 passed 등은 당시 실행의 보고값. 이번 현재 소스 전체 테스트 통과를 뜻하지 않는다."
+    },
+    {
+      "id": "D-34",
+      "title": "레짐 게이트 차단과 무신호를 감사 로그에서 구분한다",
+      "line": 1156,
+      "section_sha256": "18c8078afdf2ffe2f7d8ee1734dda32f07bddfdcfc12e8d6795d5e4c32d83301",
+      "verification": "archived_record_not_reexecuted",
+      "status": "historical_decision"
+    },
+    {
+      "id": "D-33",
+      "title": "전향 관측(prospective) closed-trade 최소 표본 대기 규칙",
+      "line": 1176,
+      "section_sha256": "a7954f6c64a6e5ed0aa370d1101360b8860df11f30403605646267f36e24a05e",
+      "verification": "archived_record_not_reexecuted",
+      "status": "latest_amendment_applies",
+      "tags": [
+        "100",
+        "30",
+        "2028",
+        "리셋",
+        "combined"
+      ],
+      "latest_rules": "개정2(2026-09-09)가 우선. swing closed100 AND long_term closed30 후 combined 단일 판정1회. 트랙별 PASS/FAIL 없음. 2028-08-28 시한. D-25 4.01% 및 판정 시 동일 길이 과거창 기준; D-17 밴드는 참고 진단.",
+      "later_decisions": [
+        "D-36",
+        "D-44"
+      ]
+    },
+    {
+      "id": "D-35",
+      "title": "자본 배분 조건(10종목/10억) 하의 탐색적 재계산 — 판정 아님",
+      "line": 1239,
+      "section_sha256": "e0d6cd71bfb23b110235f41c0b8cfcc9b89b0a946348e4a68d7b3f4ebde4aafc",
+      "verification": "archived_record_not_reexecuted",
+      "status": "exploratory_only",
+      "tags": [
+        "10종목",
+        "10억",
+        "3.60"
+      ],
+      "latest_rules": "자본 조건 탐색치. 라이브 채택 또는 동결 기준선 변경 아님."
+    },
+    {
+      "id": "D-36",
+      "title": "`index-tsmom-v1` 잠금 과거구간 검증 규약 — Claude·Codex 18항목 합의 (사전등록 아님)",
+      "line": 1264,
+      "section_sha256": "a035a253c400f6ffa029daede732a0dbcd82dfbe08a646617f6d6f51172d3fb0",
+      "verification": "archived_record_not_reexecuted",
+      "status": "consumed_inconclusive",
+      "tags": [
+        "index-tsmom",
+        "잠금",
+        "2002",
+        "2016",
+        "SMA200"
+      ],
+      "latest_rules": "hashlock 개정5: Stage5C 성과 출력1회, 2002-10-14~2016-08-31 consumed, 결과 INCONCLUSIVE. Stage5A 재수집/같은 구간 재검증 금지. 개정4의 최신 판정표는 CAGR/MDD 모두 동률이면 INCONCLUSIVE(옛 D-36 표의 FAIL을 대체). 새 shadow 실행도 별도 승인 필요.",
+      "latest_rule_archive": "docs/engine/snapshots/2026-09-29-0c6b2e8308cc/repo/PREREGISTRATION_D36_index_tsmom_v1.hashlock.md.txt"
+    },
+    {
+      "id": "D-37",
+      "title": "`cci-zero-cross-v1` 1단계 승격 실패 — 연구 중단 (Claude·Codex 합의)",
+      "line": 1362,
+      "section_sha256": "fc8d1474b056ec1eb5ec18bc7d8a30c61bfb5c79f6384331721bfd047a31ace1",
+      "verification": "archived_record_not_reexecuted",
+      "status": "research_stopped",
+      "tags": [
+        "CCI",
+        "cci-zero-cross"
+      ],
+      "latest_rules": "1단계 승격 실패, 연구 중단. 기존 연구 기록 보존, 동일 실패 대안 재시도 금지."
+    },
+    {
+      "id": "D-38",
+      "title": "Daily Trend Pullback (T-0) 별개 트랙 — 현행 규칙 불통과 확정, 라이브 미적용, 연구 보존 — 2026-09-12",
+      "line": 1376,
+      "section_sha256": "2b45b3e1104ee2dd8a8e8a903975543b4061d2523211ef7c3b307c9eaea9b385",
+      "verification": "archived_record_not_reexecuted",
+      "status": "historical_failure_consumed",
+      "tags": [
+        "Pullback",
+        "T-0"
+      ],
+      "latest_rules": "T-0 현행 규칙 불통과 확정. 기존 관측 재실행 금지.",
+      "later_decisions": [
+        "D-44"
+      ]
+    },
+    {
+      "id": "D-39",
+      "title": "Daily Trend Pullback v1 (T-0 변형: 눌림 방향 랭킹 + 10EMA 청산 삭제) — 관측 #2 불통과 힌트·즉시기각, 전향 관측 미착수 — 2026-09-12",
+      "line": 1390,
+      "section_sha256": "ce9370df58b0f2bb67ab83feb8f1dc807d4e6b64d8ed81de420a7684bf6fcbb1",
+      "verification": "archived_record_not_reexecuted",
+      "status": "historical_failure_consumed",
+      "tags": [
+        "Pullback",
+        "v1"
+      ],
+      "latest_rules": "v1 불통과 힌트/즉시기각, 전향 미착수. 관측 #2 반복 금지."
+    },
+    {
+      "id": "D-40",
+      "title": "Daily Trend Pullback v2 (v1 변형: 시장별 국면 게이트 069500/229200) — 관측 #3 불통과 힌트·즉시기각, C-5 원인 배제 — 2026-09-12",
+      "line": 1404,
+      "section_sha256": "77d1dfc72546ca98321bf906fba5610124a9e23e1c81243fa082fa60d6a048e3",
+      "verification": "archived_record_not_reexecuted",
+      "status": "historical_failure_later_forward_authorized",
+      "tags": [
+        "Pullback",
+        "v2"
+      ],
+      "latest_rules": "v2 과거 관측 #3 불통과/즉시기각. 이후 D-42 사용자 예외로 오프라인 전향 착수. 수익성 입증/라이브 승인 아님.",
+      "later_decisions": [
+        "D-42",
+        "D-44"
+      ]
+    },
+    {
+      "id": "D-41",
+      "title": "Daily Trend Pullback v3 (v2 변형: \"눌림의 질\" ⑩~⑬ — 회복 첫날·PVR·EVR·캔들 강도) — 관측 #4 불통과 힌트·즉시기각, 눌림 정의 원인 배제 — 2026-09-13",
+      "line": 1418,
+      "section_sha256": "f91643ca979052621dbef1bfdd6d2bb3d45fee1fd290b3b6c4515453fa5ea649",
+      "verification": "archived_record_not_reexecuted",
+      "status": "historical_failure_consumed",
+      "tags": [
+        "Pullback",
+        "v3"
+      ],
+      "latest_rules": "v3 관측 #4 불통과 힌트/즉시기각. 전향 미착수, 같은 창 재실행 금지."
+    },
+    {
+      "id": "D-42",
+      "title": "Daily Trend Pullback 변형 4종 성과 순위화 및 모의투자(전향 관측) 후보 TOP3 — 2026-09-15",
+      "line": 1431,
+      "section_sha256": "3be45884bd44a69d39a9dd97eed3c44afee129c1bab373890e9540d116bde149",
+      "verification": "archived_record_not_reexecuted",
+      "status": "v2_offline_forward_authorized_pending",
+      "tags": [
+        "Pullback",
+        "v2",
+        "전향"
+      ],
+      "latest_rules": "v2 사용자 승인으로 오프라인 전향 관측. 2026-09-09 시작, 완결100건, 2028-09-08 시한. 홈페이지 자동 모의체결 승인 아님.",
+      "later_decisions": [
+        "D-43",
+        "D-44"
+      ]
+    },
+    {
+      "id": "D-43",
+      "title": "Daily Trend Pullback v4 (v2 변형: 보유 중 시장 50SMA 하향 이탈 시 청산 \"국면 이탈 청산\") — 관측 #5 불통과 힌트, 즉시기각선 첫 해제(표본 내·사후 관찰 기반) — 2026-09-15",
+      "line": 1448,
+      "section_sha256": "3e763c68067a63c57208a9a96ca3e1e8c941e765c70fda4cd6d97c4333dd73bd",
+      "verification": "archived_record_not_reexecuted",
+      "status": "v4_offline_forward_authorized_pending",
+      "tags": [
+        "Pullback",
+        "v4",
+        "전향"
+      ],
+      "latest_rules": "v4 불통과 힌트이지 PASS 아님. 사용자 승인으로 v2와 별도 전향 관측. forced_close 제외100건, 2028-09-08 시한. 비교 판정 규칙 미등록.",
+      "later_decisions": [
+        "D-44"
+      ]
+    },
+    {
+      "id": "D-44",
+      "title": "모의투자(전향 관측) 운영 규약 — 3트랙(평균회귀 D-33 · Pullback v4 D-43 · Pullback v2 D-42)의 일일 파이프라인 통합, 스케줄 08:20 KST 반복 트리거 전환, 감사 결손 공시 — 2026-09-16",
+      "line": 1463,
+      "section_sha256": "8e43de374d131cc8abb4b43e95c4aecbddda0549ff32ec25c2e2abe3ccf89ca4",
+      "verification": "archived_record_not_reexecuted",
+      "status": "legacy_operating_protocol_not_new_web_execution_permission",
+      "tags": [
+        "파이프라인",
+        "3트랙",
+        "결손",
+        "모의체결"
+      ],
+      "latest_rules": "평균회귀 통합/v4/v2 3트랙 과거 운영 규약. 감사 결손 소급 재구성 금지. 기존 daily_picks_cli는 자동 모의체결 포함하므로 새 홈페이지 추천 작업에서 그대로 실행 금지. 사용자의 최신 수동 매매 방침이 새 통합 실행 경계를 정한다."
+    }
+  ],
+  "datasets": [
+    {
+      "key": "ranking_time_holdout_D20",
+      "status": "consumed",
+      "period": "2022-01~2026-08 (see original for exact fold boundaries)",
+      "decision_refs": [
+        "D-20",
+        "D-26"
+      ],
+      "permitted": "Reuse recorded result; changed-code regression is separate.",
+      "prohibited": "New ranking/parameter selection on this holdout."
+    },
+    {
+      "key": "density_market_holdout_D21",
+      "status": "consumed",
+      "period": "Existing KOSPI/KOSDAQ split; see D-21",
+      "decision_refs": [
+        "D-21",
+        "D-26"
+      ],
+      "prohibited": "Rerun density/stop/slots variants to replace previous selection."
+    },
+    {
+      "key": "pullback_T0_v1_v2_v3_v4",
+      "status": "consumed",
+      "period": "2022-01-01~2026-09-08",
+      "declared_observations": 5,
+      "decision_refs": [
+        "D-38",
+        "D-39",
+        "D-40",
+        "D-41",
+        "D-43"
+      ],
+      "prohibited": "Repeat observations #1~#5 or treat another variant as an independent holdout."
+    },
+    {
+      "key": "index_tsmom_pre2016",
+      "status": "consumed",
+      "period": "2002-10-14~2016-08-31",
+      "historical_verdict": "INCONCLUSIVE",
+      "decision_refs": [
+        "D-36"
+      ],
+      "status_source": "docs/engine/snapshots/2026-09-29-0c6b2e8308cc/repo/PREREGISTRATION_D36_index_tsmom_v1.hashlock.md.txt",
+      "prohibited": "Recollect Stage5A or reevaluate consumed Stage5C."
+    },
+    {
+      "key": "legacy_forward_main",
+      "status": "prospective_pending_not_evaluated_this_audit",
+      "decision_refs": [
+        "D-33",
+        "D-44"
+      ],
+      "maturity": "swing100 AND long_term30, combined judgment once",
+      "deadline": "2028-08-28"
+    },
+    {
+      "key": "legacy_forward_v2_v4",
+      "status": "prospective_pending_not_evaluated_this_audit",
+      "decision_refs": [
+        "D-42",
+        "D-43",
+        "D-44"
+      ],
+      "maturity": "100 closed each, separate judgments",
+      "deadline": "2028-09-08",
+      "note": "No homepage orders/fills activated; do not merge with human decisions."
+    }
+  ],
+  "reuse_rules": [
+    {
+      "key": "freeze_rejected_sweeps",
+      "decision_refs": [
+        "D-3",
+        "D-4",
+        "D-7",
+        "D-20",
+        "D-21",
+        "K-5"
+      ],
+      "rule": "기각 대안은 기존 근거를 재사용한다. 새 증거·독립 표본·사전등록 없이 재탐색 금지."
+    },
+    {
+      "key": "latest_amendment",
+      "decision_refs": [
+        "D-25",
+        "D-33",
+        "D-36",
+        "D-44"
+      ],
+      "rule": "Use latest amendments, not D-17 random baseline or obsolete per-track judgment."
+    },
+    {
+      "key": "manual_vs_engine_ledger",
+      "decision_refs": [
+        "D-28",
+        "D-44"
+      ],
+      "rule": "User manual trades and engine shadow/automatic trades are separate populations."
+    }
+  ],
+  "historical_test_claims": [
+    {
+      "decision_refs": [
+        "D-32",
+        "D-34"
+      ],
+      "claim": "302 passed / ruff checked as reported in original decision log",
+      "verification": "historical_report_only"
+    },
+    {
+      "decision_refs": [
+        "D-43"
+      ],
+      "claim": "v4 197 passed / 1 skipped as reported",
+      "verification": "historical_report_only"
+    }
+  ],
+  "known_gaps": [
+    "Database/raw market data/report outputs only inventoried, not privately backed up.",
+    "Git commit history is not exported as a recoverable bundle.",
+    "All historical reference-to-artifact relationships are not yet individually reconciled.",
+    "No current engine full-suite or live AWS health verification in this audit.",
+    "Registry/AGENTS guide reuse; no runtime holdout consumption lock yet in training APIs."
+  ]
+}

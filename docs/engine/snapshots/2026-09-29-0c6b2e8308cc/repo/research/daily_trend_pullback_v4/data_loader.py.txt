@@ -1,0 +1,1149 @@
+"""
+data_loader.py
+Korean Stock Market Data Pipeline
+T-0 v0.4-rc1 호환 (병합: 원본 + D-3·D-4·D-5·D-6 + H-13·H-14·H-16·H-17·H-18)
+v2 (2026-09-12) 변경 블록 — 그 외 v1(=v0.4-rc1 원본, sha256 앞16 a41869759babd325) 과 바이트 동일:
+  SQLITE_KOSDAQ_MARKET_TICKER = "229200" 추가 / load_universe_symbols 기본 exclude 에 229200 추가 /
+  load_universe_markets() 추가 (V2-3: 종목→시장 매핑, 이전 종목은 날짜 구간 목록)
+
+담당:
+  - 한국 거래일 캘린더 (공휴일·임시 휴장 포함) — 참고용. 실거래일 축의 단일 출처는 시장 시리즈(H-13)
+  - OHLCV 로딩 및 정합성 검증
+  - 시장 시리즈(기본 069500, KODEX 200) 로딩
+  - run_period() 요구 스키마로 변환
+
+v0.4-rc1 변경(2026-09-11, 실데이터 1회 실행 결과 반영):
+  H-13  KRX_HOLIDAYS 하드코딩 캘린더의 6일이 실거래일과 충돌(2016-12-26, 2019-05-22,
+        2021-06-07, 2022-05-09, 2022-12-26, 2023-05-26). SQLite 경로는 drop_non_trading=False로
+        정제하고, 시장 시리즈 날짜축으로 봉을 정렬(clean_ohlcv_with_market_calendar).
+        check_data_coverage는 시장 시리즈 축을 거래일 수로 사용.
+  H-14  거래대금 컬럼 별칭에 trading_value 추가.
+  H-16  load_universe_symbols() — 유니버스 규칙을 로더에 명문화(KOSPI+KOSDAQ ∩ 6자리 숫자 − 시장 종목).
+  H-17  SQLite 기본값을 실제 스키마(daily_prices/symbol/trade_date)와 시장 종목(069500)으로 통일.
+        시장 시리즈 부재 시 경고가 아닌 RuntimeError.
+  H-18  SELECT * 대신 PRAGMA table_info로 필요한 컬럼만 선택(대용량 테이블 메모리 절감).
+"""
+
+import warnings
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+
+# ══════════════════════════════════════════════
+# 1. 한국 거래일 캘린더
+# ══════════════════════════════════════════════
+
+# 한국 공휴일 (yyyy-mm-dd)
+# 출처: 한국거래소(KRX) 휴장일 공시 기준
+# 매년 갱신 필요 — 대체공휴일·임시공휴일 포함
+# H-13 (2026-09-11 실데이터 검증): 아래 6일은 실제 거래일로 확인됨 —
+#   2016-12-26, 2019-05-22, 2021-06-07, 2022-05-09, 2022-12-26, 2023-05-26
+#   따라서 이 집합으로 봉을 삭제(drop_non_trading=True)하면 실거래 봉이 소실된다.
+#   실거래일 축의 단일 출처는 시장 시리즈(069500) 날짜축이며, SQLite 로더 경로는
+#   drop_non_trading=False + clean_ohlcv_with_market_calendar()를 사용한다.
+#   이 집합은 참고용(is_trading_day/get_trading_days)으로만 남긴다.
+KRX_HOLIDAYS = {
+    # ── 2016 ──
+    "2016-01-01", "2016-02-08", "2016-02-09", "2016-02-10",
+    "2016-03-01", "2016-05-05", "2016-05-14", "2016-06-06",
+    "2016-08-15", "2016-09-14", "2016-09-15", "2016-09-16",
+    "2016-10-03", "2016-12-26",
+    # ── 2017 ──
+    "2017-01-27", "2017-01-30", "2017-03-01", "2017-05-03",
+    "2017-05-05", "2017-05-09", "2017-06-06", "2017-08-15",
+    "2017-10-02", "2017-10-03", "2017-10-04", "2017-10-05",
+    "2017-10-06", "2017-10-09", "2017-12-25",
+    # ── 2018 ──
+    "2018-01-01", "2018-02-15", "2018-02-16", "2018-03-01",
+    "2018-05-07", "2018-05-22", "2018-06-06", "2018-08-15",
+    "2018-09-24", "2018-09-25", "2018-09-26", "2018-10-03",
+    "2018-10-09", "2018-12-25", "2018-12-31",
+    # ── 2019 ──
+    "2019-01-01", "2019-02-04", "2019-02-05", "2019-02-06",
+    "2019-03-01", "2019-05-06", "2019-05-22", "2019-06-06",
+    "2019-08-15", "2019-09-12", "2019-09-13", "2019-10-03",
+    "2019-10-09", "2019-12-25",
+    # ── 2020 ──
+    "2020-01-01", "2020-01-24", "2020-01-27", "2020-04-15",
+    "2020-04-30", "2020-05-05", "2020-06-06", "2020-08-17",
+    "2020-09-30", "2020-10-01", "2020-10-02", "2020-10-09",
+    "2020-12-25",
+    # ── 2021 ──
+    "2021-01-01", "2021-02-11", "2021-02-12", "2021-03-01",
+    "2021-05-05", "2021-05-19", "2021-06-07", "2021-08-16",
+    "2021-09-20", "2021-09-21", "2021-09-22", "2021-10-04",
+    "2021-10-11", "2021-12-31",
+    # ── 2022 ──
+    "2022-01-31", "2022-02-01", "2022-02-02", "2022-03-01",
+    "2022-03-09", "2022-05-05", "2022-05-09", "2022-06-01",
+    "2022-06-06", "2022-08-15", "2022-09-09", "2022-09-12",
+    "2022-10-03", "2022-10-10", "2022-12-26",
+    # ── 2023 ──
+    "2023-01-23", "2023-01-24", "2023-03-01", "2023-05-05",
+    "2023-05-26", "2023-06-06", "2023-08-15", "2023-09-28",
+    "2023-09-29", "2023-10-02", "2023-10-03", "2023-10-09",
+    "2023-12-25",
+    # ── 2024 ──
+    "2024-01-01", "2024-02-09", "2024-02-12", "2024-03-01",
+    "2024-04-10", "2024-05-06", "2024-05-15", "2024-06-06",
+    "2024-08-15", "2024-09-16", "2024-09-17", "2024-09-18",
+    "2024-10-03", "2024-10-09", "2024-12-25",
+    # ── 2025 ──
+    "2025-01-01", "2025-01-28", "2025-01-29", "2025-01-30",
+    "2025-03-03", "2025-05-05", "2025-05-06", "2025-06-06",
+    "2025-08-15", "2025-10-03", "2025-10-06", "2025-10-07",
+    "2025-10-08", "2025-10-09", "2025-12-25",
+    # ── 2026 ──
+    "2026-01-01", "2026-02-16", "2026-02-17", "2026-02-18",
+    "2026-03-02", "2026-05-05", "2026-05-25", "2026-06-06",
+    "2026-08-17", "2026-09-24", "2026-09-25", "2026-10-05",
+    "2026-10-09", "2026-12-25",
+}
+
+KRX_HOLIDAY_SET = {pd.Timestamp(d) for d in KRX_HOLIDAYS}
+
+
+def is_trading_day(date: pd.Timestamp) -> bool:
+    """
+    D-6 경고: 이 함수의 공휴일 목록은 불완전할 수 있음.
+    원천 DB가 실거래일만 담고 있다면 market_df 기반 함수 사용 권장.
+    DB 로딩 후에는 get_trading_days_from_market() 사용.
+    """
+    if date.weekday() >= 5:
+        return False
+    if date in KRX_HOLIDAY_SET:
+        return False
+    return True
+
+
+def get_trading_days(
+    start: str,
+    end: str
+) -> pd.DatetimeIndex:
+    """
+    start ~ end 사이 한국 거래일 DatetimeIndex 반환.
+    """
+    all_days = pd.date_range(start=start, end=end, freq="B")
+    return all_days[~all_days.isin(KRX_HOLIDAY_SET)]
+
+
+def next_trading_day(date: pd.Timestamp) -> pd.Timestamp:
+    """주어진 날짜 이후 첫 거래일"""
+    d = date + pd.Timedelta(days=1)
+    while not is_trading_day(d):
+        d += pd.Timedelta(days=1)
+    return d
+
+
+def prev_trading_day(date: pd.Timestamp) -> pd.Timestamp:
+    """주어진 날짜 이전 마지막 거래일"""
+    d = date - pd.Timedelta(days=1)
+    while not is_trading_day(d):
+        d -= pd.Timedelta(days=1)
+    return d
+
+
+# ══════════════════════════════════════════════
+# 1-B. market_df 기반 캘린더 (D-6)
+# ══════════════════════════════════════════════
+
+def get_trading_days_from_market(
+    market_df: pd.DataFrame
+) -> pd.DatetimeIndex:
+    """
+    D-6: 시장지수 실거래일에서 캘린더 유도.
+    하드코딩 목록보다 안전 — 틀린 목록이 실거래일을 삭제하는 방향 없음.
+    """
+    return market_df.index
+
+
+def is_trading_day_from_market(
+    date: pd.Timestamp,
+    market_trading_days: set
+) -> bool:
+    return date in market_trading_days
+
+
+def clean_ohlcv_with_market_calendar(
+    df: pd.DataFrame,
+    market_df: pd.DataFrame,
+    ticker: str = ""
+) -> pd.DataFrame:
+    """
+    D-6: 원천 DB가 실거래일만 담고 있다면 비거래일 제거 불필요.
+    시장지수 인덱스 기준으로만 정렬·정제.
+    """
+    trading_days = set(market_df.index)
+    df = df.copy().sort_index()
+    df = df[~df.index.duplicated(keep="last")]
+
+    # 원천 DB가 비거래일을 포함하는 경우만 제거
+    non_trading = [d for d in df.index if d not in trading_days]
+    if non_trading:
+        warnings.warn(
+            f"[{ticker}] 비거래일 {len(non_trading)}건 발견 "
+            f"(첫 번째: {non_trading[0].date()}) — 시장지수 기준 제거"
+        )
+        df = df[df.index.isin(trading_days)]
+
+    return df
+
+
+# ══════════════════════════════════════════════
+# 2. OHLCV 스키마 정의
+# ══════════════════════════════════════════════
+
+OHLCV_REQUIRED = ["Open", "High", "Low", "Close", "Volume"]
+OHLCV_OPTIONAL = ["Turnover"]   # 없으면 Close × Volume으로 생성
+
+
+def _ensure_turnover(df: pd.DataFrame) -> pd.DataFrame:
+    if "Turnover" not in df.columns:
+        df = df.copy()
+        df["Turnover"] = df["Close"] * df["Volume"]
+    return df
+
+
+# ══════════════════════════════════════════════
+# 3. OHLCV 데이터 검증
+# ══════════════════════════════════════════════
+
+def validate_ohlcv(
+    df: pd.DataFrame,
+    ticker: str = "",
+    strict: bool = False
+) -> tuple:
+    """
+    OHLCV 데이터 정합성 검증.
+    strict=True → 경미한 오류도 False 반환.
+
+    반환: (통과 여부, 오류/경고 목록)
+    """
+    errors   = []
+    warnings_ = []
+
+    def err(msg):
+        errors.append(f"[{ticker}] {msg}")
+
+    def warn(msg):
+        warnings_.append(f"[{ticker}] {msg}")
+
+    # 컬럼 존재
+    missing = [c for c in OHLCV_REQUIRED if c not in df.columns]
+    if missing:
+        err(f"누락 컬럼: {missing}")
+        return False, errors + warnings_
+
+    # 인덱스
+    if not isinstance(df.index, pd.DatetimeIndex):
+        err("인덱스가 DatetimeIndex 아님")
+        return False, errors + warnings_
+
+    if not df.index.is_monotonic_increasing:
+        err("인덱스 오름차순 아님")
+
+    # 중복 날짜
+    dup = df.index.duplicated()
+    if dup.any():
+        err(f"중복 날짜 {dup.sum()}건")
+
+    # 비거래일 포함 여부 (경고)
+    non_trading = [d for d in df.index if not is_trading_day(d)]
+    if non_trading:
+        warn(f"비거래일 {len(non_trading)}건 포함 (첫 번째: {non_trading[0].date()})")
+
+    # 가격 음수·NaN
+    for col in ["Open", "High", "Low", "Close"]:
+        if (df[col] <= 0).any():
+            err(f"{col} ≤ 0인 행 존재")
+        if df[col].isna().any():
+            n = df[col].isna().sum()
+            (err if strict else warn)(f"{col} NaN {n}건")
+
+    # OHLC 정합
+    invalid_hl = df["High"] < df["Low"]
+    if invalid_hl.any():
+        err(f"High < Low인 행 {invalid_hl.sum()}건")
+
+    invalid_oh = df["Open"] > df["High"]
+    if invalid_oh.any():
+        warn(f"Open > High인 행 {invalid_oh.sum()}건 (갭업 가능)")
+
+    invalid_ol = df["Open"] < df["Low"]
+    if invalid_ol.any():
+        warn(f"Open < Low인 행 {invalid_ol.sum()}건 (갭다운 가능)")
+
+    # 거래량
+    if (df["Volume"] < 0).any():
+        err("Volume < 0인 행 존재")
+
+    zero_vol = (df["Volume"] == 0).sum()
+    if zero_vol > 0:
+        warn(f"Volume = 0인 날 {zero_vol}건 (거래정지 가능)")
+
+    # 이상 등락률 (±30% 초과 — 상하한가 30% 기준)
+    ret = df["Close"].pct_change().abs()
+    extreme = (ret > 0.30).sum()
+    if extreme > 0:
+        warn(f"일간 등락 ±30% 초과 {extreme}건 (권리락·분할 확인 필요)")
+
+    passed = len(errors) == 0
+    return passed, errors + warnings_
+
+
+# ══════════════════════════════════════════════
+# 4. 데이터 정제
+# ══════════════════════════════════════════════
+
+def clean_ohlcv(
+    df: pd.DataFrame,
+    ticker: str = "",
+    fill_method: str = "ffill",
+    drop_non_trading: bool = True,
+    remove_zero_volume: bool = False
+) -> pd.DataFrame:
+    """
+    OHLCV 정제.
+
+    fill_method: "ffill" | "drop"
+    drop_non_trading: True → 비거래일 행 제거
+    remove_zero_volume: True → 거래량 0인 행 제거 (거래정지 포함 주의)
+    """
+    df = df.copy().sort_index()
+    df = df[~df.index.duplicated(keep="last")]
+
+    if drop_non_trading:
+        df = df[[is_trading_day(d) for d in df.index]]
+
+    if remove_zero_volume:
+        n_removed = (df["Volume"] == 0).sum()
+        if n_removed > 0:
+            warnings.warn(
+                f"[{ticker}] Volume=0 행 {n_removed}건 제거 (거래정지 포함 가능)"
+            )
+        df = df[df["Volume"] > 0]
+
+    # 가격 NaN 처리
+    for col in ["Open", "High", "Low", "Close"]:
+        if fill_method == "ffill":
+            df[col] = df[col].ffill()
+        elif fill_method == "drop":
+            df = df[df[col].notna()]
+
+    # 음수 가격 제거
+    df = df[
+        (df["Open"] > 0) & (df["High"] > 0) &
+        (df["Low"]  > 0) & (df["Close"] > 0)
+    ]
+
+    # OHLC 정합 강제 (High < Low 보정)
+    invalid = df["High"] < df["Low"]
+    if invalid.any():
+        df.loc[invalid, ["High", "Low"]] = (
+            df.loc[invalid, ["Low", "High"]].values
+        )
+        warnings.warn(f"[{ticker}] High < Low 행 {invalid.sum()}건 교정")
+
+    df = _ensure_turnover(df)
+
+    return df
+
+
+# ══════════════════════════════════════════════
+# 5. 데이터 소스 로더
+# ══════════════════════════════════════════════
+
+# ── 5-A. CSV 로더 ─────────────────────────────
+
+def load_ohlcv_from_csv(
+    csv_dir: str,
+    tickers: list,
+    start_date: str = "2016-08-29",
+    end_date:   str = "2026-09-10",
+    filename_format: str = "{ticker}.csv",
+    date_col: str = "Date",
+    encoding: str = "utf-8-sig",
+    clean: bool = True
+) -> dict:
+    """
+    CSV 디렉토리에서 종목별 OHLCV 로딩.
+
+    파일명 예: 000660.csv, 005930.csv
+    컬럼 예:   Date,Open,High,Low,Close,Volume
+    """
+    csv_dir = Path(csv_dir)
+    result  = {}
+
+    start_ts = pd.Timestamp(start_date)
+    end_ts   = pd.Timestamp(end_date)
+
+    for ticker in tickers:
+        fname = csv_dir / filename_format.format(ticker=ticker)
+
+        if not fname.exists():
+            warnings.warn(f"[{ticker}] 파일 없음: {fname}")
+            continue
+
+        try:
+            df = pd.read_csv(fname, encoding=encoding)
+            df[date_col] = pd.to_datetime(df[date_col])
+            df = df.set_index(date_col).sort_index()
+
+            # 컬럼명 정규화
+            col_map = {
+                c: c.capitalize()
+                for c in df.columns
+                if c.lower() in ["open", "high", "low", "close", "volume"]
+            }
+            df = df.rename(columns=col_map)
+
+            # 기간 필터
+            df = df.loc[
+                (df.index >= start_ts) & (df.index <= end_ts)
+            ]
+
+            if df.empty:
+                warnings.warn(f"[{ticker}] 기간 내 데이터 없음")
+                continue
+
+            if clean:
+                df = clean_ohlcv(df, ticker=ticker)
+
+            ok, msgs = validate_ohlcv(df, ticker=ticker)
+            for msg in msgs:
+                warnings.warn(msg)
+
+            if not df.empty:
+                result[ticker] = df
+
+        except Exception as e:
+            warnings.warn(f"[{ticker}] 로딩 실패: {e}")
+
+    print(f"[CSV 로더] {len(result)}/{len(tickers)}개 종목 로딩 완료")
+    return result
+
+
+# ── 5-B. pykrx 로더 ───────────────────────────
+
+def load_ohlcv_from_pykrx(
+    tickers: list,
+    start_date: str = "2016-08-29",
+    end_date:   str = "2026-09-10",
+    market: str = "ALL",
+    clean: bool = True,
+    sleep_sec: float = 0.3
+) -> dict:
+    """
+    pykrx 라이브러리 사용.
+    설치: pip install pykrx
+
+    market: "KOSPI" | "KOSDAQ" | "ALL"
+    sleep_sec: API 호출 간격 (초)
+    """
+    try:
+        from pykrx import stock as krx
+        import time
+    except ImportError:
+        raise ImportError("pip install pykrx 필요")
+
+    start_str = pd.Timestamp(start_date).strftime("%Y%m%d")
+    end_str   = pd.Timestamp(end_date).strftime("%Y%m%d")
+
+    result = {}
+
+    for i, ticker in enumerate(tickers):
+        try:
+            df = krx.get_market_ohlcv_by_date(start_str, end_str, ticker)
+
+            if df.empty:
+                warnings.warn(f"[{ticker}] pykrx 데이터 없음")
+                continue
+
+            # pykrx 컬럼명 정규화
+            rename = {
+                "시가": "Open",  "고가": "High",
+                "저가": "Low",   "종가": "Close",
+                "거래량": "Volume", "거래대금": "Turnover"
+            }
+            df = df.rename(columns=rename)
+            df.index = pd.to_datetime(df.index)
+
+            if clean:
+                df = clean_ohlcv(df, ticker=ticker)
+
+            ok, msgs = validate_ohlcv(df, ticker=ticker)
+            for msg in msgs:
+                warnings.warn(msg)
+
+            if not df.empty:
+                result[ticker] = df
+
+            if sleep_sec > 0:
+                time.sleep(sleep_sec)
+
+        except Exception as e:
+            warnings.warn(f"[{ticker}] pykrx 실패: {e}")
+
+        if (i + 1) % 50 == 0:
+            print(f"  [{i+1}/{len(tickers)}] 진행 중...")
+
+    print(f"[pykrx 로더] {len(result)}/{len(tickers)}개 종목 로딩 완료")
+    return result
+
+
+# ── 5-C. FinanceDataReader 로더 ───────────────
+
+def load_ohlcv_from_fdr(
+    tickers: list,
+    start_date: str = "2016-08-29",
+    end_date:   str = "2026-09-10",
+    clean: bool = True,
+    sleep_sec: float = 0.2
+) -> dict:
+    """
+    FinanceDataReader 사용.
+    설치: pip install finance-datareader
+
+    한국 종목코드 6자리 입력.
+    """
+    try:
+        import FinanceDataReader as fdr
+        import time
+    except ImportError:
+        raise ImportError("pip install finance-datareader 필요")
+
+    result = {}
+
+    for i, ticker in enumerate(tickers):
+        try:
+            df = fdr.DataReader(ticker, start=start_date, end=end_date)
+
+            if df.empty:
+                warnings.warn(f"[{ticker}] FDR 데이터 없음")
+                continue
+
+            # FDR 컬럼 정규화
+            col_map = {}
+            for col in df.columns:
+                cl = col.lower()
+                if cl == "open":     col_map[col] = "Open"
+                elif cl == "high":   col_map[col] = "High"
+                elif cl == "low":    col_map[col] = "Low"
+                elif cl == "close":  col_map[col] = "Close"
+                elif cl == "volume": col_map[col] = "Volume"
+            df = df.rename(columns=col_map)
+            df.index = pd.to_datetime(df.index)
+
+            if clean:
+                df = clean_ohlcv(df, ticker=ticker)
+
+            ok, msgs = validate_ohlcv(df, ticker=ticker)
+            for msg in msgs:
+                warnings.warn(msg)
+
+            if not df.empty:
+                result[ticker] = df
+
+            if sleep_sec > 0:
+                time.sleep(sleep_sec)
+
+        except Exception as e:
+            warnings.warn(f"[{ticker}] FDR 실패: {e}")
+
+        if (i + 1) % 50 == 0:
+            print(f"  [{i+1}/{len(tickers)}] 진행 중...")
+
+    print(f"[FDR 로더] {len(result)}/{len(tickers)}개 종목 로딩 완료")
+    return result
+
+
+# ── 5-D. 통합 로더 (소스 자동 선택) ──────────
+
+def load_ohlcv(
+    tickers: list,
+    start_date: str = "2016-08-29",
+    end_date:   str = "2026-09-10",
+    source: str = "auto",
+    csv_dir: str = None,
+    **kwargs
+) -> dict:
+    """
+    source: "auto" | "csv" | "pykrx" | "fdr"
+    "auto" → pykrx 우선, 실패 시 fdr
+
+    run_period() 입력 형태로 반환.
+    """
+    if source == "csv":
+        if csv_dir is None:
+            raise ValueError("csv 소스 사용 시 csv_dir 필요")
+        return load_ohlcv_from_csv(
+            csv_dir, tickers, start_date, end_date, **kwargs
+        )
+
+    elif source == "pykrx":
+        return load_ohlcv_from_pykrx(
+            tickers, start_date, end_date, **kwargs
+        )
+
+    elif source == "fdr":
+        return load_ohlcv_from_fdr(
+            tickers, start_date, end_date, **kwargs
+        )
+
+    elif source == "auto":
+        try:
+            return load_ohlcv_from_pykrx(
+                tickers, start_date, end_date, **kwargs
+            )
+        except ImportError:
+            print("[auto] pykrx 없음 → FDR 시도")
+            return load_ohlcv_from_fdr(
+                tickers, start_date, end_date, **kwargs
+            )
+    else:
+        raise ValueError(f"알 수 없는 source: {source}")
+
+
+# ── 5-E. SQLite 로더 (D-5 → v0.4-rc1: H-13·H-14·H-16·H-17·H-18) ────────────────────
+
+# H-17: 실DB(data/krx_daily.sqlite3) 스키마 기본값.
+#   daily_prices(trade_date, symbol, name, market, section, open, high, low, close,
+#                volume, trading_value, market_cap, listed_shares, collected_at)
+SQLITE_TABLE      = "daily_prices"
+SQLITE_TICKER_COL = "symbol"
+SQLITE_DATE_COL   = "trade_date"
+SQLITE_MARKET_TICKER = "069500"   # KODEX 200 — DB에 순수지수(KS11) 없음 (2026-09-10 확정)
+SQLITE_KOSDAQ_MARKET_TICKER = "229200"   # KODEX 코스닥150 — V2-2: KOSDAQ 종목 게이트 벤치마크 (2026-09-12)
+
+# H-18: SELECT 대상 컬럼(소문자). 이 밖의 컬럼(name/market/section/market_cap/...)은 읽지 않는다.
+_SQLITE_PRICE_COLS = {
+    "open", "시가", "high", "고가", "low", "저가", "close", "종가",
+    "volume", "거래량", "turnover", "trading_value", "거래대금",
+}
+
+
+def _sqlite_select_columns(conn, table: str, ticker_col: str, date_col: str) -> list:
+    """
+    H-18: PRAGMA table_info 로 실제 컬럼을 조회해 필요한 것만 고른다.
+    반환 순서 = 테이블 정의 순서(결정적). ticker/date 컬럼이 없으면 RuntimeError.
+    """
+    info = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    names = [row[1] for row in info]
+    if not names:
+        raise RuntimeError(f"[SQLite] 테이블 {table} 없음 또는 컬럼 정보 없음")
+    lower = {n.lower(): n for n in names}
+    if ticker_col.lower() not in lower or date_col.lower() not in lower:
+        raise RuntimeError(
+            f"[SQLite] {table}: 컬럼 {ticker_col}/{date_col} 없음 (실제: {names})"
+        )
+    keep = [
+        n for n in names
+        if n.lower() in (ticker_col.lower(), date_col.lower()) or n.lower() in _SQLITE_PRICE_COLS
+    ]
+    return keep
+
+
+def load_universe_symbols(
+    db_path: str,
+    table: str      = SQLITE_TABLE,
+    ticker_col: str = SQLITE_TICKER_COL,
+    markets: tuple  = ("KOSPI", "KOSDAQ"),
+    market_col: str = "market",
+    exclude: tuple  = (SQLITE_MARKET_TICKER, SQLITE_KOSDAQ_MARKET_TICKER),   # V2-2: 229200 도 제외
+) -> list:
+    """
+    H-16: 유니버스 규칙의 단일 출처.
+      - market IN markets (기본 KOSPI, KOSDAQ)
+      - 6자리 숫자 심볼만 (ETF·영문혼합 심볼 제외)
+      - exclude 에 있는 심볼(기본: 시장 종목 069500 · 229200(v2)) 제외
+    2026-09-11 실데이터 실행(R-3)과 동일 규칙. SPAC·관리·환기·우선주 제외는 T-5 결정에 따라 보류
+    (시점별 상태 정보가 필요하고 봉 축을 바꿔 재현 검증을 깨뜨림).
+    """
+    import sqlite3
+
+    query = (
+        f"SELECT DISTINCT {ticker_col} FROM {table} "
+        f"WHERE {market_col} IN ({','.join('?' * len(markets))}) "
+        f"AND {ticker_col} GLOB '[0-9][0-9][0-9][0-9][0-9][0-9]' "
+        f"ORDER BY {ticker_col}"
+    )
+    with sqlite3.connect(str(db_path)) as conn:
+        rows = conn.execute(query, list(markets)).fetchall()
+    symbols = [str(r[0]) for r in rows if str(r[0]) not in set(exclude)]
+    print(f"[SQLite] 유니버스 {len(symbols)}개 종목 (markets={markets}, 6자리 숫자, 제외={exclude})")
+    return symbols
+
+
+def load_universe_markets(
+    db_path: str,
+    table: str      = SQLITE_TABLE,
+    ticker_col: str = SQLITE_TICKER_COL,
+    date_col: str   = SQLITE_DATE_COL,
+    markets: tuple  = ("KOSPI", "KOSDAQ"),
+    market_col: str = "market",
+    exclude: tuple  = (SQLITE_MARKET_TICKER, SQLITE_KOSDAQ_MARKET_TICKER),
+) -> dict:
+    """
+    V2-3: 유니버스 종목 → 시장 매핑. load_universe_symbols 와 같은 모집단 규칙(markets · 6자리 숫자 · exclude).
+      단일 시장 종목: {ticker: "KOSPI" | "KOSDAQ"}
+      이전 종목:      {ticker: [("YYYY-MM-DD", market), ...]} — 시장이 바뀐 첫 거래일을 구간 시작일로 하는 오름차순 목록
+      왕복(A→B→A) 은 RuntimeError (사전등록 규칙: 실DB 14종목 전부 KOSDAQ→KOSPI 단방향, 2026-09-12 확인).
+    market 값이 markets 밖인 행(예: KONEX 시절)은 무시 — 그 기간은 유니버스 밖(H-16 과 동일).
+    """
+    import sqlite3
+
+    ph = ",".join("?" * len(markets))
+    glob6 = "'[0-9][0-9][0-9][0-9][0-9][0-9]'"
+    q_single = (
+        f"SELECT {ticker_col}, MIN({market_col}) FROM {table} "
+        f"WHERE {market_col} IN ({ph}) AND {ticker_col} GLOB {glob6} "
+        f"GROUP BY {ticker_col} HAVING COUNT(DISTINCT {market_col}) = 1 ORDER BY {ticker_col}"
+    )
+    q_multi = (
+        f"SELECT {ticker_col} FROM {table} "
+        f"WHERE {market_col} IN ({ph}) AND {ticker_col} GLOB {glob6} "
+        f"GROUP BY {ticker_col} HAVING COUNT(DISTINCT {market_col}) > 1 ORDER BY {ticker_col}"
+    )
+    q_rows = (
+        f"SELECT {date_col}, {market_col} FROM {table} "
+        f"WHERE {ticker_col} = ? AND {market_col} IN ({ph}) ORDER BY {date_col}"
+    )
+    out = {}
+    with sqlite3.connect(str(db_path)) as conn:
+        for sym, m in conn.execute(q_single, list(markets)).fetchall():
+            out[str(sym)] = str(m)
+        multi = [str(r[0]) for r in conn.execute(q_multi, list(markets)).fetchall()]
+        for sym in multi:
+            segs = []
+            for d, m in conn.execute(q_rows, [sym] + list(markets)).fetchall():
+                m = str(m)
+                if not segs or segs[-1][1] != m:
+                    segs.append((str(d)[:10], m))
+            seen = [x[1] for x in segs]
+            if len(seen) != len(set(seen)):
+                raise RuntimeError(f"[V2-3] {sym}: 시장 왕복(flip-flop) {seen} — 사전등록 규칙 밖")
+            out[sym] = segs
+    for ex in exclude:
+        out.pop(str(ex), None)
+    n_multi = sum(1 for v in out.values() if not isinstance(v, str))
+    print(f"[SQLite] 유니버스 시장 매핑 {len(out)}개 종목 (이전 종목 {n_multi}개, markets={markets}, 제외={exclude})")
+    return out
+
+
+def load_ohlcv_from_sqlite(
+    db_path: str,
+    tickers: list = None,
+    start_date: str = "2016-08-29",
+    end_date: str   = "2026-09-08",   # D-5: DB 종료일 맞춤
+    table: str      = SQLITE_TABLE,        # H-17
+    ticker_col: str = SQLITE_TICKER_COL,   # H-17
+    date_col: str   = SQLITE_DATE_COL,     # H-17
+    clean: bool     = True,
+    market_df: pd.DataFrame = None,        # H-13
+) -> dict:
+    """
+    D-5: data/krx_daily.sqlite3 리더.
+    기존 기준전략과 동일 DB → 같은 축 위 R4 비교 가능.
+
+    실제 스키마(H-17): daily_prices(trade_date, symbol, open, high, low, close, volume, trading_value, ...)
+    일반 스키마도 허용: ticker, date, open, high, low, close, volume[, turnover|trading_value]
+
+    H-13: clean=True 이면 clean_ohlcv(drop_non_trading=False) — 하드코딩 휴일로 봉을 삭제하지 않음.
+          market_df 가 주어지면 정제 후 clean_ohlcv_with_market_calendar() 로 시장 시리즈 날짜축에 정렬.
+          (2026-09-11 실데이터 실행 스크립트의 R-4 경로와 동일 순서.)
+    H-18: 필요한 컬럼만 SELECT.
+    """
+    import sqlite3
+
+    db_path    = str(db_path)
+    start_ts   = pd.Timestamp(start_date)
+    end_ts     = pd.Timestamp(end_date)
+    start_str  = start_date
+    end_str    = end_date
+
+    result = {}
+
+    with sqlite3.connect(db_path) as conn:
+        # H-18: 필요한 컬럼만
+        select_cols = _sqlite_select_columns(conn, table, ticker_col, date_col)
+        select_sql  = ", ".join(select_cols)
+
+        # 전체 종목 목록
+        if tickers is None:
+            tickers = pd.read_sql_query(
+                f"SELECT DISTINCT {ticker_col} FROM {table}", conn
+            )[ticker_col].tolist()
+
+        # 배치 쿼리 (in절 분할)
+        batch_size = 500
+        all_data   = []
+
+        for start_i in range(0, len(tickers), batch_size):
+            batch  = tickers[start_i: start_i + batch_size]
+            ph     = ",".join("?" * len(batch))
+            query  = f"""
+                SELECT {select_sql}
+                FROM {table}
+                WHERE {ticker_col} IN ({ph})
+                  AND {date_col} >= ?
+                  AND {date_col} <= ?
+                ORDER BY {ticker_col}, {date_col}
+            """
+            chunk = pd.read_sql_query(
+                query, conn, params=list(batch) + [start_str, end_str]
+            )
+            all_data.append(chunk)
+
+        if not all_data:
+            print("[SQLite] 데이터 없음")
+            return {}
+
+        raw = pd.concat(all_data, ignore_index=True)
+
+    # 컬럼 정규화
+    col_map = {}
+    for col in raw.columns:
+        cl = col.lower()
+        if cl == ticker_col.lower(): col_map[col] = "__ticker__"
+        elif cl == date_col.lower(): col_map[col] = "__date__"
+        elif cl in ("open",  "시가"): col_map[col] = "Open"
+        elif cl in ("high",  "고가"): col_map[col] = "High"
+        elif cl in ("low",   "저가"): col_map[col] = "Low"
+        elif cl in ("close", "종가"): col_map[col] = "Close"
+        elif cl in ("volume","거래량"): col_map[col] = "Volume"
+        elif cl in ("turnover","trading_value","거래대금"): col_map[col] = "Turnover"   # H-14
+    raw = raw.rename(columns=col_map)
+    raw["__date__"] = pd.to_datetime(raw["__date__"])
+
+    for ticker, group in raw.groupby("__ticker__"):
+        df = (
+            group.drop(columns=["__ticker__"])
+            .rename(columns={"__date__": "date"})
+            .set_index("date")
+            .sort_index()
+        )
+        df = df.loc[(df.index >= start_ts) & (df.index <= end_ts)]
+
+        if df.empty:
+            continue
+        if clean:
+            # H-13: 하드코딩 휴일로 봉 삭제 금지. 중복·NaN·0가격 제거·HL 교정만.
+            df = clean_ohlcv(df, ticker=str(ticker), drop_non_trading=False)
+            if market_df is not None:
+                # H-13: 시장 시리즈 날짜축 기준 정렬 (D-6)
+                df = clean_ohlcv_with_market_calendar(df, market_df, ticker=str(ticker))
+
+        ok, msgs = validate_ohlcv(df, ticker=str(ticker))
+        for msg in msgs:
+            warnings.warn(msg)
+
+        if not df.empty:
+            result[str(ticker)] = df
+
+    print(
+        f"[SQLite] {db_path} → {len(result)}/{len(tickers)}개 종목, "
+        f"{start_date} ~ {end_date}"
+    )
+    return result
+
+
+def load_market_from_sqlite(
+    db_path: str,
+    index_ticker: str = SQLITE_MARKET_TICKER,   # H-17: 069500 (KODEX 200)
+    start_date: str   = "2016-08-29",
+    end_date: str     = "2026-09-08",
+    table: str        = SQLITE_TABLE,           # H-17
+    ticker_col: str   = SQLITE_TICKER_COL,      # H-17
+    date_col: str     = SQLITE_DATE_COL         # H-17
+) -> pd.DataFrame:
+    """
+    D-5: 동일 DB에서 시장 시리즈 로딩.
+    H-17: 시장 시리즈가 없으면 경고 대신 RuntimeError — 시장 시리즈는 날짜축의 단일 출처이므로
+          부재 상태로 진행하면 G-1(날짜 불일치)에서 뒤늦게 실패한다.
+    """
+    result = load_ohlcv_from_sqlite(
+        db_path, tickers=[index_ticker],
+        start_date=start_date, end_date=end_date,
+        table=table, ticker_col=ticker_col, date_col=date_col
+    )
+    df = result.get(index_ticker, pd.DataFrame())
+    if df.empty:
+        raise RuntimeError(
+            f"[SQLite] 시장 시리즈 {index_ticker} 데이터 없음 ({db_path}, {table}.{ticker_col}). "
+            f"시장 종목 코드와 테이블/컬럼 설정을 확인하세요."
+        )
+    return df
+
+
+# ══════════════════════════════════════════════
+# 6. 시장 지수 로더 (KOSPI / KOSPI200)
+# ══════════════════════════════════════════════
+
+def load_market_index(
+    start_date: str = "2016-08-29",
+    end_date:   str = "2026-09-10",
+    index: str = "KOSPI",
+    source: str = "auto",
+    csv_path: str = None
+) -> pd.DataFrame:
+    """
+    KOSPI 또는 KOSPI200 일봉 반환.
+    run_period()의 market_df로 사용.
+
+    반환 컬럼: Open, High, Low, Close, Volume
+    """
+    if source == "csv" or csv_path:
+        return _load_market_from_csv(csv_path, index)
+
+    elif source in ("auto", "pykrx"):
+        try:
+            return _load_market_from_pykrx(
+                start_date, end_date, index
+            )
+        except ImportError:
+            if source == "pykrx":
+                raise
+            print("[auto] pykrx 없음 → FDR 시도")
+
+    if source in ("auto", "fdr"):
+        return _load_market_from_fdr(start_date, end_date, index)
+
+    raise ValueError(f"알 수 없는 source: {source}")
+
+
+def _load_market_from_pykrx(start_date, end_date, index="KOSPI") -> pd.DataFrame:
+    from pykrx import stock as krx
+
+    index_map = {"KOSPI": "1001", "KOSPI200": "1028", "KOSDAQ": "2001"}
+    code = index_map.get(index.upper(), "1001")
+
+    start_str = pd.Timestamp(start_date).strftime("%Y%m%d")
+    end_str   = pd.Timestamp(end_date).strftime("%Y%m%d")
+
+    df = krx.get_index_ohlcv_by_date(start_str, end_str, code)
+
+    if df.empty:
+        raise ValueError(f"pykrx {index} 데이터 없음")
+
+    rename = {
+        "시가": "Open",  "고가": "High",
+        "저가": "Low",   "종가": "Close",
+        "거래량": "Volume"
+    }
+    df = df.rename(columns=rename)
+    df.index = pd.to_datetime(df.index)
+    df = df[[c for c in ["Open","High","Low","Close","Volume"] if c in df.columns]]
+
+    for col in ["Open","High","Low","Close"]:
+        if col not in df.columns:
+            df[col] = df["Close"]
+
+    if "Volume" not in df.columns:
+        df["Volume"] = 0
+
+    df = clean_ohlcv(df, ticker=index, drop_non_trading=True)
+    print(f"[pykrx] {index} {len(df)}거래일 로딩")
+    return df
+
+
+def _load_market_from_fdr(start_date, end_date, index="KOSPI") -> pd.DataFrame:
+    import FinanceDataReader as fdr
+
+    index_map = {"KOSPI": "KS11", "KOSPI200": "KS200", "KOSDAQ": "KQ11"}
+    code = index_map.get(index.upper(), "KS11")
+
+    df = fdr.DataReader(code, start=start_date, end=end_date)
+
+    if df.empty:
+        raise ValueError(f"FDR {index} 데이터 없음")
+
+    rename = {}
+    for col in df.columns:
+        cl = col.lower()
+        if cl == "open":     rename[col] = "Open"
+        elif cl == "high":   rename[col] = "High"
+        elif cl == "low":    rename[col] = "Low"
+        elif cl == "close":  rename[col] = "Close"
+        elif cl == "volume": rename[col] = "Volume"
+    df = df.rename(columns=rename)
+    df.index = pd.to_datetime(df.index)
+
+    for col in ["Open","High","Low","Close"]:
+        if col not in df.columns:
+            df[col] = df.get("Close", np.nan)
+    if "Volume" not in df.columns:
+        df["Volume"] = 0
+
+    df = clean_ohlcv(df, ticker=index, drop_non_trading=True)
+    print(f"[FDR] {index} {len(df)}거래일 로딩")
+    return df
+
+
+def _load_market_from_csv(csv_path: str, index: str) -> pd.DataFrame:
+    df = pd.read_csv(csv_path, encoding="utf-8-sig")
+    df.index = pd.to_datetime(df.iloc[:, 0])
+    df = df.iloc[:, 1:]
+
+    rename = {}
+    for col in df.columns:
+        cl = col.lower()
+        if cl == "open":     rename[col] = "Open"
+        elif cl == "high":   rename[col] = "High"
+        elif cl == "low":    rename[col] = "Low"
+        elif cl == "close":  rename[col] = "Close"
+        elif cl == "volume": rename[col] = "Volume"
+    df = df.rename(columns=rename)
+
+    if "Volume" not in df.columns:
+        df["Volume"] = 0
+
+    df = clean_ohlcv(df, ticker=index, drop_non_trading=True)
+    print(f"[CSV] {index} {len(df)}거래일 로딩")
+    return df
+
+
+# ══════════════════════════════════════════════
+# 7. 유니버스 구성 유틸
+# ══════════════════════════════════════════════
+
+def get_krx_ticker_list(
+    market: str = "ALL",
+    source: str = "pykrx",
+    date: str = None
+) -> list:
+    """
+    D-4 경고: 현재 상장 종목만 반환 — 과거 상폐·합병 종목 부재.
+    추세추종 전략에서 이 생존편향은 PF를 위로 밉니다.
+    기준전략과 동일 유니버스 사용 시 동일 DB(krx_daily.sqlite3)에서
+    ticker 목록을 직접 조회하면 상폐 종목이 포함됩니다.
+
+    [대안]
+    tickers = list(load_ohlcv_from_sqlite(db_path).keys())
+    """
+    if date is None:
+        date = pd.Timestamp.today().strftime("%Y%m%d")
+    else:
+        date = pd.Timestamp(date).strftime("%Y%m%d")
+
+    if source == "pykrx":
+        try:
+            from pykrx import stock as krx
+            if market.upper() == "KOSPI":
+                return krx.get_market_ticker_list(date, market="KOSPI")
+            elif market.upper() == "KOSDAQ":
+                return krx.get_market_ticker_list(date, market="KOSDAQ")
+            else:
+                kospi  = krx.get_market_ticker_list(date, market="KOSPI")
+                kosdaq = krx.get_market_ticker_list(date, market="KOSDAQ")
+                return list(set(kospi + kosdaq))
+        except ImportError:
+            raise ImportError("pip install pykrx 필요")
+
+    elif source == "fdr":
+        try:
+            import FinanceDataReader as fdr
+            if market.upper() == "KOSPI":
+                df = fdr.StockListing("KOSPI")
+            elif market.upper() == "KOSDAQ":
+                df = fdr.StockListing("KOSDAQ")
+            else:
+                k1 = fdr.StockListing("KOSPI")
+                k2 = fdr.StockListing("KOSDAQ")
+                df = pd.concat([k1, k2])
+
+            code_col = next(
+                (c for c in df.columns if "code" in c.lower() or "종목코드" in c),
+                df.columns[0]
+            )
+            return df[code_col].astype(str).str.zfill(6).tolist()
+        except ImportError:
+            raise ImportError("pip install finance-datareader 필요")
+
+    raise ValueError(f"알 수 없는 source: {source}")
+
+
+# D-3: filter_liquid_tickers() 함수 전체 삭제됨.
+# _entry_signal이 이미 시점별 AVG_TURNOVER20 >= min_turnover를 처리.
+
+
+# ══════════════════════════════════════════════
+# 8. 데이터 정합성 최종 체크
+# ══════════════════════════════════════════════
+
+def check_data_coverage(
+    ohlcv: dict,
+    market_df: pd.DataFrame,
+    start_date: str,
+    end_date: str
+) -> dict:
+    """
+    run_period() 실행 전 최종 데이터 점검.
+    누락 거래일·종목 커버리지·market_df 범위 확인.
+
+    H-13: 거래일 축 = 시장 시리즈(market_df) 날짜축. 하드코딩 캘린더(get_trading_days)는
+          참고 수치로만 보고한다(2026-09-11 실행: 캘린더 1156일 vs 시장 1145일).
+          시장 시리즈에 기간 내 봉이 없으면 RuntimeError (날짜축의 단일 출처 부재).
+    """
+    start_ts = pd.Timestamp(start_date)
+    end_ts   = pd.Timestamp(end_date)
+    mkt_axis = market_df.index[(market_df.index >= start_ts) & (market_df.index <= end_ts)]
+    n_td     = len(mkt_axis)
+    if n_td == 0:
+        raise RuntimeError(
+            f"[데이터 점검] 시장 시리즈에 {start_date} ~ {end_date} 봉 없음 — 거래일 축을 정할 수 없음"
+        )
+    n_td_calendar = len(get_trading_days(start_date, end_date))   # 참고용(하드코딩 캘린더)
+
+    report = {
+        "기간":          f"{start_date} ~ {end_date}",
+        "거래일_수":     n_td,                 # H-13: 시장 시리즈 축
+        "거래일_수_참고캘린더": n_td_calendar,  # 하드코딩 캘린더(참고)
+        "종목_수":       len(ohlcv),
+        "이슈_종목":     []
+    }
+
+    for ticker, df in ohlcv.items():
+        in_range = df.loc[
+            (df.index >= pd.Timestamp(start_date))
+            & (df.index <= pd.Timestamp(end_date))
+        ]
+        coverage = len(in_range) / n_td if n_td > 0 else 0
+
+        if coverage < 0.90:
+            report["이슈_종목"].append(
+                f"{ticker}: 커버리지 {coverage:.1%} "
+                f"({len(in_range)}/{n_td}거래일)"
+            )
+
+    # market_df 범위 확인
+    # H-13: 시장 시리즈가 곧 거래일 축이므로 자기 자신 대비 커버리지는 항상 100%.
+    #       대신 참고 캘린더 대비 봉 수를 보고하고, 시장 시리즈 쪽이 5% 넘게 적으면 경고(시장 시리즈 결측 의심).
+    mkt_range = market_df.index
+    mkt_start = mkt_range.min()
+    mkt_end   = mkt_range.max()
+    report["시장지수_커버리지"] = f"{n_td}/{n_td_calendar}참고캘린더일"
+    report["시장지수_범위"] = f"{mkt_start.date()} ~ {mkt_end.date()}"
+
+    if n_td_calendar > 0 and n_td < n_td_calendar * 0.95:
+        report["시장지수_경고"] = (
+            f"시장 시리즈 봉 수가 참고 캘린더의 {n_td/n_td_calendar:.1%} — 시장 시리즈 결측 의심(SMA50 정확도 저하 가능)"
+        )
+
+    # 출력
+    print(f"\n[데이터 점검]")
+    print(f"  기간:       {report['기간']}")
+    print(f"  거래일 수:  {report['거래일_수']} (시장 시리즈 축; 참고 캘린더 {report['거래일_수_참고캘린더']})")
+    print(f"  종목 수:    {report['종목_수']}")
+    if report["이슈_종목"]:
+        print(f"  커버리지 < 90% 종목: {len(report['이슈_종목'])}개")
+        for msg in report["이슈_종목"][:5]:
+            print(f"    {msg}")
+        if len(report["이슈_종목"]) > 5:
+            print(f"    ... 외 {len(report['이슈_종목'])-5}개")
+    print(f"  시장지수:   {report.get('시장지수_커버리지', 'N/A')}")
+    if "시장지수_경고" in report:
+        print(f"  [경고] {report['시장지수_경고']}")
+
+    return report

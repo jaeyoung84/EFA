@@ -1,0 +1,441 @@
+import sys
+
+import pandas as pd
+
+from korea_quant import daily_picks_cli
+
+
+def _history(periods=40, close=None):
+    dates = pd.bdate_range("2024-01-01", periods=periods)
+    close = list(close) if close is not None else list(range(100, 100 + periods))
+    return pd.DataFrame(
+        {
+            "Date": dates,
+            "Symbol": "005930",
+            "Name": "삼성전자",
+            "Market": "KOSPI",
+            "Open": close,
+            "High": [value + 1 for value in close],
+            "Low": [value - 1 for value in close],
+            "Close": close,
+            "Volume": [1_000] * len(close),
+            "TradingValue": [6_000_000_000] * len(close),
+            "MarketCap": [1_000_000_000_000] * len(close),
+        }
+    )
+
+
+def _empty_scan(as_of):
+    return pd.DataFrame(
+        [
+            {
+                "as_of": as_of,
+                "execution_timing": "next_trading_session",
+                "symbol": "999999",
+                "name": "placeholder",
+                "market": "KOSPI",
+                "close": 0.0,
+                "market_cap_rank": None,
+                "market_cap_tier": 200,
+                "average_trading_value": 0.0,
+                "state": "no_signal",
+                "signal_type": None,
+            }
+        ]
+    )
+
+
+def test_daily_picks_cli_separates_swing_and_long_term_candidates(monkeypatch, tmp_path, capsys):
+    dates = pd.bdate_range("2024-01-01", periods=40)
+    history = _history()
+
+    class FakeStore:
+        def __init__(self, _path):
+            pass
+
+        def market_history(self, *_args):
+            return history
+
+    def fake_scan(_history, config, _benchmark_close=None):
+        as_of = dates[-1].date().isoformat()
+        return pd.DataFrame(
+            [
+                {
+                    "as_of": as_of, "execution_timing": "next_trading_session",
+                    "symbol": "005930", "name": "삼성전자", "market": "KOSPI", "close": 139.0,
+                    "market_cap_rank": 1, "market_cap_tier": 200,
+                    "average_trading_value": 6_000_000_000,
+                    "state": "entry_due_next_session", "signal_type": "swing",
+                },
+                {
+                    "as_of": as_of, "execution_timing": "next_trading_session",
+                    "symbol": "000660", "name": "SK하이닉스", "market": "KOSPI", "close": 200.0,
+                    "market_cap_rank": 2, "market_cap_tier": 200,
+                    "average_trading_value": 7_000_000_000,
+                    "state": "entry_due_next_session", "signal_type": "long_term",
+                },
+            ]
+        )
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(daily_picks_cli, "KrxDailyStore", FakeStore)
+    monkeypatch.setattr(daily_picks_cli, "scan_reversion_candidates", fake_scan)
+    monkeypatch.setattr(
+        sys, "argv", ["korea-quant-daily-picks", "--krx-db", "test.sqlite3", "--market-filter-window", "0"]
+    )
+
+    daily_picks_cli.main()
+
+    output = capsys.readouterr().out
+    assert "스윙" in output
+    assert "장기보유" in output
+    assert "삼성전자" in output
+    assert "SK하이닉스" in output
+
+    positions = pd.read_csv(tmp_path / "data" / "bot_active_positions.csv")
+    assert set(positions["SignalType"]) == {"swing", "long_term"}
+    assert set(positions["Status"]) == {"PENDING_ENTRY"}
+    log = pd.read_csv(tmp_path / "data" / "bot_trade_log.csv")
+    assert log["Type"].tolist() == ["BUY_SIGNAL", "BUY_SIGNAL"]
+    assert set(log["SignalType"]) == {"swing", "long_term"}
+    audit = pd.read_csv(tmp_path / "data" / "bot_candidate_audit.csv")
+    assert set(audit["SelectionOutcome"]) == {"selected"}
+    assert audit["IsSelected"].sum() == 2
+    assert set(positions["CandidateAuditId"]) == set(audit["AuditId"])
+    assert set(log["CandidateAuditId"]) == set(audit["AuditId"])
+
+
+def test_daily_picks_backfills_max_picks_after_excluding_an_already_tracked_symbol(monkeypatch, tmp_path):
+    dates = pd.bdate_range("2024-01-01", periods=40)
+    history = _history()
+
+    class FakeStore:
+        def __init__(self, _path):
+            pass
+
+        def market_history(self, *_args):
+            return history
+
+    def fake_scan(*_args):
+        return pd.DataFrame(
+            [
+                {
+                    "as_of": dates[-1].date().isoformat(), "execution_timing": "next_trading_session",
+                    "symbol": "005930", "name": "삼성전자", "market": "KOSPI", "close": 139.0,
+                    "market_cap_rank": 1, "market_cap_tier": 200,
+                    "average_trading_value": 6_000_000_000,
+                    "state": "entry_due_next_session", "signal_type": "swing",
+                },
+                {
+                    "as_of": dates[-1].date().isoformat(), "execution_timing": "next_trading_session",
+                    "symbol": "000660", "name": "SK하이닉스", "market": "KOSPI", "close": 200.0,
+                    "market_cap_rank": 2, "market_cap_tier": 200,
+                    "average_trading_value": 7_000_000_000,
+                    "state": "entry_due_next_session", "signal_type": "swing",
+                },
+            ]
+        )
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    pd.DataFrame(
+        [
+            {
+                "SignalDate": "2024-01-02", "Symbol": "005930", "Name": "삼성전자", "Market": "KOSPI",
+                "SignalType": "swing", "SignalPrice": 100, "Status": "OPEN",
+                "EntryDate": "2024-01-03", "EntryPrice": 100, "ExitSignalDate": pd.NA,
+            }
+        ]
+    ).to_csv(data_dir / "bot_active_positions.csv", index=False)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(daily_picks_cli, "KrxDailyStore", FakeStore)
+    monkeypatch.setattr(daily_picks_cli, "scan_reversion_candidates", fake_scan)
+    # This position's own exit check must not fire for this test to isolate the buy-signal path.
+    monkeypatch.setattr(
+        daily_picks_cli,
+        "native_exit_observed",
+        lambda _data, _signal_type: False,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "korea-quant-daily-picks", "--krx-db", "test.sqlite3", "--max-picks", "1",
+            "--market-filter-window", "0",
+        ],
+    )
+
+    daily_picks_cli.main()
+
+    log = pd.read_csv(data_dir / "bot_trade_log.csv")
+    buy_signals = log[log["Type"] == "BUY_SIGNAL"]
+    assert buy_signals["Symbol"].astype(str).str.zfill(6).tolist() == ["000660"]
+
+
+def test_daily_picks_never_exceeds_the_global_three_pick_cap_across_categories(monkeypatch, tmp_path):
+    # Each category alone could fill --max-picks, but the cap is on the
+    # combined swing+long_term total (max 3/day), not 3 per category.
+    dates = pd.bdate_range("2024-01-01", periods=40)
+    history = _history()
+
+    class FakeStore:
+        def __init__(self, _path):
+            pass
+
+        def market_history(self, *_args):
+            return history
+
+    def fake_scan(*_args):
+        as_of = dates[-1].date().isoformat()
+        rows = []
+        for rank, (symbol, name, signal_type) in enumerate(
+            [
+                ("005930", "A", "swing"),
+                ("000660", "B", "swing"),
+                ("035420", "C", "long_term"),
+                ("051910", "D", "long_term"),
+            ],
+            start=1,
+        ):
+            rows.append(
+                {
+                    "as_of": as_of, "execution_timing": "next_trading_session",
+                    "symbol": symbol, "name": name, "market": "KOSPI", "close": 100.0 + rank,
+                    "market_cap_rank": rank, "market_cap_tier": 200,
+                    "average_trading_value": 6_000_000_000,
+                    "state": "entry_due_next_session", "signal_type": signal_type,
+                }
+            )
+        return pd.DataFrame(rows)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(daily_picks_cli, "KrxDailyStore", FakeStore)
+    monkeypatch.setattr(daily_picks_cli, "scan_reversion_candidates", fake_scan)
+    monkeypatch.setattr(
+        sys, "argv", ["korea-quant-daily-picks", "--krx-db", "test.sqlite3", "--market-filter-window", "0"]
+    )
+
+    daily_picks_cli.main()
+
+    log = pd.read_csv(tmp_path / "data" / "bot_trade_log.csv")
+    buy_signals = log[log["Type"] == "BUY_SIGNAL"]
+    assert len(buy_signals) == 3
+    assert buy_signals["Symbol"].astype(str).str.zfill(6).tolist() == ["005930", "000660", "035420"]
+
+
+def test_daily_picks_rejects_a_max_picks_above_three(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        sys, "argv", ["korea-quant-daily-picks", "--krx-db", "test.sqlite3", "--max-picks", "4"]
+    )
+    try:
+        daily_picks_cli.main()
+        raised = False
+    except SystemExit:
+        raised = True
+    assert raised
+
+
+def test_daily_picks_marks_pending_exit_using_the_position_signal_type(monkeypatch, tmp_path):
+    dates = pd.bdate_range("2024-01-01", periods=40)
+    history = _history(close=[100.0] * 40)
+
+    class FakeStore:
+        def __init__(self, _path):
+            pass
+
+        def market_history(self, *_args):
+            return history
+
+    def fake_scan(*_args):
+        return _empty_scan(dates[-1].date().isoformat())
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    pd.DataFrame(
+        [
+            {
+                "SignalDate": "2024-01-02", "Symbol": "005930", "Name": "삼성전자", "Market": "KOSPI",
+                "SignalType": "swing", "SignalPrice": 100, "Status": "OPEN",
+                "EntryDate": "2024-01-03", "EntryPrice": 100, "ExitSignalDate": pd.NA,
+            }
+        ]
+    ).to_csv(data_dir / "bot_active_positions.csv", index=False)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(daily_picks_cli, "KrxDailyStore", FakeStore)
+    monkeypatch.setattr(daily_picks_cli, "scan_reversion_candidates", fake_scan)
+    monkeypatch.setattr(
+        daily_picks_cli,
+        "native_exit_observed",
+        lambda _data, _signal_type: True,
+    )
+
+    monkeypatch.setattr(
+        sys, "argv", ["korea-quant-daily-picks", "--krx-db", "test.sqlite3", "--market-filter-window", "0"]
+    )
+
+    daily_picks_cli.main()
+
+    positions = pd.read_csv(data_dir / "bot_active_positions.csv")
+    assert positions.iloc[0]["Status"] == "PENDING_EXIT"
+    log = pd.read_csv(data_dir / "bot_trade_log.csv")
+    assert log["Type"].tolist() == ["SELL_SIGNAL"]
+    assert log.iloc[0]["SignalType"] == "swing"
+
+
+def test_daily_picks_skips_exit_check_for_an_unknown_signal_type(monkeypatch, tmp_path, capsys):
+    dates = pd.bdate_range("2024-01-01", periods=40)
+    history = _history(close=[100.0] * 40)
+
+    class FakeStore:
+        def __init__(self, _path):
+            pass
+
+        def market_history(self, *_args):
+            return history
+
+    def fake_scan(*_args):
+        return _empty_scan(dates[-1].date().isoformat())
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    pd.DataFrame(
+        [
+            {
+                "SignalDate": "2024-01-02", "Symbol": "005930", "Name": "삼성전자", "Market": "KOSPI",
+                "SignalType": "unknown", "SignalPrice": 100, "Status": "OPEN",
+                "EntryDate": "2024-01-03", "EntryPrice": 100, "ExitSignalDate": pd.NA,
+            }
+        ]
+    ).to_csv(data_dir / "bot_active_positions.csv", index=False)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(daily_picks_cli, "KrxDailyStore", FakeStore)
+    monkeypatch.setattr(daily_picks_cli, "scan_reversion_candidates", fake_scan)
+    monkeypatch.setattr(
+        sys, "argv", ["korea-quant-daily-picks", "--krx-db", "test.sqlite3", "--market-filter-window", "0"]
+    )
+
+    daily_picks_cli.main()
+
+    output = capsys.readouterr().out
+    assert "SKIP" in output
+    positions = pd.read_csv(data_dir / "bot_active_positions.csv")
+    assert positions.iloc[0]["Status"] == "OPEN"
+
+
+def test_daily_picks_emits_no_buy_when_no_qualified_signal_exists(monkeypatch, tmp_path, capsys):
+    dates = pd.bdate_range("2024-01-01", periods=40)
+    history = _history()
+
+    class FakeStore:
+        def __init__(self, _path):
+            pass
+
+        def market_history(self, *_args):
+            return history
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(daily_picks_cli, "KrxDailyStore", FakeStore)
+    monkeypatch.setattr(
+        daily_picks_cli,
+        "scan_reversion_candidates",
+        lambda *_args: _empty_scan(dates[-1].date().isoformat()),
+    )
+    monkeypatch.setattr(
+        sys, "argv", ["korea-quant-daily-picks", "--krx-db", "test.sqlite3", "--market-filter-window", "0"]
+    )
+
+    daily_picks_cli.main()
+
+    assert "당일 신호 없음 - 추천 종목 없음" in capsys.readouterr().out
+    log = pd.read_csv(tmp_path / "data" / "bot_trade_log.csv")
+    assert log.empty
+    positions = pd.read_csv(tmp_path / "data" / "bot_active_positions.csv")
+    assert positions.empty
+
+def test_candidate_audit_records_the_existing_selection_path_idempotently():
+    scan = pd.DataFrame(
+        [
+            {
+                "as_of": "2026-09-08", "execution_timing": "next_trading_session",
+                "symbol": "000001", "name": "first", "market": "KOSPI",
+                "market_cap_rank": 1, "market_cap_tier": 200, "average_trading_value": 6_000_000_000,
+                "state": "entry_due_next_session", "signal_type": "swing",
+            },
+            {
+                "as_of": "2026-09-08", "execution_timing": "next_trading_session",
+                "symbol": "000001", "name": "first", "market": "KOSPI",
+                "market_cap_rank": 1, "market_cap_tier": 200, "average_trading_value": 6_000_000_000,
+                "state": "entry_due_next_session", "signal_type": "long_term",
+            },
+            {
+                "as_of": "2026-09-08", "execution_timing": "next_trading_session",
+                "symbol": "000002", "name": "tracked", "market": "KOSPI",
+                "market_cap_rank": 2, "market_cap_tier": 200, "average_trading_value": 6_000_000_000,
+                "state": "entry_due_next_session", "signal_type": "swing",
+            },
+            {
+                "as_of": "2026-09-08", "execution_timing": "next_trading_session",
+                "symbol": "000003", "name": "capped", "market": "KOSPI",
+                "market_cap_rank": 3, "market_cap_tier": 200, "average_trading_value": 6_000_000_000,
+                "state": "entry_due_next_session", "signal_type": "swing",
+            },
+            {
+                "as_of": "2026-09-08", "execution_timing": "next_trading_session",
+                "symbol": "000004", "name": "no signal", "market": "KOSDAQ",
+                "market_cap_rank": 1, "market_cap_tier": 150, "average_trading_value": 6_000_000_000,
+                "state": "no_signal", "signal_type": None,
+            },
+        ]
+    )
+    selected = scan.iloc[[0]].copy()
+    selected["_normalized_symbol"] = selected["symbol"].map(daily_picks_cli.normalize_symbol)
+    fingerprint = daily_picks_cli.candidate_audit_fingerprint({"max_picks": 1, "mode": "bearish"})
+
+    audit = daily_picks_cli.build_candidate_audit(scan, {"000002"}, selected, fingerprint)
+    outcomes = audit.set_index(["Symbol", "SignalType"])["SelectionOutcome"].to_dict()
+
+    assert outcomes[("000001", "swing")] == "selected"
+    assert outcomes[("000001", "long_term")] == "duplicate_symbol"
+    assert outcomes[("000002", "swing")] == "already_tracked"
+    assert outcomes[("000003", "swing")] == "daily_cap"
+    assert audit.loc[audit["Symbol"].eq("000004"), "SelectionOutcome"].item() == "not_entry_signal"
+    assert audit["IsSelected"].sum() == 1
+    assert (audit["ConfigFingerprint"] == fingerprint).all()
+    assert set(audit.columns) == set(daily_picks_cli.AUDIT_COLUMNS)
+
+    empty = pd.DataFrame(columns=daily_picks_cli.AUDIT_COLUMNS)
+    appended = daily_picks_cli.append_candidate_audit(empty, audit)
+    rerun = daily_picks_cli.append_candidate_audit(appended, audit)
+    assert len(rerun) == len(audit)
+    assert daily_picks_cli.candidate_audit_fingerprint({"mode": "bearish", "max_picks": 1}) == fingerprint
+
+
+def test_candidate_audit_fingerprint_changes_when_a_rule_parameter_is_retuned():
+    from dataclasses import asdict
+
+    from korea_quant.reversion_scanner import ReversionScannerConfig, reversion_rule_parameters
+
+    def payload(rules):
+        return {
+            "max_picks": 3,
+            "scanner": asdict(ReversionScannerConfig()),
+            "market_benchmarks": {"KOSPI": "1001", "KOSDAQ": "2001"},
+            "rules": rules,
+        }
+
+    baseline = daily_picks_cli.candidate_audit_fingerprint(payload(reversion_rule_parameters()))
+
+    # D-33 uses the fingerprint as the prospective sample's reset marker, so a
+    # retune of an entry threshold has to produce a different one even though
+    # no CLI flag changed.
+    retuned = {name: dict(values) for name, values in reversion_rule_parameters().items()}
+    retuned["bollinger-rsi"]["oversold"] = 25.0
+    assert daily_picks_cli.candidate_audit_fingerprint(payload(retuned)) != baseline
+
+    # Same for a scanner-config field the CLI never exposed as a flag.
+    widened = asdict(ReversionScannerConfig(liquidity_window=30))
+    changed = payload(reversion_rule_parameters()) | {"scanner": widened}
+    assert daily_picks_cli.candidate_audit_fingerprint(changed) != baseline

@@ -1,0 +1,110 @@
+"""ECOS (한국은행 경제통계시스템) Open API client for macro benchmark series."""
+
+from __future__ import annotations
+
+import json
+import os
+import time
+import urllib.error
+import urllib.request
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import date
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+
+from korea_quant.krx import _dotenv_value
+
+Transport = Callable[[str], dict[str, Any]]
+
+CD91_STAT_CODE = "817Y002"
+CD91_ITEM_CODE = "010502000"
+
+
+class EcosApiError(RuntimeError):
+    """Raised when ECOS cannot return a valid response."""
+
+
+@dataclass(frozen=True)
+class EcosOpenApiClient:
+    """Client for the 한국은행 ECOS Open API statistical search endpoint."""
+
+    api_key: str
+    base_url: str = "https://ecos.bok.or.kr/api"
+    timeout: float = 30.0
+    retries: int = 3
+    transport: Transport | None = None
+
+    @classmethod
+    def from_env(cls, env_name: str = "ECOS_API_KEY", **kwargs: Any) -> EcosOpenApiClient:
+        api_key = os.environ.get(env_name, "").strip() or _dotenv_value(Path(".env"), env_name)
+        if not api_key:
+            raise ValueError(f"Set {env_name} to the approved ECOS Open API authentication key.")
+        return cls(api_key=api_key, **kwargs)
+
+    def fetch_daily_series(
+        self,
+        stat_code: str,
+        item_code: str,
+        start: date,
+        end: date,
+    ) -> pd.DataFrame:
+        """Fetch a daily ECOS statistic as a DataFrame with `date` and `value` columns."""
+
+        fmt = "%Y%m%d"
+        path = "/".join(
+            [
+                "StatisticSearch",
+                self.api_key,
+                "json",
+                "kr",
+                "1",
+                "100000",
+                stat_code,
+                "D",
+                start.strftime(fmt),
+                end.strftime(fmt),
+                item_code,
+            ]
+        )
+        url = f"{self.base_url.rstrip('/')}/{path}"
+        payload = self._request(url)
+
+        search = payload.get("StatisticSearch")
+        if not isinstance(search, dict):
+            result = payload.get("RESULT", {})
+            raise EcosApiError(f"ECOS error {result.get('CODE')}: {result.get('MESSAGE')}")
+        rows = search.get("row", [])
+        if not isinstance(rows, list):
+            raise EcosApiError("ECOS response's StatisticSearch.row is not a list.")
+
+        records = [
+            {"date": pd.to_datetime(row["TIME"], format=fmt), "value": float(row["DATA_VALUE"])}
+            for row in rows
+        ]
+        frame = pd.DataFrame.from_records(records, columns=["date", "value"])
+        return frame.sort_values("date").reset_index(drop=True)
+
+    def _request(self, url: str) -> dict[str, Any]:
+        if self.transport is not None:
+            return self.transport(url)
+
+        last_error: Exception | None = None
+        for attempt in range(self.retries + 1):
+            try:
+                request = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
+                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+                last_error = exc
+                if attempt < self.retries:
+                    time.sleep(2**attempt)
+        raise EcosApiError(f"ECOS request failed after retries: {last_error}") from last_error
+
+
+def fetch_cd91(client: EcosOpenApiClient, start: date, end: date) -> pd.DataFrame:
+    """Fetch the CD(91일) daily rate series (연%), D-36's cash benchmark for index-tsmom-v1."""
+
+    return client.fetch_daily_series(CD91_STAT_CODE, CD91_ITEM_CODE, start, end)

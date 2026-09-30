@@ -1,0 +1,8 @@
+# Runtime lock validated for EINT-002 (Python 3.14). Not the historical research environment.
+# Install with: python -m pip install -r engine/kqs/requirements.lock
+pandas==2.3.3
+numpy==2.3.5
+python-dateutil==2.9.0.post0
+pytz==2026.4
+tzdata==2026.4
+six==1.17.0

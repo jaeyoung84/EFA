@@ -1,0 +1,136 @@
+"""Historical event-study validation for common-signal candidate rankings."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+import pandas as pd
+
+from korea_quant.backtest import BacktestConfig
+from korea_quant.confluence import ConfluenceConfig, generate_confluence_signals
+
+
+@dataclass(frozen=True)
+class CandidateValidationConfig:
+    horizons: tuple[int, ...] = (5, 20, 60)
+    top_n: int = 10
+    minimum_average_trading_value: float = 5_000_000_000
+    liquidity_window: int = 20
+    fee_rate: float = 0.00015
+    sell_tax_rate: float = 0.0018
+    slippage_rate: float = 0.0005
+    minimum_signals: int = 2
+    require_volume: bool = False
+
+
+def build_ranked_candidate_events(
+    history: pd.DataFrame, benchmark_close: pd.Series, config: CandidateValidationConfig
+) -> pd.DataFrame:
+    """Build historical candidates known at a prior close, executed next open."""
+    required = {"Date", "Symbol", "Name", "Market", "Open", "High", "Low", "Close", "Volume", "TradingValue"}
+    missing = required - set(history.columns)
+    if missing:
+        raise ValueError(f"Candidate history is missing: {', '.join(sorted(missing))}")
+    _validate_config(config)
+    benchmark = pd.to_numeric(benchmark_close, errors="coerce").dropna().sort_index()
+    prepared = history.copy()
+    prepared["Date"] = pd.to_datetime(prepared["Date"])
+    rows: list[dict[str, object]] = []
+    base = BacktestConfig()
+    confluence = ConfluenceConfig(config.minimum_signals, True, config.require_volume)
+    for symbol, group in prepared.groupby("Symbol", sort=True):
+        prices = group.sort_values("Date").set_index("Date")[["Open", "High", "Low", "Close", "Volume"]]
+        values = group.sort_values("Date").set_index("Date")
+        signals = generate_confluence_signals(prices, base, confluence)
+        # The event executes at this session's open, so every ranking input must
+        # come from the previous close. Using the execution session's trading
+        # value, close, or high here would leak information unavailable at entry.
+        average_value = (
+            pd.to_numeric(values["TradingValue"], errors="coerce")
+            .rolling(config.liquidity_window, min_periods=config.liquidity_window)
+            .mean()
+            .shift(1)
+        )
+        short_rs = _rolling_relative_strength(prices["Close"], benchmark, 63).shift(1)
+        long_rs = _rolling_relative_strength(prices["Close"], benchmark, 126).shift(1)
+        proximity = (
+            prices["Close"] / prices["High"].rolling(252, min_periods=252).max()
+        ).shift(1)
+        eligible = signals["entries"].astype(bool) & (average_value >= config.minimum_average_trading_value)
+        eligible &= short_rs.notna() & long_rs.notna() & proximity.notna()
+        for date in prices.index[eligible]:
+            rows.append({
+                "execution_date": date, "symbol": symbol, "name": values.at[date, "Name"],
+                "market": values.at[date, "Market"], "entry_open": float(prices.at[date, "Open"]),
+                "confluence_count": int(signals.at[date, "confluence_count"]),
+                "candidate_score": float(0.60 * long_rs.at[date] + 0.25 * short_rs.at[date] + 0.15 * (proximity.at[date] - 1)),
+            })
+    events = pd.DataFrame(rows)
+    if events.empty:
+        return pd.DataFrame(columns=["execution_date", "rank", "symbol", "name", "market", "entry_open", "confluence_count", "candidate_score"])
+    events["rank"] = events.groupby("execution_date")["candidate_score"].rank(method="first", ascending=False).astype(int)
+    return events.sort_values(["execution_date", "rank", "symbol"]).reset_index(drop=True)
+
+
+def evaluate_ranked_events(
+    events: pd.DataFrame, history: pd.DataFrame, config: CandidateValidationConfig
+) -> pd.DataFrame:
+    """Calculate fee/slippage-inclusive forward open-to-open returns by rank bucket."""
+    if events.empty:
+        return pd.DataFrame(columns=["horizon_sessions", "bucket", "event_count", "mean_return", "median_return", "win_rate"])
+    opens = history.pivot(index="Date", columns="Symbol", values="Open").sort_index().apply(pd.to_numeric, errors="coerce")
+    rows: list[dict[str, object]] = []
+    for horizon in config.horizons:
+        realized: list[dict[str, object]] = []
+        for event in events.itertuples(index=False):
+            if event.execution_date not in opens.index or event.symbol not in opens:
+                continue
+            position = opens.index.get_loc(event.execution_date)
+            if position + horizon >= len(opens.index):
+                continue
+            entry = opens.at[event.execution_date, event.symbol]
+            exit_ = opens.iloc[position + horizon][event.symbol]
+            if pd.isna(entry) or pd.isna(exit_) or entry <= 0 or exit_ <= 0:
+                continue
+            net = (exit_ * (1 - config.slippage_rate) * (1 - config.fee_rate - config.sell_tax_rate) /
+                   (entry * (1 + config.slippage_rate) * (1 + config.fee_rate))) - 1
+            bucket = f"top_{config.top_n}" if event.rank <= config.top_n else "other"
+            realized.append({"bucket": bucket, "return": float(net)})
+        frame = pd.DataFrame(realized)
+        if frame.empty:
+            continue
+        for bucket, values in frame.groupby("bucket"):
+            rows.append({"horizon_sessions": horizon, "bucket": bucket, "event_count": len(values),
+                         "mean_return": values["return"].mean(), "median_return": values["return"].median(),
+                         "win_rate": (values["return"] > 0).mean()})
+    columns = [
+        "horizon_sessions", "bucket", "event_count", "mean_return", "median_return", "win_rate",
+    ]
+    if not rows:
+        return pd.DataFrame(columns=columns)
+    return pd.DataFrame(rows, columns=columns).sort_values(
+        ["horizon_sessions", "bucket"]
+    ).reset_index(drop=True)
+
+
+def write_candidate_validation_report(summary: pd.DataFrame, events: pd.DataFrame, output: Path) -> Path:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    table = summary.to_html(index=False, border=0) if not summary.empty else "<p>검증 가능한 완료 구간이 없습니다.</p>"
+    html = f'''<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>Candidate Ranking Validation</title><style>body{{font-family:system-ui;margin:32px;max-width:1200px}}table{{border-collapse:collapse;width:100%}}th,td{{padding:8px;border:1px solid #ddd;text-align:right}}th{{background:#f5f5f5}}th:nth-child(2),td:nth-child(2){{text-align:left}}</style></head><body><h1>후보 랭킹 사후 검증</h1><p>전일 종가까지 계산된 신호의 다음 거래일 시가 진입 후, 지정 보유기간 시가 청산 수익률입니다. 왕복 수수료·슬리피지를 반영했으며 미래 수익으로 신호나 순위를 계산하지 않습니다.</p><p>검증 이벤트: {len(events):,}건</p>{table}</body></html>'''
+    output.write_text(html, encoding="utf-8")
+    return output
+
+
+def _rolling_relative_strength(close: pd.Series, benchmark: pd.Series, window: int) -> pd.Series:
+    aligned = pd.DataFrame({"close": pd.to_numeric(close, errors="coerce"), "benchmark": benchmark}).reindex(close.index)
+    return aligned["close"] / aligned["close"].shift(window) - aligned["benchmark"] / aligned["benchmark"].shift(window)
+
+
+def _validate_config(config: CandidateValidationConfig) -> None:
+    if not config.horizons or min(config.horizons) < 1 or config.top_n < 1:
+        raise ValueError("Horizons and top_n must be positive.")
+    if config.minimum_average_trading_value <= 0 or config.liquidity_window < 2 or config.minimum_signals < 1:
+        raise ValueError("Liquidity and signal settings are invalid.")
+    if config.fee_rate < 0 or config.slippage_rate < 0 or config.sell_tax_rate < 0:
+        raise ValueError("Fees, slippage, and taxes cannot be negative.")

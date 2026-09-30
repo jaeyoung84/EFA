@@ -1,0 +1,58 @@
+"""CLI for the KRX-wide EMA30 research candidate scanner."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+from korea_quant.krx import KrxDailyStore
+from korea_quant.scanner import ScannerConfig, scan_ema30_candidates, write_scanner_report
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Scan KRX symbols for EMA30 breakout candidates.")
+    parser.add_argument("--krx-db", type=Path, required=True)
+    parser.add_argument("--start", required=True)
+    parser.add_argument("--end", default=None)
+    parser.add_argument("--market", choices=("ALL", "KOSPI", "KOSDAQ"), default="ALL")
+    parser.add_argument("--minimum-trading-value", type=float, default=1_000_000_000)
+    parser.add_argument("--liquidity-window", type=int, default=20)
+    parser.add_argument("--near-percent", type=float, default=0.03)
+    parser.add_argument("--ema-window", type=int, default=30)
+    parser.add_argument("--resistance-threshold", type=float, default=0.005)
+    parser.add_argument("--resistance-touches", type=int, default=2)
+    parser.add_argument("--body-lookback", type=int, default=20)
+    parser.add_argument("--body-multiplier", type=float, default=1.5)
+    parser.add_argument("--minimum-close-position", type=float, default=0.75)
+    parser.add_argument("--account", type=float, default=10_000_000)
+    parser.add_argument("--risk", type=float, default=0.01)
+    parser.add_argument("--output", type=Path, default=Path("reports/ema30_scan.html"))
+    parser.add_argument("--csv", type=Path, default=None)
+    args = parser.parse_args()
+
+    markets = ("KOSPI", "KOSDAQ") if args.market == "ALL" else (args.market,)
+    history = KrxDailyStore(args.krx_db).market_history(args.start, args.end, markets)
+    config = ScannerConfig(
+        ema_window=args.ema_window,
+        resistance_threshold=args.resistance_threshold,
+        resistance_touches=args.resistance_touches,
+        strong_body_lookback=args.body_lookback,
+        strong_body_multiplier=args.body_multiplier,
+        minimum_close_position=args.minimum_close_position,
+        minimum_average_trading_value=args.minimum_trading_value,
+        liquidity_window=args.liquidity_window,
+        near_breakout_percent=args.near_percent,
+        account_value=args.account,
+        risk_fraction=args.risk,
+    )
+    try:
+        scan = scan_ema30_candidates(history, config)
+    except ValueError as exc:
+        raise SystemExit(f"Cannot run EMA30 scanner: {exc}") from exc
+    csv_output = args.csv or args.output.with_suffix(".csv")
+    html, csv = write_scanner_report(scan, args.output, csv_output)
+    print(f"Scanner: {html.resolve()} | {csv.resolve()}")
+
+
+if __name__ == "__main__":
+    main()

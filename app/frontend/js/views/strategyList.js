@@ -1,4 +1,7 @@
-import { authRequest, isAuthenticated, openAuthModal } from '../auth.js';
+import { manualRequest, resetManualRequest, kstTradeAt, kstRecordTime } from './kqsManualRecords.js';
+import { authRequest, authDownload, isAuthenticated, openAuthModal } from '../auth.js';
+import { kqsRecommendationsHtml } from './kqsRecommendations.js';
+import { kqsStatusHtml, kqsReviewCandidatesHtml, kqsReviewPacketHtml, kqsNativeReconciliationHtml } from './kqsEngineViews.js';
 
 const TYPE_BADGE = {
   real_backtest: { label: '실제 가격', color: '#22c55e' },
@@ -215,22 +218,6 @@ function operationsReportHtml(data) {
   return `<header style="display:flex; justify-content:space-between; gap:10px; align-items:start; flex-wrap:wrap;"><div><h2 style="margin:0 0 5px; color:var(--text); font-size:.9rem;">주간 운영 리포트</h2><p style="margin:0; color:#94a3b8; font-size:.7rem;">최근 ${data.period_days}일 · ${escapeHtml(data.disclaimer || '')}</p></div><span style="font-size:.7rem; color:#38bdf8;">${escapeHtml(data.execution_mode || 'paper')} 모드</span></header><ul style="margin:10px 0; padding-left:17px; font-size:.68rem; line-height:1.8;">${checks}</ul><div style="display:grid; grid-template-columns:repeat(6,minmax(90px,1fr)); gap:7px;"><div class="metric-box"><small>모의 체결</small><strong>${quality.fill_count ?? 0}</strong></div><div class="metric-box"><small>결정 승인율</small><strong>${quality.approval_rate_pct == null ? '-' : `${quality.approval_rate_pct}%`}</strong></div><div class="metric-box"><small>활성 경고</small><strong>${data.risk_and_review?.active_alert_count ?? 0}</strong></div><div class="metric-box"><small>장기 후보</small><strong>${data.risk_and_review?.live_review_candidate_count ?? 0}</strong></div><div class="metric-box"><small>감사 체인</small><strong>${data.audit?.verification?.valid ? '정상' : '확인 필요'}</strong></div><div class="metric-box"><small>시세 품질 경고</small><strong style="color:${marketSummary.active_alert_count ? '#f59e0b' : 'var(--up)'};">${marketSummary.active_alert_count ?? '-'}</strong></div></div><p style="margin:9px 0 0; color:${marketSummary.active_alert_count || marketSummary.stale_core_tickers?.length ? '#f59e0b' : '#64748b'}; font-size:.67rem;">시세 데이터 · ${escapeHtml(marketDetail)}${marketSummary.stale_core_tickers?.length ? ` · 최신성 확인 ${escapeHtml(marketSummary.stale_core_tickers.join(', '))}` : ''}</p>${marketAlertRows}${providerRows ? `<ul style="margin:6px 0 0; padding-left:16px; font-size:.65rem; line-height:1.65;">${providerRows}</ul>` : ''}<small style="display:block; margin-top:8px; color:#64748b; font-size:.65rem;">백업·복구 절차: ${escapeHtml(data.backup_restore?.runbook || '-')} · 자동 복원 없음</small>`;
 }
 
-function kqsStatusHtml(data) {
-  if (!data.available) return `<h2 style="margin:0 0 5px; color:var(--text); font-size:.9rem;">외부 퀀트 엔진 상태</h2><p style="margin:0; color:#f59e0b; font-size:.72rem;">${escapeHtml(data.detail || '엔진 브리지 상태를 확인하지 못했습니다.')}</p>`;
-  const scheduler = data.scheduler || {}; const pipeline = data.pipeline || {}; const market = data.market_data || {}; const paper = data.paper || {}; const hashlock = data.hashlock || {};
-  const forward = Object.entries(data.forward || {}).map(([name, judge]) => `${name.toUpperCase()} ${escapeHtml(judge?.verdict || '관측 정보 없음')}`).join(' · ');
-  const tone = scheduler.last_result_ok && pipeline.status === 'ok' && Number(hashlock.mismatch || 0) === 0 ? 'var(--up)' : '#f59e0b';
-  return `<header style="display:flex; justify-content:space-between; gap:10px; align-items:start; flex-wrap:wrap;"><div><h2 style="margin:0 0 5px; color:var(--text); font-size:.9rem;">외부 퀀트 엔진 상태</h2><p style="margin:0; color:#94a3b8; font-size:.7rem;">Ubuntu-26.04 엔진의 읽기 전용 운영 요약</p></div><span style="color:${tone}; font-size:.7rem;">${data.read_only ? '읽기 전용 연결' : '상태 확인 필요'}</span></header><div style="display:grid; grid-template-columns:repeat(4,minmax(100px,1fr)); gap:8px; margin-top:10px;"><div class="metric-box"><small>DB 기준일</small><strong>${escapeHtml(market.latest_trade_date || '-')}</strong></div><div class="metric-box"><small>파이프라인</small><strong style="color:${pipeline.status === 'ok' ? 'var(--up)' : '#f59e0b'};">${escapeHtml(pipeline.status || '-')}</strong></div><div class="metric-box"><small>모의 포지션</small><strong>${paper.open_positions ?? '-'}</strong></div><div class="metric-box"><small>해시 잠금</small><strong style="color:${Number(hashlock.mismatch || 0) ? '#ef4444' : 'var(--up)'};">불일치 ${hashlock.mismatch ?? '-'}</strong></div></div><p style="margin:9px 0 0; color:#64748b; font-size:.67rem;">최근 실행 ${escapeHtml(scheduler.last_run || '-')} · 다음 실행 ${escapeHtml(scheduler.next_run || '-')} · ${escapeHtml(forward || '전향 관측 정보 없음')}</p><small style="display:block; margin-top:6px; color:#64748b; font-size:.64rem;">${escapeHtml(data.disclaimer || '')}</small>`;
-}
-
-function kqsReviewCandidatesHtml(data) {
-  if (!data.available) return `<h2 style="margin:0 0 5px; color:var(--text); font-size:.9rem;">엔진 신규 후보 검토 큐</h2><p style="margin:0; color:#f59e0b; font-size:.72rem;">${escapeHtml(data.detail || '엔진 후보를 확인하지 못했습니다.')}</p>`;
-  const reviewStatus = (review) => !review ? '<span style="color:#94a3b8;">미검토</span>' : `<span title="${escapeHtml(review.note || '')}" style="color:${review.status === 'reviewed' ? 'var(--up)' : '#f59e0b'};">${review.status === 'reviewed' ? '검토 완료' : '보류'}${review.note ? ' · 메모 있음' : ''}</span>`;
-  const rows = (data.candidates || []).map((item) => `<tr><td style="padding:7px 8px;">${escapeHtml(item.name || item.symbol)}</td><td style="padding:7px 8px;">${escapeHtml(item.symbol)}</td><td style="padding:7px 8px;">${escapeHtml(item.market || '-')}</td><td style="padding:7px 8px;">${escapeHtml(item.signal_type || '-')}</td><td style="padding:7px 8px;">${escapeHtml(item.market_cap_rank ?? '-')}</td><td style="padding:7px 8px;">${reviewStatus(item.review)}</td><td style="padding:7px 8px; white-space:nowrap;"><button type="button" data-kqs-packet data-kqs-symbol="${escapeHtml(item.symbol)}" style="font-size:.66rem; padding:4px 6px;">근거 보기</button> <button type="button" data-kqs-review-status="reviewed" data-kqs-symbol="${escapeHtml(item.symbol)}" style="font-size:.66rem; padding:4px 6px;">검토 완료</button> <button type="button" data-kqs-review-status="deferred" data-kqs-symbol="${escapeHtml(item.symbol)}" style="font-size:.66rem; padding:4px 6px;">보류</button></td></tr>`).join('');
-  const review = data.review_summary || {};
-  return `<header style="display:flex; justify-content:space-between; gap:10px; align-items:start; flex-wrap:wrap;"><div><h2 style="margin:0 0 5px; color:var(--text); font-size:.9rem;">엔진 신규 후보 검토 큐</h2><p style="margin:0; color:#94a3b8; font-size:.7rem;">엔진 기준일 ${escapeHtml(data.as_of || '-')} · 다음 거래일 진입 대상만 표시</p></div><button type="button" id="stg-kqs-candidates-refresh" style="padding:7px 10px; color:var(--text); border:1px solid #334155; border-radius:7px; font-size:.72rem;"><i class="fa-solid fa-rotate"></i> 새로 고침</button></header><div style="display:grid; grid-template-columns:repeat(6,minmax(90px,1fr)); gap:8px; margin-top:10px;"><div class="metric-box"><small>선택 후보</small><strong>${data.latest_selected_count ?? '-'}</strong></div><div class="metric-box"><small>다음 거래일 진입</small><strong style="color:${Number(data.entry_due_count || 0) ? 'var(--up)' : '#94a3b8'};">${data.entry_due_count ?? '-'}</strong></div><div class="metric-box"><small>레짐 차단</small><strong style="color:${Number(data.blocked_signal_count || 0) ? '#f59e0b' : 'var(--up)'};">${data.blocked_signal_count ?? '-'}</strong></div><div class="metric-box"><small>검토 완료</small><strong style="color:var(--up);">${review.reviewed_count ?? 0}</strong></div><div class="metric-box"><small>보류</small><strong style="color:#f59e0b;">${review.deferred_count ?? 0}</strong></div><div class="metric-box"><small>미검토</small><strong>${review.pending_count ?? 0}</strong></div></div>${rows ? `<div style="overflow-x:auto; margin-top:12px;"><table style="width:100%; min-width:720px; border-collapse:collapse; font-size:.7rem;"><thead><tr style="color:#64748b; text-align:left;"><th style="padding:7px 8px;">종목</th><th style="padding:7px 8px;">코드</th><th style="padding:7px 8px;">시장</th><th style="padding:7px 8px;">신호</th><th style="padding:7px 8px;">시총 순위</th><th style="padding:7px 8px;">검토</th><th style="padding:7px 8px;">기록</th></tr></thead><tbody style="color:var(--text);">${rows}</tbody></table></div>` : '<p style="margin:12px 0 0; color:#94a3b8; font-size:.72rem;">최신 기준일에 검토할 신규 진입 후보가 없습니다.</p>'}<small style="display:block; margin-top:8px; color:#64748b; font-size:.64rem;">${escapeHtml(data.disclaimer || '')}</small>`;
-}
-
 function kqsCandidateReviewHistoryHtml(data) {
   const rows = (data.items || []).slice(0, 10).map((item) => `<tr><td style="padding:6px 8px;">${escapeHtml(item.as_of)}</td><td style="padding:6px 8px;">${escapeHtml(item.name || item.symbol)}</td><td style="padding:6px 8px;">${escapeHtml(item.symbol)}</td><td style="padding:6px 8px; color:${item.status === 'reviewed' ? 'var(--up)' : '#f59e0b'};">${item.status === 'reviewed' ? '검토 완료' : '보류'}</td><td style="padding:6px 8px;">${escapeHtml(item.note || '-')}</td></tr>`).join('');
   return `<header><h2 style="margin:0 0 5px; color:var(--text); font-size:.9rem;">후보 검토 감사 이력</h2><p style="margin:0; color:#94a3b8; font-size:.7rem;">최근 ${data.days}일 · 사용자별 메모 기록</p></header>${rows ? `<div style="overflow-x:auto; margin-top:10px;"><table style="width:100%; min-width:580px; border-collapse:collapse; font-size:.7rem;"><thead><tr style="color:#64748b; text-align:left;"><th style="padding:6px 8px;">기준일</th><th style="padding:6px 8px;">종목</th><th style="padding:6px 8px;">코드</th><th style="padding:6px 8px;">상태</th><th style="padding:6px 8px;">메모</th></tr></thead><tbody style="color:var(--text);">${rows}</tbody></table></div>` : '<p style="margin:10px 0 0; color:#64748b; font-size:.72rem;">아직 저장된 후보 검토 기록이 없습니다.</p>'}<small style="display:block; margin-top:8px; color:#64748b; font-size:.64rem;">${escapeHtml(data.disclaimer || '')}</small>`;
@@ -256,6 +243,168 @@ function kqsCandidateReviewWorkflowHtml(data) {
   const attention = { overdue: ['기한 경과', '#ef4444'], due_soon: ['마감 임박', '#f59e0b'], open: ['검토 대기', '#94a3b8'], completed: ['기록 완료', 'var(--up)'] };
   const rows = (data.items || []).map((item) => { const state = attention[item.attention] || attention.open; return `<tr><td style="padding:6px 8px;">${escapeHtml(item.name || item.symbol)}</td><td style="padding:6px 8px;">${escapeHtml(item.symbol || '-')}</td><td style="padding:6px 8px; color:${item.priority === 'high' ? '#f59e0b' : '#94a3b8'};">${item.priority === 'high' ? '높음' : '일반'}</td><td style="padding:6px 8px; color:${state[1]};">${state[0]}</td><td style="padding:6px 8px;">${item.deadline_at ? escapeHtml(item.deadline_at.slice(0, 16).replace('T', ' ')) : '-'}</td></tr>`; }).join('');
   return `<header><h2 style="margin:0 0 5px; color:var(--text); font-size:.9rem;">후보 검토 우선순위 · 기한</h2><p style="margin:0; color:#94a3b8; font-size:.7rem;">기준선 ${escapeHtml(data.snapshot_date || '-')} · 최초 관측 후 ${data.policy?.sla_hours ?? '-'}시간 내 검토 · 다음 거래일 대상은 높은 우선순위</p></header><div style="display:grid; grid-template-columns:repeat(5,minmax(90px,1fr)); gap:8px; margin-top:10px;"><div class="metric-box"><small>미검토</small><strong>${summary.pending_count ?? 0}</strong></div><div class="metric-box"><small>높은 우선</small><strong style="color:#f59e0b;">${summary.high_priority_pending_count ?? 0}</strong></div><div class="metric-box"><small>마감 임박</small><strong style="color:#f59e0b;">${summary.due_soon_count ?? 0}</strong></div><div class="metric-box"><small>기한 경과</small><strong style="color:#ef4444;">${summary.overdue_count ?? 0}</strong></div><div class="metric-box"><small>기록 완료</small><strong style="color:var(--up);">${summary.reviewed_count ?? 0}</strong></div></div>${rows ? `<div style="overflow-x:auto; margin-top:12px;"><table style="width:100%; min-width:580px; border-collapse:collapse; font-size:.7rem;"><thead><tr style="color:#64748b; text-align:left;"><th style="padding:6px 8px;">종목</th><th style="padding:6px 8px;">코드</th><th style="padding:6px 8px;">우선순위</th><th style="padding:6px 8px;">검토 상태</th><th style="padding:6px 8px;">검토 기한</th></tr></thead><tbody style="color:var(--text);">${rows}</tbody></table></div>` : '<p style="margin:12px 0 0; color:#94a3b8; font-size:.72rem;">현재 미검토 후보가 없습니다.</p>'}<small style="display:block; margin-top:8px; color:#64748b; font-size:.64rem;">${escapeHtml(data.disclaimer || '')}</small>`;
+}
+
+const KQS_DECISION_LABEL = { buy: '모의 매수', hold: '관망', exclude: '제외', sell: '모의 매도', review_again: '재검토' };
+const KQS_DECISION_COLOR = { buy: 'var(--up)', sell: '#ef4444', hold: '#94a3b8', exclude: '#64748b', review_again: '#f59e0b' };
+
+function kqsDecisionRow(item) {
+  return `<tr>
+    <td style="padding:7px 8px;">${escapeHtml(kstRecordTime(item.recorded_at || item.decided_at))}${item.trade_at ? `<br><small>거래 ${escapeHtml(kstRecordTime(item.trade_at))} KST</small>` : item.trade_date ? `<br><small>거래일 ${escapeHtml(item.trade_date)} · 시각 미상</small>` : ''}${item.trade_time_source === 'record_time_default' ? '<br><small>거래 시각: 기록 시각 기본값</small>' : ''}</td>
+    <td style="padding:7px 8px;">${escapeHtml(item.name || item.symbol)} <small style="color:#94a3b8;">${escapeHtml(item.symbol)}</small></td>
+    <td style="padding:7px 8px; color:${KQS_DECISION_COLOR[item.decision] || '#94a3b8'};">${escapeHtml(KQS_DECISION_LABEL[item.decision] || item.decision)}${item.record_origin === 'position_exit' ? ` <small style="color:#94a3b8;">보유 청산${item.trade_date ? ` · ${escapeHtml(item.trade_date)}` : ''}</small>` : ''}</td>
+    <td style="padding:7px 8px;">${item.quantity != null ? Number(item.quantity).toLocaleString('ko-KR') : '-'}</td>
+    <td style="padding:7px 8px;">${item.fill_price != null ? Number(item.fill_price).toLocaleString('ko-KR') : '-'}</td>
+    <td style="padding:7px 8px; color:#94a3b8; font-size:.68rem;">${escapeHtml(item.memo || '-')}</td>
+    <td style="padding:7px 8px; color:#94a3b8; font-size:.68rem;">${escapeHtml((item.evidence_tags || []).join(', ') || '-')}</td>
+  </tr>`;
+}
+
+function kqsDecisionLedgerHtml(data) {
+  const rows = (data.items || []).map(kqsDecisionRow).join('');
+  return `<header><h2 style="margin:0 0 5px; color:var(--text); font-size:.9rem;">내 판단 기록(개인 의사결정 원장)</h2><p style="margin:0; color:#94a3b8; font-size:.7rem;">자동 모의체결이 아닙니다 — 위 추천 카드에서 직접 기록한 매수·관망·제외·매도·재검토 판단입니다.</p></header>${rows ? `<div style="overflow-x:auto; margin-top:12px;"><table style="width:100%; min-width:680px; border-collapse:collapse; font-size:.74rem;"><thead><tr style="color:#64748b; text-align:left;"><th style="padding:7px 8px;">기록 시각(KST) · 거래 시각</th><th style="padding:7px 8px;">종목</th><th style="padding:7px 8px;">판단</th><th style="padding:7px 8px;">수량</th><th style="padding:7px 8px;">체결가</th><th style="padding:7px 8px;">메모</th><th style="padding:7px 8px;">근거 태그</th></tr></thead><tbody style="color:var(--text);">${rows}</tbody></table></div>` : '<p style="margin:12px 0 0; color:#94a3b8; font-size:.72rem;">아직 기록한 판단이 없습니다.</p>'}<small style="display:block; margin-top:8px; color:#64748b; font-size:.64rem;">${escapeHtml(data.disclaimer || '')}</small>`;
+}
+
+function kqsPositionLotsHtml(item) {
+  return (item.lots || []).map((lot) => `<li>${escapeHtml(lot.bought_on || '-')} 매수 ${Number(lot.quantity).toLocaleString('ko-KR')}주 @ ${Number(lot.fill_price).toLocaleString('ko-KR')} · 잔여 ${Number(lot.remaining_quantity).toLocaleString('ko-KR')}주${lot.recommendation_expired ? ' · <span style="color:#f59e0b;">추천 만료</span>' : ''}</li>`).join('');
+}
+
+function kqsDecisionPositionsHtml(data) {
+  const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+  const rows = (data.items || []).map((item) => `<tr style="vertical-align:top;">
+    <td style="padding:8px 10px;">${escapeHtml(item.name || item.symbol)} <small style="color:#94a3b8;">${escapeHtml(item.symbol)}</small>${item.recommendation_expired ? '<br><small style="color:#f59e0b;">추천 만료 — 아래에서 직접 매도 기록</small>' : ''}<ul style="margin:6px 0 0; padding-left:16px; color:#94a3b8; font-size:.66rem; line-height:1.6;">${kqsPositionLotsHtml(item)}</ul></td>
+    <td style="padding:8px 10px;">${Number(item.quantity).toLocaleString('ko-KR')}</td>
+    <td style="padding:8px 10px;">${Number(item.average_cost_krw).toLocaleString('ko-KR')}</td>
+    <td style="padding:8px 10px;"><form data-kqs-position-sell="${escapeHtml(item.symbol_key)}" data-kqs-held="${item.quantity}" style="display:flex; flex-wrap:wrap; gap:5px; align-items:end;">
+      <input name="quantity" type="number" min="0" step="any" max="${item.quantity}" placeholder="수량" class="param-input" style="width:72px;" required>
+      <input name="fill_price" type="number" min="0" step="any" placeholder="체결가" class="param-input" style="width:88px;" required>
+      <input name="fee_krw" type="number" min="0" step="any" placeholder="수수료" class="param-input" style="width:72px;">
+      <input name="tax_krw" type="number" min="0" step="any" placeholder="세금" class="param-input" style="width:64px;">
+      <input name="trade_date" type="date" max="${today}" value="${today}" class="param-input" style="width:128px;">
+      <label style="font-size:.64rem;">거래 시각(KST, 선택)<input name="trade_at" type="datetime-local" class="param-input" style="width:180px;"></label>
+      <input name="memo" maxlength="1000" placeholder="매도 이유" class="param-input" style="width:140px;">
+      <button type="button" data-kqs-sell-all style="padding:6px 8px; border:1px solid #334155; border-radius:6px; color:#94a3b8; font-size:.68rem;">전량</button>
+      <button type="submit" style="padding:6px 9px; border:1px solid #ef4444; border-radius:6px; color:#ef4444; font-size:.68rem;">매도 기록</button>
+      <small data-kqs-sell-status style="width:100%; color:#94a3b8; font-size:.64rem;"></small>
+    </form></td>
+  </tr>`).join('');
+  const issues = (data.data_issues || []).length ? `<p style="margin:8px 0 0; color:#f59e0b; font-size:.68rem;">보유 수량을 넘는 과거 매도 기록 ${data.data_issues.length}건은 lot에 배분하지 않았습니다.</p>` : '';
+  return `<header><h2 style="margin:0 0 5px; color:var(--text); font-size:.9rem;">내 개인 원장 보유 현황(lot)</h2><p style="margin:0; color:#94a3b8; font-size:.7rem;">매수 1건이 lot 하나이며 매도는 오래된 lot부터(FIFO) 배분합니다. 추천이 만료된 종목도 여기서 전량·부분 매도를 직접 기록할 수 있습니다. 주문·자동 체결은 만들지 않습니다.</p></header>${rows ? `<div style="overflow-x:auto; margin-top:12px;"><table style="width:100%; min-width:760px; border-collapse:collapse; font-size:.76rem;"><thead><tr style="color:#64748b; text-align:left;"><th style="padding:8px 10px;">종목 · lot</th><th style="padding:8px 10px;">수량</th><th style="padding:8px 10px;">평균단가</th><th style="padding:8px 10px;">모의 매도 기록</th></tr></thead><tbody style="color:var(--text);">${rows}</tbody></table></div>` : '<p style="margin:12px 0 0; color:#94a3b8; font-size:.72rem;">아직 보유 중인 종목이 없습니다.</p>'}${issues}<small style="display:block; margin-top:8px; color:#64748b; font-size:.64rem;">${escapeHtml(data.disclaimer || '')}</small>`;
+}
+
+function kqsDecisionOutcomeRow(item) {
+  const h = (days) => item.horizons?.[String(days)];
+  const fmtPct = (value) => value == null ? '-' : `${value}%`;
+  const realized = item.realized;
+  return `<tr>
+    <td style="padding:7px 8px;">${escapeHtml(item.name || item.symbol)}</td>
+    <td style="padding:7px 8px; color:${KQS_DECISION_COLOR[item.decision] || '#94a3b8'};">${escapeHtml(KQS_DECISION_LABEL[item.decision] || item.decision)}</td>
+    <td style="padding:7px 8px;">${fmtPct(h(1)?.return_pct)}</td>
+    <td style="padding:7px 8px;">${fmtPct(h(5)?.return_pct)}</td>
+    <td style="padding:7px 8px;">${fmtPct(h(20)?.return_pct)}</td>
+    <td style="padding:7px 8px;">${h(20)?.excess_return_pct == null ? '-' : `${h(20).excess_return_pct}%p`}</td>
+    <td style="padding:7px 8px; color:${realized && realized.net_pnl_krw >= 0 ? 'var(--up)' : realized ? '#ef4444' : '#94a3b8'};">${realized ? `${Math.round(realized.net_pnl_krw).toLocaleString('ko-KR')}원 (${realized.holding_days}일 보유)${realized.status === 'partial' ? ` <small style="color:#f59e0b;">부분 ${Number(realized.closed_quantity).toLocaleString('ko-KR')}/${Number(realized.lot_quantity).toLocaleString('ko-KR')}주</small>` : ''}` : '-'}</td>
+  </tr>`;
+}
+
+function kqsDecisionOutcomesHtml(data) {
+  const rows = (data.items || []).map(kqsDecisionOutcomeRow).join('');
+  return `<header><h2 style="margin:0 0 5px; color:var(--text); font-size:.9rem;">내 판단의 사후 성과</h2><p style="margin:0; color:#94a3b8; font-size:.7rem;">이미 확정된 종가로만 계산한 관측치입니다. 향후 수익률을 예측하지 않으며, 아직 지나지 않은 구간은 "-"로 표시됩니다.</p></header>${rows ? `<div style="overflow-x:auto; margin-top:12px;"><table style="width:100%; min-width:640px; border-collapse:collapse; font-size:.74rem;"><thead><tr style="color:#64748b; text-align:left;"><th style="padding:7px 8px;">종목</th><th style="padding:7px 8px;">판단</th><th style="padding:7px 8px;">1일</th><th style="padding:7px 8px;">5일</th><th style="padding:7px 8px;">20일</th><th style="padding:7px 8px;">KOSPI 대비(20일)</th><th style="padding:7px 8px;">실현 손익</th></tr></thead><tbody style="color:var(--text);">${rows}</tbody></table></div>` : '<p style="margin:12px 0 0; color:#94a3b8; font-size:.72rem;">아직 관측치가 없습니다. 판단을 기록한 뒤 일봉이 쌓이면 표시됩니다.</p>'}<small style="display:block; margin-top:8px; color:#64748b; font-size:.64rem;">${escapeHtml(data.disclaimer || '')}</small>`;
+}
+
+function kqsPerformanceGroupRows(rows) {
+  return (rows || []).map((row) => `<tr>
+    <td style="padding:6px 8px;">${escapeHtml(row.key)}</td>
+    <td style="padding:6px 8px;">${row.trade_count}</td>
+    <td style="padding:6px 8px;">${Math.round(row.net_pnl_krw).toLocaleString('ko-KR')}원</td>
+    <td style="padding:6px 8px;">${row.avg_return_pct == null ? '-' : `${row.avg_return_pct}%`}</td>
+    <td style="padding:6px 8px;">${row.win_rate_pct == null ? '-' : `${row.win_rate_pct}%`}</td>
+  </tr>`).join('');
+}
+
+function kqsPerformanceReportHtml(data) {
+  const conversion = data.conversion || {};
+  const comparison = data.post_decision_comparison || {};
+  const breakdown = data.breakdown || {};
+  const equity = data.equity_curve || {};
+  const groupTable = (title, rows) => rows.length ? `<div style="margin-top:10px;"><h3 style="margin:0 0 6px; color:var(--text); font-size:.8rem;">${escapeHtml(title)}</h3><div style="overflow-x:auto;"><table style="width:100%; min-width:420px; border-collapse:collapse; font-size:.7rem;"><thead><tr style="color:#64748b; text-align:left;"><th style="padding:6px 8px;">구분</th><th style="padding:6px 8px;">거래 수</th><th style="padding:6px 8px;">순손익</th><th style="padding:6px 8px;">평균 수익률</th><th style="padding:6px 8px;">승률</th></tr></thead><tbody style="color:var(--text);">${kqsPerformanceGroupRows(rows)}</tbody></table></div></div>` : '';
+  const comparisonRows = Object.entries(KQS_DECISION_LABEL).map(([key, label]) => {
+    const row = comparison[key] || {};
+    return `<tr><td style="padding:6px 8px;">${escapeHtml(label)}</td><td style="padding:6px 8px;">${row.count ?? 0}</td><td style="padding:6px 8px;">${row.avg_return_pct?.['1'] == null ? '-' : `${row.avg_return_pct['1']}%`}</td><td style="padding:6px 8px;">${row.avg_return_pct?.['5'] == null ? '-' : `${row.avg_return_pct['5']}%`}</td><td style="padding:6px 8px;">${row.avg_return_pct?.['20'] == null ? '-' : `${row.avg_return_pct['20']}%`}</td><td style="padding:6px 8px;">${row.avg_excess_return_pct_20d == null ? '-' : `${row.avg_excess_return_pct_20d}%p`}</td></tr>`;
+  }).join('');
+  return `<header style="display:flex; justify-content:space-between; gap:10px; align-items:start; flex-wrap:wrap;"><div><h2 style="margin:0 0 5px; color:var(--text); font-size:.9rem;">내 개인 운용 성과 분석</h2><p style="margin:0; color:#94a3b8; font-size:.7rem;">개인 판단 원장의 실현·관측 데이터만으로 계산합니다. 매매를 추천하거나 자동화하지 않습니다.</p></div><button type="button" id="stg-kqs-training-export" style="padding:7px 9px; border:1px solid #22c55e; border-radius:6px; color:#22c55e; font-size:.7rem;">학습 데이터 검토용 JSONL</button></header>
+    <div style="display:grid; grid-template-columns:repeat(4,minmax(100px,1fr)); gap:8px; margin-top:10px;">
+      <div class="metric-box"><small>전체 판단</small><strong>${conversion.total_decisions ?? 0}</strong></div>
+      <div class="metric-box"><small>매수 전환율</small><strong>${conversion.buy_conversion_rate_pct == null ? '-' : `${conversion.buy_conversion_rate_pct}%`}</strong></div>
+      <div class="metric-box"><small>실현 거래 수</small><strong>${equity.realized_trade_count ?? 0}</strong></div>
+      <div class="metric-box"><small>${data.observation_stage ? '관찰 단계(1년 미만)' : '연환산(CAGR)'}</small><strong>${data.observation_stage ? '-' : (data.cagr_pct == null ? '-' : `${data.cagr_pct}%`)}</strong></div>
+    </div>
+    <div style="margin-top:12px;"><h3 style="margin:0 0 6px; color:var(--text); font-size:.8rem;">판단 유형별 사후 수익률(매수 vs 관망 vs 제외)</h3><div style="overflow-x:auto;"><table style="width:100%; min-width:480px; border-collapse:collapse; font-size:.7rem;"><thead><tr style="color:#64748b; text-align:left;"><th style="padding:6px 8px;">판단</th><th style="padding:6px 8px;">건수</th><th style="padding:6px 8px;">1일</th><th style="padding:6px 8px;">5일</th><th style="padding:6px 8px;">20일</th><th style="padding:6px 8px;">KOSPI 대비</th></tr></thead><tbody style="color:var(--text);">${comparisonRows}</tbody></table></div></div>
+    ${groupTable('시장별 실현 성과', breakdown.by_market)}
+    ${groupTable('신호 유형별 실현 성과', breakdown.by_signal_type)}
+    ${groupTable('보유기간별 실현 성과', breakdown.by_holding_period)}
+    <div style="display:grid; grid-template-columns:repeat(3,minmax(100px,1fr)); gap:8px; margin-top:12px;">
+      <div class="metric-box"><small>실현 손익 MDD</small><strong>${Math.round(equity.mdd_krw || 0).toLocaleString('ko-KR')}원</strong></div>
+      <div class="metric-box"><small>누적 비용(수수료+세금)</small><strong>${Math.round(equity.total_cost_krw || 0).toLocaleString('ko-KR')}원</strong></div>
+      <div class="metric-box"><small>회전율(매수+매도 합계)</small><strong>${Math.round(equity.turnover_krw || 0).toLocaleString('ko-KR')}원</strong></div>
+    </div>
+    <p style="margin:10px 0 0; color:#94a3b8; font-size:.68rem;">${escapeHtml(data.engine_comparison?.note || '')}</p>
+    <small style="display:block; margin-top:8px; color:#64748b; font-size:.64rem;">${escapeHtml(data.disclaimer || '')}</small>`;
+}
+
+const KQS_HOLDOUT_LABEL = { sealed: ['봉인', '#94a3b8'], opened: ['개봉·소진', '#f59e0b'], retired_sealed: ['봉인 폐기(후속 동결)', '#64748b'] };
+
+function kqsDatasetManifestRow(item) {
+  const b = item.boundaries || {}; const c = item.counts || {};
+  const [label, color] = KQS_HOLDOUT_LABEL[item.holdout?.status] || [item.holdout?.status || '-', '#94a3b8'];
+  const safe = item.example_schema === 'kqs-human-decisions/v3';
+  const range = (split) => `${escapeHtml(b[split]?.first || '-')}~${escapeHtml(b[split]?.last || '-')}`;
+  const opened = item.holdout?.status === 'opened' ? `<br><small style="color:#64748b;">${escapeHtml(String(item.holdout.opened_at || '').slice(0, 10))} · ${escapeHtml(item.holdout.preregistration?.model_version || '-')}</small>` : '';
+  return `<tr style="vertical-align:top;">
+    <td style="padding:6px 8px;">#${item.sequence} · ${safe ? "v3 피처 분리" : "v2 보관 전용"}<br><small style="color:#64748b;" title="${escapeHtml(item.manifest_sha256)}">${escapeHtml(item.manifest_id)}</small></td>
+    <td style="padding:6px 8px;">${c.train ?? 0}<br><small style="color:#64748b;">${range('train')}</small></td>
+    <td style="padding:6px 8px;">${c.validation ?? 0}<br><small style="color:#64748b;">${range('validation')}</small></td>
+    <td style="padding:6px 8px;">${c.test ?? 0}<br><small style="color:#64748b;">${range('test')}</small></td>
+    <td style="padding:6px 8px; color:${color};">${label}${opened}</td>
+    <td style="padding:6px 8px; white-space:nowrap;"><button type="button" data-kqs-dataset="${escapeHtml(item.manifest_id)}" data-kqs-dataset-split="train">${safe ? "Train" : "Train(감사)"}</button> <button type="button" data-kqs-dataset="${escapeHtml(item.manifest_id)}" data-kqs-dataset-split="validation">${safe ? "Validation" : "Validation(감사)"}</button></td>
+  </tr>`;
+}
+
+function kqsTrainingReadinessHtml(data, datasets) {
+  const counts = data.counts || {}; const policy = data.policy || {};
+  const quality = data.data_quality || {}; const consent = data.learning_consent || {};
+  const reasons = (data.reasons || []).map((item) => `<li>${escapeHtml(item)}</li>`).join('');
+  const warnings = (quality.warnings || []).map((item) => `<li>${escapeHtml(item)}</li>`).join('');
+  const manifests = (datasets.items || []).map(kqsDatasetManifestRow).join('');
+  const nextLabel = data.after_date ? `다음 동결: ${escapeHtml(data.after_date)} 이후 새 기준일만 validation·test` : '첫 동결: 기준일 순서 60/20/20';
+  const consentActive = consent.active === true;
+  const consentText = consentActive
+    ? `활성 · ${escapeHtml(consent.policy_version || '-')}`
+    : '미동의 · 신규 동결/내보내기/실험 차단';
+  const consentControl = consentActive
+    ? '<button type="button" data-kqs-learning-consent="revoke" style="border-color:#f59e0b;color:#f59e0b;">학습 사용 동의 철회</button>'
+    : '<label style="display:flex;gap:5px;align-items:start;color:#94a3b8;font-size:.66rem;"><input type="checkbox" data-kqs-learning-consent-check> 내 KQS 수동 판단 기록을 향후 오프라인 학습에만 사용할 수 있음을 이해했습니다.</label><button type="button" data-kqs-learning-consent="grant">학습 사용 동의</button>';
+  const labelCounts = Object.entries(quality.label_counts || {}).map(([label, count]) => `${escapeHtml(label)} ${count}건`).join(' · ') || '-';
+  const span = quality.as_of_range?.span_days ?? 0;
+  return `<header><h2 style="margin:0 0 5px; color:var(--text); font-size:.9rem;">AI 학습 데이터셋(동결 manifest)</h2><p style="margin:0; color:#94a3b8; font-size:.7rem;">학습·평가는 동결된 manifest로만 합니다. 새 v3 동결은 추천 게시 시점 피처만 사용하고 사람 태그·메모·거래 정보는 분리합니다. 기존 v2는 감사용으로 보존하며 새 학습/holdout은 막습니다. test(holdout)는 사전등록 뒤 1회만 개봉합니다.</p></header>
+    <div style="display:grid; grid-template-columns:repeat(5,minmax(90px,1fr)); gap:8px; margin-top:10px;"><div class="metric-box"><small>확정 20일 표본</small><strong>${data.eligible_count ?? 0}/${policy.minimum_mature_examples ?? '-'}</strong></div><div class="metric-box"><small>다음 Train</small><strong>${counts.train ?? 0}</strong></div><div class="metric-box"><small>다음 Validation</small><strong>${counts.validation ?? 0}</strong></div><div class="metric-box"><small>다음 Test</small><strong>${counts.test ?? 0}</strong></div><div class="metric-box"><small>학습 사용 동의</small><strong style="color:${consentActive ? 'var(--up)' : '#f59e0b'};">${consentActive ? '활성' : '미동의'}</strong></div></div>
+    <p style="margin:10px 0 0; color:${data.ready ? 'var(--up)' : '#f59e0b'}; font-size:.72rem;">${data.ready ? '동결 가능' : '아직 동결 기준 미충족'} · ${nextLabel} · 경계 겹침 제외 ${data.excluded_overlap_count ?? 0}건</p>
+    <section style="margin-top:9px;padding:8px;border:1px solid #263143;border-radius:7px;font-size:.67rem;"><strong style="color:${quality.ready ? 'var(--up)' : '#f59e0b'};">데이터 품질 · ${quality.ready ? '점검 통과' : '점검 필요'}</strong><span style="color:#94a3b8;"> · 레이블 ${labelCounts} · 기준일 ${quality.distinct_as_of_dates ?? 0}일 / ${span}일</span>${warnings ? `<ul style="margin:6px 0 0;padding-left:17px;color:#f59e0b;">${warnings}</ul>` : ''}<small style="display:block;margin-top:5px;color:#64748b;">통과는 예측력·투자 적합성·자동매매 승인이 아닙니다.</small></section>
+    <section style="margin-top:9px;padding:8px;border:1px solid #263143;border-radius:7px;font-size:.67rem;"><strong style="color:${consentActive ? 'var(--up)' : '#f59e0b'};">학습 사용 동의 · ${escapeHtml(consentText)}</strong><p style="margin:5px 0;color:#94a3b8;">동의는 오프라인 학습 데이터 사용만 허용하며 추천·주문·자동체결·실거래 권한을 만들지 않습니다. 철회하면 이후 v3 동결·내보내기·holdout·실험이 차단되고 기존 불변 manifest는 감사용으로 남습니다.</p><div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;">${consentControl}</div></section>
+    ${reasons ? `<ul style="margin:7px 0 0; padding-left:18px; color:#94a3b8; font-size:.68rem; line-height:1.6;">${reasons}</ul>` : ''}
+    <div style="display:flex; gap:7px; flex-wrap:wrap; align-items:center; margin-top:10px;"><button type="button" data-kqs-dataset-freeze ${data.ready ? '' : 'disabled title="동결 기준과 활성 동의를 충족한 뒤 가능합니다"'}>v3 데이터셋 동결</button><button type="button" data-kqs-training-all ${consentActive ? '' : 'disabled title="활성 학습 사용 동의가 필요합니다"'}>v3 전체 검토용 JSONL</button><small data-kqs-dataset-status style="color:#94a3b8; font-size:.66rem;"></small></div>
+    ${manifests ? `<div style="overflow-x:auto; margin-top:10px;"><table style="width:100%; min-width:640px; border-collapse:collapse; font-size:.68rem;"><thead style="color:#64748b; text-align:left;"><tr><th style="padding:6px 8px;">manifest</th><th style="padding:6px 8px;">Train</th><th style="padding:6px 8px;">Validation</th><th style="padding:6px 8px;">Test</th><th style="padding:6px 8px;">Holdout</th><th style="padding:6px 8px;">내려받기</th></tr></thead><tbody style="color:var(--text);">${manifests}</tbody></table></div>` : '<p style="margin:10px 0 0; color:#64748b; font-size:.7rem;">아직 동결한 데이터셋이 없습니다.</p>'}
+    <small style="display:block; margin-top:8px; color:#64748b; font-size:.64rem;">test 개봉은 오프라인 러너의 <code>--final-holdout --record</code>로만 합니다. ${escapeHtml(data.disclaimer || '')}</small>`;
+}
+
+function kqsTrainingExperimentsHtml(data) {
+  const family = { majority_class_baseline: '다수 클래스 기준선', logistic_regression: '로지스틱 회귀', tree_ensemble: '트리 앙상블', external_offline: '외부 오프라인' };
+  const pct = (value) => (value == null ? '-' : `${(value * 100).toFixed(1)}%`);
+  const rows = (data.items || []).map((item) => {
+    const validation = item.reported_metrics?.validation || {}; const test = item.reported_metrics?.test;
+    return `<tr><td style="padding:6px 8px;">${escapeHtml(family[item.model?.family] || item.model?.family || '-')}<br><span style="color:#64748b;">${escapeHtml(item.model?.version || '-')}</span></td><td style="padding:6px 8px; color:#64748b;">${escapeHtml(item.dataset?.manifest_id || '동결 전 기록')}</td><td style="padding:6px 8px;">${pct(validation.balanced_accuracy)}</td><td style="padding:6px 8px;">${test ? `${pct(test.balanced_accuracy)} <small style="color:#64748b;">(${test.sample_count})</small>` : '-'}</td><td style="padding:6px 8px; color:${item.holdout_evaluation ? '#f59e0b' : '#94a3b8'};">${item.holdout_evaluation ? '최종 holdout 1회' : '탐색(validation)'}</td></tr>`;
+  }).join('');
+  return `<header><h2 style="margin:0 0 5px; color:var(--text); font-size:.9rem;">오프라인 모델 실험 이력</h2><p style="margin:0; color:#94a3b8; font-size:.7rem;">동결 manifest에 연결한 실험 기록입니다. test 성과는 manifest당 사전등록한 모델 하나만 있습니다. 추천·승인·주문과 연결되지 않습니다.</p></header>${rows ? `<div style="overflow-x:auto; margin-top:10px;"><table style="width:100%; min-width:560px; border-collapse:collapse; font-size:.7rem;"><thead style="color:#64748b; text-align:left;"><tr><th style="padding:6px 8px;">모델</th><th style="padding:6px 8px;">manifest</th><th style="padding:6px 8px;">Validation 균형 정확도</th><th style="padding:6px 8px;">Test 균형 정확도</th><th style="padding:6px 8px;">구분</th></tr></thead><tbody style="color:var(--text);">${rows}</tbody></table></div>` : '<p style="margin:10px 0 0; color:#64748b; font-size:.7rem;">아직 기록된 오프라인 실험이 없습니다. 데이터셋을 동결한 뒤 실험 결과를 기록할 수 있습니다.</p>'}<small style="display:block; margin-top:8px; color:#64748b; font-size:.64rem;">${escapeHtml(data.disclaimer || '')}</small>`;
 }
 
 function kqsReviewReportHtml(data) {
@@ -356,15 +505,8 @@ function sandboxContractHtml(data) {
   return `<header><h2 style="margin:0 0 5px; color:var(--text); font-size:.9rem;">로컬 브로커 샌드박스 계약 검증</h2><p style="margin:0; color:#94a3b8; font-size:.7rem;">외부 네트워크·증권사 계좌·실거래 주문을 사용하지 않습니다.</p></header><button type="button" id="stg-run-sandbox-contract" style="margin-top:10px; padding:7px 9px; border:1px solid #38bdf8; border-radius:6px; color:#38bdf8; font-size:.7rem;">로컬 계약 검증 실행</button>${data.available === false ? '<p style="margin:10px 0 0; color:#64748b; font-size:.72rem;">아직 검증 기록이 없습니다.</p>' : `<ul style="margin:10px 0 0; padding-left:17px; font-size:.68rem; line-height:1.8;">${checks}</ul>`}<small style="display:block; margin-top:8px; color:#64748b; font-size:.64rem;">${escapeHtml(data.disclaimer || '')}</small>`;
 }
 
-function kqsReviewPacketHtml(data) {
-  if (!data.available || !data.found) return `<h2 style="margin:0 0 5px; color:var(--text); font-size:.9rem;">후보 검토 패킷</h2><p style="margin:0; color:#f59e0b; font-size:.72rem;">${escapeHtml(data.detail || '최신 검토 큐에서 후보를 찾지 못했습니다.')}</p>`;
-  const candidate = data.candidate || {}; const evidence = data.selection_evidence || {}; const market = data.market_context || {}; const engine = data.engine_context || {}; const review = data.review;
-  const reviewText = !review ? '아직 검토 기록이 없습니다.' : `${review.status === 'reviewed' ? '검토 완료' : '보류'}${review.note ? ` · ${review.note}` : ''}`;
-  const liquidity = evidence.average_trading_value == null || evidence.average_trading_value === '' ? '-' : `₩${Math.round(Number(evidence.average_trading_value)).toLocaleString('ko-KR')}`;
-  return `<header style="display:flex; justify-content:space-between; gap:10px; align-items:start; flex-wrap:wrap;"><div><h2 style="margin:0 0 5px; color:var(--text); font-size:.9rem;">후보 검토 패킷 · ${escapeHtml(candidate.name || candidate.symbol)}</h2><p style="margin:0; color:#94a3b8; font-size:.7rem;">${escapeHtml(candidate.symbol || '-')} · 엔진 기준일 ${escapeHtml(data.as_of || '-')} · ${escapeHtml(data.packet_version || '')}</p></div><button type="button" id="stg-kqs-packet-close" style="padding:7px 10px; color:#94a3b8; border:1px solid #334155; border-radius:7px; font-size:.72rem;">닫기</button></header><div style="display:grid; grid-template-columns:repeat(5,minmax(100px,1fr)); gap:8px; margin-top:10px;"><div class="metric-box"><small>신호</small><strong>${escapeHtml(candidate.signal_type || '-')}</strong></div><div class="metric-box"><small>선정 결과</small><strong style="color:var(--up);">${escapeHtml(evidence.outcome || '-')}</strong></div><div class="metric-box"><small>스캔 상태</small><strong>${escapeHtml(evidence.scan_state || '-')}</strong></div><div class="metric-box"><small>시총 순위</small><strong>${escapeHtml(evidence.market_cap_rank ?? '-')}</strong></div><div class="metric-box"><small>평균 거래대금</small><strong>${escapeHtml(liquidity)}</strong></div></div><div style="display:grid; grid-template-columns:repeat(3,minmax(180px,1fr)); gap:10px; margin-top:12px;"><section style="padding:9px; border:1px solid #253247; border-radius:7px;"><h3 style="margin:0 0 6px; font-size:.73rem; color:var(--text);">선택 근거</h3><p style="margin:0; color:#94a3b8; font-size:.68rem; line-height:1.7;">시총 티어 ${escapeHtml(evidence.market_cap_tier ?? '-')} · 체결 시점 ${escapeHtml(candidate.execution_timing || '-')}</p></section><section style="padding:9px; border:1px solid #253247; border-radius:7px;"><h3 style="margin:0 0 6px; font-size:.73rem; color:var(--text);">시장 데이터</h3><p style="margin:0; color:#94a3b8; font-size:.68rem; line-height:1.7;">DB 기준일 ${escapeHtml(market.db_latest_trade_date || '-')} · ${escapeHtml(candidate.market || '-')} 행 ${escapeHtml(market.market_rows_on_latest ?? '-')} · 지연 ${escapeHtml(market.market_data_gap_days ?? '-')}일</p></section><section style="padding:9px; border:1px solid #253247; border-radius:7px;"><h3 style="margin:0 0 6px; font-size:.73rem; color:var(--text);">엔진·검토 상태</h3><p style="margin:0; color:#94a3b8; font-size:.68rem; line-height:1.7;">파이프라인 ${escapeHtml(engine.pipeline_status || '-')} · DB 갱신 ${engine.pipeline_db_advanced ? '확인' : '미확인'}<br>${escapeHtml(reviewText)}</p></section></div><small style="display:block; margin-top:8px; color:#64748b; font-size:.64rem;">${escapeHtml(data.disclaimer || '')}</small>`;
-}
-
 function kqsReconciliationHtml(data) {
+  if (data.applicability === 'not_applicable') return kqsNativeReconciliationHtml(data);
   if (!data.available) return `<h2 style="margin:0 0 5px; color:var(--text); font-size:.9rem;">내 보유자산 · 엔진 모의 포지션 대조</h2><p style="margin:0; color:#f59e0b; font-size:.72rem;">${escapeHtml(data.detail || '엔진 포지션을 확인하지 못했습니다.')}</p>`;
   const summary = data.summary || {};
   const holding = (item) => `<li>${escapeHtml(item.name || item.ticker)} <span style="color:#64748b;">${escapeHtml(item.ticker)} · ${item.quantity ?? '-'}주</span></li>`;
@@ -375,6 +517,7 @@ function kqsReconciliationHtml(data) {
 }
 
 function kqsReconciliationHistoryHtml(data) {
+  if (data.applicability === 'not_applicable') return kqsNativeReconciliationHtml(data);
   const describe = (snapshot) => {
     const changes = snapshot.changes || {};
     if (changes.baseline) return '<span style="color:#64748b;">최초 기준선</span>';
@@ -411,8 +554,15 @@ export function strategyListView(container) {
     <div id="stg-promotion-monitor" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">승인 전략 점검을 불러오는 중...</p></div>
     <div id="stg-live-review-readiness" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">장기 모의운용 적합성을 불러오는 중...</p></div>
     <div id="stg-operations-report" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">주간 운영 리포트를 불러오는 중...</p></div>
-    <div id="stg-kqs-status" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">외부 퀀트 엔진 상태를 불러오는 중...</p></div>
+    <div id="stg-kqs-status" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">통합 퀀트 엔진 추천 상태를 불러오는 중...</p></div>
+    <div id="stg-kqs-recommendations" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">검증된 엔진 추천과 근거를 불러오는 중...</p></div>
     <div id="stg-kqs-candidates" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">엔진 신규 후보 검토 큐를 불러오는 중...</p></div>
+    <div id="stg-kqs-decision-positions" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">내 개인 원장 보유 현황을 불러오는 중...</p></div>
+    <div id="stg-kqs-decision-ledger" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">내 판단 기록을 불러오는 중...</p></div>
+    <div id="stg-kqs-decision-outcomes" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">내 판단의 사후 성과를 불러오는 중...</p></div>
+    <div id="stg-kqs-performance-report" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">내 개인 운용 성과 분석을 불러오는 중...</p></div>
+    <div id="stg-kqs-training-readiness" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">AI 학습 데이터 준비도를 확인하는 중...</p></div>
+    <div id="stg-kqs-training-experiments" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">오프라인 모델 실험 이력을 불러오는 중...</p></div>
     <div id="stg-kqs-candidate-queue-history" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">후보 큐 이력과 검토 알림을 불러오는 중...</p></div>
     <div id="stg-kqs-review-workflow" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">후보 검토 우선순위와 기한을 불러오는 중...</p></div>
     <div id="stg-kqs-review-report" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">후보 검토 운영 리포트를 불러오는 중...</p></div>
@@ -434,7 +584,7 @@ export function strategyListView(container) {
     <div id="stg-kqs-review-packet" style="display:none; margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"></div>
     <div id="stg-kqs-candidate-review-history" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">후보 검토 감사 이력을 불러오는 중...</p></div>
     <div id="stg-kqs-candidate-review-snapshots" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">검토 시점 패킷 보관함을 불러오는 중...</p></div>
-    <div id="stg-kqs-reconciliation" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">내 보유자산과 엔진 모의 포지션을 대조하는 중...</p></div>
+    <div id="stg-kqs-reconciliation" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">포지션 대조 적용 여부를 확인하는 중...</p></div>
     <div id="stg-kqs-reconciliation-history" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">대조 이력과 변동 알림을 불러오는 중...</p></div>
     <div id="stg-detail"></div>
     <div id="stg-execution-status" style="margin-top:20px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">주문 실행 상태를 불러오는 중...</p></div>
@@ -458,7 +608,14 @@ export function strategyListView(container) {
   const alertsEl = container.querySelector('#stg-paper-alerts');
   const reportEl = container.querySelector('#stg-paper-report');
   const kqsEl = container.querySelector('#stg-kqs-status');
+  const kqsRecommendationsEl = container.querySelector('#stg-kqs-recommendations');
   const kqsCandidatesEl = container.querySelector('#stg-kqs-candidates');
+  const kqsDecisionPositionsEl = container.querySelector('#stg-kqs-decision-positions');
+  const kqsDecisionLedgerEl = container.querySelector('#stg-kqs-decision-ledger');
+  const kqsDecisionOutcomesEl = container.querySelector('#stg-kqs-decision-outcomes');
+  const kqsPerformanceReportEl = container.querySelector('#stg-kqs-performance-report');
+  const kqsTrainingReadinessEl = container.querySelector('#stg-kqs-training-readiness');
+  const kqsTrainingExperimentsEl = container.querySelector('#stg-kqs-training-experiments');
   const kqsCandidateQueueHistoryEl = container.querySelector('#stg-kqs-candidate-queue-history');
   const kqsReviewWorkflowEl = container.querySelector('#stg-kqs-review-workflow');
   const kqsReviewReportEl = container.querySelector('#stg-kqs-review-report');
@@ -518,8 +675,195 @@ export function strategyListView(container) {
   }
 
   async function loadKqsStatus() {
-    try { kqsEl.innerHTML = kqsStatusHtml(await authRequest('/api/kqs/status')); }
+    try {
+      kqsEl.innerHTML = kqsStatusHtml(await authRequest('/api/kqs/status'));
+      kqsEl.querySelector('#stg-kqs-status-refresh')?.addEventListener('click', loadKqsStatus);
+    }
     catch (error) { kqsEl.innerHTML = kqsStatusHtml({ available: false, detail: error.message }); }
+  }
+
+  async function loadKqsRecommendations() {
+    try {
+      kqsRecommendationsEl.innerHTML = kqsRecommendationsHtml(await authRequest('/api/kqs/recommendations'));
+      kqsRecommendationsEl.querySelector('#stg-kqs-recommendations-refresh')?.addEventListener('click', loadKqsRecommendations);
+      kqsRecommendationsEl.querySelectorAll('[data-kqs-decision-form]').forEach((form) => {
+        const tradeFields = form.querySelector('[data-kqs-trade-fields]');
+        const syncTradeFields = () => {
+          const checked = form.querySelector('[data-kqs-decision-radio]:checked')?.value;
+          tradeFields.style.display = (checked === 'buy' || checked === 'sell') ? 'flex' : 'none';
+        };
+        form.querySelectorAll('[data-kqs-decision-radio]').forEach((radio) => radio.addEventListener('change', syncTradeFields));
+        syncTradeFields();
+        form.querySelector('[data-kqs-new-record]')?.addEventListener('click', () => { resetManualRequest(form); form.querySelector('[data-kqs-decision-status]').textContent = '별도의 새 기록입니다. 기존 저장 이력을 먼저 확인하세요.'; });
+        form.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          if (form.dataset.kqsSaving === 'true') return;
+          const statusEl = form.querySelector('[data-kqs-decision-status]');
+          const decision = form.querySelector('[data-kqs-decision-radio]:checked')?.value;
+          const isTrade = decision === 'buy' || decision === 'sell';
+          const quantity = +form.querySelector('[data-kqs-quantity]').value;
+          const fillPrice = +form.querySelector('[data-kqs-fill-price]').value;
+          if (isTrade && (!quantity || quantity <= 0 || !fillPrice || fillPrice <= 0)) {
+            statusEl.textContent = '수량과 체결가를 입력하세요.';
+            statusEl.style.color = '#ef4444';
+            return;
+          }
+          const submitBtn = form.querySelector('button[type="submit"]');
+          submitBtn.disabled = true;
+          form.dataset.kqsSaving = 'true';
+          statusEl.textContent = '기록하는 중...';
+          statusEl.style.color = '#94a3b8';
+          try {
+            await authRequest('/api/kqs/decisions', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(manualRequest(form, {
+                signal_id: form.dataset.kqsSignalId, decision,
+                trade_at: isTrade ? kstTradeAt(form.querySelector('[data-kqs-trade-at]').value) : null,
+                quantity: isTrade ? quantity : null, fill_price: isTrade ? fillPrice : null,
+                fee_krw: isTrade ? (+form.querySelector('[data-kqs-fee]').value || 0) : 0,
+                tax_krw: isTrade ? (+form.querySelector('[data-kqs-tax]').value || 0) : 0,
+                memo: form.querySelector('[data-kqs-memo]').value,
+                evidence_tags: form.querySelector('[data-kqs-tags]').value.split(',').map((tag) => tag.trim()).filter(Boolean),
+              })),
+            });
+            statusEl.textContent = '기록했습니다.';
+            statusEl.style.color = 'var(--up)';
+            await Promise.all([loadKqsDecisionLedger(), loadKqsDecisionPositions(), loadKqsPerformanceReport(), loadKqsTrainingReadiness()]);
+          } catch (error) {
+            statusEl.textContent = error.message;
+            statusEl.style.color = '#ef4444';
+          } finally {
+            submitBtn.disabled = false;
+            delete form.dataset.kqsSaving;
+          }
+        });
+      });
+    } catch (error) {
+      kqsRecommendationsEl.innerHTML = kqsRecommendationsHtml({ read_only: false, detail: error.message });
+    }
+  }
+
+  async function loadKqsDecisionLedger() {
+    try {
+      kqsDecisionLedgerEl.innerHTML = kqsDecisionLedgerHtml(await authRequest('/api/kqs/decisions'));
+    } catch (error) {
+      kqsDecisionLedgerEl.innerHTML = `<p style="color:#ef4444; font-size:.8rem;">${escapeHtml(error.message)}</p>`;
+    }
+  }
+
+  async function loadKqsDecisionPositions() {
+    try {
+      kqsDecisionPositionsEl.innerHTML = kqsDecisionPositionsHtml(await authRequest('/api/kqs/decisions/positions'));
+      kqsDecisionPositionsEl.querySelectorAll('[data-kqs-position-sell]').forEach((form) => {
+        form.querySelector('[data-kqs-sell-all]')?.addEventListener('click', () => { form.elements.quantity.value = form.dataset.kqsHeld; });
+        form.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          if (form.dataset.kqsSaving === 'true') return;
+          const submitBtn = form.querySelector('button[type="submit"]');
+          submitBtn.disabled = true;
+          form.dataset.kqsSaving = 'true';
+          const statusEl = form.querySelector('[data-kqs-sell-status]');
+          const number = (name) => (form.elements[name].value === '' ? 0 : Number(form.elements[name].value));
+          statusEl.style.color = '#94a3b8';
+          statusEl.textContent = '기록 중...';
+          try {
+            await authRequest(`/api/kqs/decisions/positions/${encodeURIComponent(form.dataset.kqsPositionSell)}/sell`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(manualRequest(form, {
+                quantity: number('quantity'), fill_price: number('fill_price'), fee_krw: number('fee_krw'), tax_krw: number('tax_krw'),
+                trade_date: form.elements.trade_date.value || null, trade_at: kstTradeAt(form.elements.trade_at.value), memo: form.elements.memo.value,
+              })),
+            });
+            await Promise.all([loadKqsDecisionPositions(), loadKqsDecisionLedger()]);
+          } catch (error) {
+            statusEl.style.color = '#ef4444';
+            statusEl.textContent = error.message;
+          } finally {
+            submitBtn.disabled = false;
+            delete form.dataset.kqsSaving;
+          }
+        });
+      });
+    } catch (error) {
+      kqsDecisionPositionsEl.innerHTML = `<p style="color:#ef4444; font-size:.8rem;">${escapeHtml(error.message)}</p>`;
+    }
+  }
+
+  async function loadKqsDecisionOutcomes() {
+    try {
+      kqsDecisionOutcomesEl.innerHTML = kqsDecisionOutcomesHtml(await authRequest('/api/kqs/decisions/outcomes'));
+    } catch (error) {
+      kqsDecisionOutcomesEl.innerHTML = `<p style="color:#ef4444; font-size:.8rem;">${escapeHtml(error.message)}</p>`;
+    }
+  }
+
+  async function loadKqsPerformanceReport() {
+    try {
+      kqsPerformanceReportEl.innerHTML = kqsPerformanceReportHtml(await authRequest('/api/kqs/decisions/performance-report'));
+      kqsPerformanceReportEl.querySelector('#stg-kqs-training-export')?.addEventListener('click', async (event) => {
+        event.currentTarget.disabled = true;
+        try { await authDownload('/api/kqs/decisions/training-dataset', 'kqs-human-decisions.jsonl'); }
+        catch (error) { alert(error.message); }
+        finally { event.currentTarget.disabled = false; }
+      });
+    } catch (error) {
+      kqsPerformanceReportEl.innerHTML = `<p style="color:#ef4444; font-size:.8rem;">${escapeHtml(error.message)}</p>`;
+    }
+  }
+
+  async function loadKqsTrainingReadiness() {
+    try {
+      const [readiness, datasets, consent] = await Promise.all([
+        authRequest('/api/kqs/decisions/training-readiness'), authRequest('/api/kqs/datasets'), authRequest('/api/kqs/learning-consent'),
+      ]);
+      readiness.learning_consent = consent.current || readiness.learning_consent;
+      kqsTrainingReadinessEl.innerHTML = kqsTrainingReadinessHtml(readiness, datasets);
+      const statusEl = kqsTrainingReadinessEl.querySelector('[data-kqs-dataset-status]');
+      const consentActive = readiness.learning_consent?.active === true;
+      if (!consentActive) kqsTrainingReadinessEl.querySelectorAll('[data-kqs-dataset]').forEach((button) => { button.disabled = true; button.title = '활성 학습 사용 동의가 필요합니다'; });
+      kqsTrainingReadinessEl.querySelector('[data-kqs-learning-consent]')?.addEventListener('click', async (event) => {
+        const button = event.currentTarget; const granting = button.dataset.kqsLearningConsent === 'grant';
+        if (granting && !kqsTrainingReadinessEl.querySelector('[data-kqs-learning-consent-check]')?.checked) {
+          statusEl.style.color = '#ef4444'; statusEl.textContent = '동의 내용을 확인한 뒤 선택하세요.'; return;
+        }
+        if (!confirm(granting
+          ? '내 KQS 수동 판단 기록을 향후 오프라인 학습에만 사용하도록 동의할까요? 추천·주문·자동체결 권한은 생기지 않습니다.'
+          : '학습 사용 동의를 철회할까요? 이후 v3 동결·내보내기·holdout·실험은 차단됩니다. 기존 불변 기록은 삭제되지 않습니다.')) return;
+        button.disabled = true;
+        try {
+          await authRequest('/api/kqs/learning-consent', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ consented: granting, acknowledgement: 'KQS_LEARNING_DATA_ONLY' }) });
+          await loadKqsTrainingReadiness();
+        } catch (error) { statusEl.style.color = '#ef4444'; statusEl.textContent = error.message; button.disabled = false; }
+      });
+      kqsTrainingReadinessEl.querySelector('[data-kqs-dataset-freeze]')?.addEventListener('click', async (event) => {
+        const button = event.currentTarget;
+        if (!confirm('추천 게시 당시 피처와 활성 학습 사용 동의 참조만 담은 v3 데이터셋을 동결합니다. 기존 동결 기록은 수정·삭제하지 않습니다. 진행할까요?')) return;
+        button.disabled = true;
+        try { await authRequest('/api/kqs/datasets', { method: 'POST' }); await loadKqsTrainingReadiness(); }
+        catch (error) { statusEl.style.color = '#ef4444'; statusEl.textContent = error.message; button.disabled = false; }
+      });
+      kqsTrainingReadinessEl.querySelector('[data-kqs-training-all]')?.addEventListener('click', async (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        try { await authDownload('/api/kqs/decisions/training-dataset', 'kqs-human-decisions.jsonl'); }
+        catch (error) { statusEl.style.color = '#ef4444'; statusEl.textContent = error.message; }
+        finally { button.disabled = false; }
+      });
+      kqsTrainingReadinessEl.querySelectorAll('[data-kqs-dataset]').forEach((button) => button.addEventListener('click', async () => {
+        const { kqsDataset: manifestId, kqsDatasetSplit: split } = button.dataset;
+        button.disabled = true;
+        try { await authDownload(`/api/kqs/datasets/${encodeURIComponent(manifestId)}/examples?split=${encodeURIComponent(split)}`, `${manifestId}-${split}.jsonl`); }
+        catch (error) { statusEl.style.color = '#ef4444'; statusEl.textContent = error.message; }
+        finally { button.disabled = false; }
+      }));
+    } catch (error) {
+      kqsTrainingReadinessEl.innerHTML = `<p style="color:#ef4444; font-size:.8rem;">${escapeHtml(error.message)}</p>`;
+    }
+  }
+
+  async function loadKqsTrainingExperiments() {
+    try { kqsTrainingExperimentsEl.innerHTML = kqsTrainingExperimentsHtml(await authRequest('/api/kqs/training-experiments')); }
+    catch (error) { kqsTrainingExperimentsEl.innerHTML = `<p style="color:#ef4444; font-size:.8rem;">${escapeHtml(error.message)}</p>`; }
   }
 
   async function loadKqsReviewCandidates() {
@@ -786,263 +1130,3 @@ export function strategyListView(container) {
 
   async function loadPaperAlerts(history = false, refresh = false) {
     try {
-      if (refresh) await authRequest('/api/strategy/alerts/refresh', { method: 'POST' });
-      const data = await authRequest(`/api/strategy/alerts?status=${history ? 'history' : 'active'}`);
-      alertsEl.innerHTML = paperAlertsHtml(data.items, history);
-      alertsEl.querySelector('#stg-alert-refresh').addEventListener('click', () => loadPaperAlerts(history, true));
-      alertsEl.querySelector('#stg-alert-history').addEventListener('click', () => loadPaperAlerts(!history, false));
-      alertsEl.querySelectorAll('[data-alert-action]').forEach((button) => button.addEventListener('click', async () => {
-        const action = button.dataset.alertAction;
-        const row = button.closest('[data-paper-alert]');
-        const note = action === 'deferred' ? (prompt('보류 사유(선택 사항)를 입력하세요.') || '') : '';
-        button.disabled = true;
-        try {
-          await authRequest(`/api/strategy/alerts/${row.dataset.paperAlert}/resolve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, note }) });
-          await loadPaperAlerts(history, false);
-        } catch (error) { alert(error.message); button.disabled = false; }
-      }));
-    } catch (error) { alertsEl.innerHTML = `<p style="color:#ef4444; font-size:.8rem; margin:0;">${escapeHtml(error.message)}</p>`; }
-  }
-
-  async function downloadPaperReport(period, format) {
-    const response = await fetch(`/api/strategy/paper-report/export?period=${encodeURIComponent(period)}&format=${format}`, { headers: { Authorization: `Bearer ${localStorage.getItem('investment_analysis_auth_token')}` } });
-    if (!response.ok) { const payload = await response.json().catch(() => ({})); throw new Error(payload.detail || '리포트를 내보내지 못했습니다.'); }
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob); const link = document.createElement('a');
-    link.href = url; link.download = `paper-research-report-${period}.${format}`; link.click(); URL.revokeObjectURL(url);
-  }
-
-  async function loadPaperReport(period = '3m') {
-    try {
-      const data = await authRequest(`/api/strategy/paper-report?period=${encodeURIComponent(period)}`);
-      reportEl.innerHTML = paperReportHtml(data);
-      reportEl.querySelector('#stg-report-period').addEventListener('change', (event) => loadPaperReport(event.target.value));
-      reportEl.querySelectorAll('[data-report-export]').forEach((button) => button.addEventListener('click', async () => {
-        button.disabled = true;
-        try { await downloadPaperReport(data.period, button.dataset.reportExport); } catch (error) { alert(error.message); } finally { button.disabled = false; }
-      }));
-    } catch (error) { reportEl.innerHTML = `<p style="color:#ef4444; font-size:.8rem; margin:0;">${escapeHtml(error.message)}</p>`; }
-  }
-
-  async function loadPaperAccount() {
-    try {
-      const account = await authRequest('/api/strategy/paper-account');
-      const formatted = Number(account.initial_capital_krw).toLocaleString('ko-KR');
-      accountEl.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;"><div><h2 style="margin:0 0 5px; color:var(--text); font-size:.9rem;">모의 계좌 위험 통제</h2><p style="margin:0; color:#94a3b8; font-size:.72rem;">실제 보유자산과 분리된 KRW 가상자본입니다. 승인 시 현금·집중도 한도를 자동 점검합니다.</p></div><div style="color:var(--text); font-size:.85rem; font-weight:700;">₩${formatted}</div></div>${account.fill_count === 0 ? `<div style="display:flex; gap:8px; align-items:end; margin-top:12px;"><label style="display:grid; gap:4px; color:#94a3b8; font-size:.7rem;">첫 체결 전 가상자본 (KRW)<input id="stg-paper-capital" class="param-input" type="number" min="1000" step="1000" value="${Number(account.initial_capital_krw)}" style="width:180px;"></label><button type="button" class="run-btn" id="stg-paper-capital-save" style="padding:8px 10px; font-size:.72rem;">설정</button></div>` : `<p style="margin:10px 0 0; color:#64748b; font-size:.7rem;">체결 ${account.fill_count}건 이후에는 원장 일관성을 위해 가상자본을 바꿀 수 없습니다.</p>`}`;
-      accountEl.querySelector('#stg-paper-capital-save')?.addEventListener('click', async (event) => {
-        const value = Number(accountEl.querySelector('#stg-paper-capital').value);
-        if (!Number.isFinite(value) || value < 1000) { alert('가상자본은 1,000 KRW 이상으로 입력하세요.'); return; }
-        event.currentTarget.disabled = true;
-        try {
-          await authRequest('/api/strategy/paper-account', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ initial_capital_krw: value }) });
-          await loadPaperAccount();
-        } catch (error) { alert(error.message); event.currentTarget.disabled = false; }
-      });
-    } catch (error) { accountEl.innerHTML = `<p style="color:#ef4444; font-size:.8rem; margin:0;">${escapeHtml(error.message)}</p>`; }
-  }
-
-  async function loadFills() {
-    try {
-      const data = await authRequest('/api/strategy/fills');
-      fillsEl.innerHTML = data.items.length
-        ? `<div style="overflow-x:auto;"><table style="width:100%; min-width:420px; border-collapse:collapse; font-size:.78rem;"><thead><tr style="color:#64748b; text-align:left;"><th style="padding:6px 10px;">시각</th><th style="padding:6px 10px;">종목</th><th style="padding:6px 10px;">방향</th><th style="padding:6px 10px;">수량</th><th style="padding:6px 10px;">체결가</th></tr></thead><tbody style="color:var(--text);">${data.items.map(fillRow).join('')}</tbody></table></div>`
-        : '<p style="color:#94a3b8; font-size:.8rem; margin:0;">아직 모의 체결 내역이 없습니다.</p>';
-    } catch (error) {
-      fillsEl.innerHTML = `<p style="color:#ef4444; font-size:.8rem; margin:0;">${escapeHtml(error.message)}</p>`;
-    }
-  }
-
-  async function loadProposals(strategyId, root) {
-    try {
-      const data = await authRequest(`/api/strategy/${strategyId}/proposals`);
-      root.innerHTML = data.items.length
-        ? `<div style="overflow-x:auto;"><table style="width:100%; min-width:480px; border-collapse:collapse; font-size:.78rem; margin-top:10px;"><thead><tr style="color:#64748b; text-align:left;"><th style="padding:8px 10px;">방향</th><th style="padding:8px 10px;">근거</th><th style="padding:8px 10px;">기준가</th><th style="padding:8px 10px;">상태</th><th style="padding:8px 10px;"></th></tr></thead><tbody style="color:var(--text);">${data.items.map(proposalRow).join('')}</tbody></table></div>`
-        : '<p style="color:#94a3b8; font-size:.78rem; margin:10px 0 0;">대기 중인 주문 제안이 없습니다.</p>';
-
-      root.querySelectorAll('[data-proposal-approve]').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const row = btn.closest('tr');
-          const qty = +row.querySelector('[data-proposal-qty]').value;
-          if (!qty || qty <= 0) { alert('수량을 입력하세요.'); return; }
-          btn.disabled = true;
-          try {
-            const fill = await authRequest(`/api/strategy/proposals/${row.dataset.proposalId}/approve`, {
-              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quantity: qty }),
-            });
-            if (fill.risk_control?.action === 'reduced') alert(`위험 한도에 맞춰 수량을 ${fill.quantity}로 자동 감액해 모의 체결했습니다.\n${(fill.risk_control.reasons || []).join('\n')}`);
-            await loadProposals(strategyId, root);
-            await loadFills();
-            await loadPaperAccount();
-            await loadPaperDashboard();
-            await loadPaperHistory();
-            await loadPaperAlerts(false, true);
-            await loadPaperReport();
-            await loadExecutionStatus();
-          } catch (error) { alert(error.message); btn.disabled = false; }
-        });
-      });
-      root.querySelectorAll('[data-proposal-reject]').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const row = btn.closest('tr');
-          btn.disabled = true;
-          try {
-            await authRequest(`/api/strategy/proposals/${row.dataset.proposalId}/reject`, { method: 'POST' });
-            await loadProposals(strategyId, root);
-          } catch (error) { alert(error.message); btn.disabled = false; }
-        });
-      });
-    } catch (error) {
-      root.innerHTML = `<p style="color:#ef4444; font-size:.78rem;">${escapeHtml(error.message)}</p>`;
-    }
-  }
-
-  async function loadList() {
-    try {
-      const data = await authRequest('/api/strategy');
-      listEl.innerHTML = data.items.length
-        ? data.items.map(strategyCard).join('')
-        : '<p style="color:#94a3b8; font-size:.85rem;">아직 저장된 전략이 없습니다. 전략 백테스트·실제 가격 백테스트·LEAN 리포트 화면에서 "전략으로 저장"을 눌러보세요.</p>';
-      listEl.querySelectorAll('[data-strategy-id]').forEach((card) => {
-        card.addEventListener('click', () => showDetail(card.dataset.strategyId));
-      });
-    } catch (error) {
-      listEl.innerHTML = `<p style="color:#ef4444;">${escapeHtml(error.message)}</p>`;
-    }
-  }
-
-  async function showDetail(strategyId) {
-    detailEl.innerHTML = '<p style="color:#94a3b8;">불러오는 중...</p>';
-    try {
-      const item = await authRequest(`/api/strategy/${strategyId}`);
-      const m = item.snapshot?.metrics;
-      const metricsHtml = m ? `<div style="display:flex; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
-          <div class="metric-box"><div style="font-size:.7rem; color:#64748b;">총수익률</div><div style="font-size:1rem; font-weight:700; color:var(--text);">${pct(m.total_return, 1)}</div></div>
-          <div class="metric-box"><div style="font-size:.7rem; color:#64748b;">CAGR</div><div style="font-size:1rem; font-weight:700; color:var(--text);">${pct(m.cagr, 2)}</div></div>
-          <div class="metric-box"><div style="font-size:.7rem; color:#64748b;">Sharpe</div><div style="font-size:1rem; font-weight:700; color:var(--text);">${m.sharpe?.toFixed(2) ?? '-'}</div></div>
-          <div class="metric-box"><div style="font-size:.7rem; color:#64748b;">Sortino</div><div style="font-size:1rem; font-weight:700; color:var(--text);">${m.sortino?.toFixed(2) ?? '-'}</div></div>
-          <div class="metric-box"><div style="font-size:.7rem; color:#64748b;">MDD</div><div style="font-size:1rem; font-weight:700; color:var(--text);">${pct(m.mdd, 1)}</div></div>
-        </div>` : '';
-      const statsHtml = item.type === 'lean' && item.snapshot?.statistics
-        ? `<div style="display:flex; flex-wrap:wrap; gap:12px; margin-bottom:16px;">${Object.entries(item.snapshot.statistics).slice(0, 8).map(([k, v]) => `<div class="metric-box"><div style="font-size:.66rem; color:#64748b;">${escapeHtml(k)}</div><div style="font-size:.88rem; font-weight:700; color:var(--text);">${escapeHtml(v)}</div></div>`).join('')}</div>`
-        : '';
-
-      detailEl.innerHTML = `<div style="background:#12161f; border:1px solid #232938; border-radius:12px; padding:20px; margin-top:16px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
-          <h2 style="margin:0; color:var(--text); font-size:1.05rem;">${escapeHtml(item.name)}</h2>
-          <div style="display:flex; gap:8px; align-items:center;">${badge(item.type)}<button type="button" data-delete-strategy style="padding:6px 10px; font-size:.72rem; color:#ef4444; background:none; border:1px solid #ef4444; border-radius:6px;">삭제</button></div>
-        </div>
-        ${metadataTable(item)}
-        ${item.parent_id ? '<div id="stg-version-comparison"><p style="color:#94a3b8; font-size:.72rem;">이전 버전과 비교 중...</p></div>' : ''}
-        ${metricsHtml}
-        ${statsHtml}
-        ${item.type === 'real_backtest' ? `
-          <div style="border-top:1px solid #232938; padding-top:14px; margin-top:4px;">
-            <div id="stg-order-preflight"><p style="margin:0 0 8px; color:#94a3b8; font-size:.72rem;">모의 주문 사전 점검 중...</p></div>
-            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-              <h3 style="margin:0; color:var(--text); font-size:.9rem;">주문 제안</h3>
-              <button type="button" class="run-btn" id="stg-make-proposal" style="padding:8px 12px; font-size:.75rem;">현재 신호 확인 → 주문 제안 생성</button>
-            </div>
-            <p style="margin:8px 0 0; color:#64748b; font-size:.72rem;">최신 시세로 다시 계산한 신호입니다. 승인 시 입력한 수량으로 모의 체결이 기록되며, 실제 보유자산(내 보유자산)에는 반영되지 않습니다.</p>
-            <div id="stg-proposals"></div>
-          </div>` : ''}
-      </div>`;
-
-      detailEl.querySelector('[data-delete-strategy]').addEventListener('click', async () => {
-        if (!confirm('이 전략을 삭제할까요?')) return;
-        try {
-          await authRequest(`/api/strategy/${strategyId}`, { method: 'DELETE' });
-          detailEl.innerHTML = '';
-          await loadList();
-        } catch (error) { alert(error.message); }
-      });
-
-      if (item.type === 'real_backtest') {
-        if (item.parent_id) {
-          const comparisonRoot = detailEl.querySelector('#stg-version-comparison');
-          try {
-            const [comparison, promotion] = await Promise.all([
-              authRequest(`/api/strategy/strategy-version-comparison/${item.id}`),
-              authRequest(`/api/strategy/strategy-version-promotion/${item.id}`),
-            ]);
-            comparisonRoot.innerHTML = versionComparisonHtml(comparison) + versionPromotionHtml(promotion);
-            comparisonRoot.querySelector('[data-promotion-approve]')?.addEventListener('click', async (event) => {
-              if (!confirm('이 전략 버전을 승인 고정할까요? 주문·모의 체결·배분은 변경되지 않습니다.')) return;
-              const note = prompt('승인 메모(선택 사항)를 입력하세요.') || '';
-              event.currentTarget.disabled = true;
-              try {
-                await authRequest(`/api/strategy/strategy-version-promotion/${item.id}/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note }) });
-                await Promise.all([loadList(), loadStrategyPortfolio(), loadRebalancePlan()]);
-                await showDetail(strategyId);
-              } catch (error) { alert(error.message); event.currentTarget.disabled = false; }
-            });
-            comparisonRoot.querySelector('[data-promotion-revoke]')?.addEventListener('click', async (event) => {
-              if (!confirm('이 전략 버전의 승인 고정을 철회할까요? 주문·모의 체결·배분은 변경되지 않습니다.')) return;
-              const note = prompt('철회 메모(선택 사항)를 입력하세요.') || '';
-              event.currentTarget.disabled = true;
-              try {
-                await authRequest(`/api/strategy/strategy-version-promotion/${item.id}/revoke`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note }) });
-                await showDetail(strategyId);
-              } catch (error) { alert(error.message); event.currentTarget.disabled = false; }
-            });
-          }
-          catch (error) { comparisonRoot.innerHTML = `<p style="color:#ef4444; font-size:.72rem;">${escapeHtml(error.message)}</p>`; }
-        }
-        const proposalsRoot = detailEl.querySelector('#stg-proposals');
-        const preflightRoot = detailEl.querySelector('#stg-order-preflight');
-        try {
-          const preflight = await authRequest(`/api/strategy/paper-order-preflight/${item.id}`);
-          preflightRoot.innerHTML = paperOrderPreflightHtml(preflight);
-          if (!preflight.allowed) detailEl.querySelector('#stg-make-proposal').disabled = true;
-        } catch (error) { preflightRoot.innerHTML = `<p style="margin:0 0 8px; color:#ef4444; font-size:.72rem;">${escapeHtml(error.message)}</p>`; }
-        await loadProposals(strategyId, proposalsRoot);
-        detailEl.querySelector('#stg-make-proposal').addEventListener('click', async (event) => {
-          event.currentTarget.disabled = true;
-          try {
-            await authRequest(`/api/strategy/${strategyId}/proposals`, { method: 'POST' });
-            await loadProposals(strategyId, proposalsRoot);
-          } catch (error) { alert(error.message); } finally { event.currentTarget.disabled = false; }
-        });
-      }
-    } catch (error) {
-      detailEl.innerHTML = `<p style="color:#ef4444;">${escapeHtml(error.message)}</p>`;
-    }
-  }
-
-  loadList();
-  loadStrategyPortfolio();
-  loadRebalancePlan();
-  loadPromotionMonitor();
-  loadLiveReviewReadiness();
-  loadOperationsReport();
-  loadKqsStatus();
-  loadKqsReviewCandidates();
-  loadKqsCandidateQueueHistory();
-  loadKqsReviewWorkflow();
-  loadKqsReviewReport();
-  loadKqsSelectionQuality();
-  loadKqsOperationsAlerts();
-  loadStrategyGovernance();
-  loadKqsCandidateOutcomes();
-  loadPerformanceDecomposition();
-  loadDecisionRecords();
-  loadMonthlyOperationsReport();
-  loadDataLineage();
-  loadRevalidationMonitor();
-  loadIntegratedRisk();
-  loadOperationsRunbook();
-  loadSandboxContract();
-  loadResearchRegistry();
-  loadRecoveryReadiness();
-  loadLiveIntegrationReadiness();
-  loadKqsCandidateReviewHistory();
-  loadKqsCandidateReviewSnapshots();
-  loadKqsReconciliation();
-  loadKqsReconciliationHistory();
-  loadFills();
-  loadPaperAccount();
-  loadPaperDashboard();
-  loadPaperAlerts(false, true);
-  loadPaperReport();
-  loadExecutionStatus();
-  loadPaperHistory();
-}

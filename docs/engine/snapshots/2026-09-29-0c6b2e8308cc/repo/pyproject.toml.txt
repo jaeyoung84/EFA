@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "korea-quant-system"
+version = "0.1.0"
+description = "A minimal, research-first quantitative investing system for Korean equities."
+readme = "README.md"
+requires-python = ">=3.11,<3.15"
+dependencies = [
+  "boto3>=1.35",
+  "finance-datareader>=0.9.100",
+  "pandas>=2.2",
+  "plotly>=5.24,<7",
+  "pyarrow>=17",
+  "vectorbt>=0.28",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "ruff>=0.9",
+]
+
+[project.scripts]
+korea-quant = "korea_quant.cli:main"
+krx-data = "korea_quant.krx_cli:main"
+krx-s3-backfill = "korea_quant.s3_backfill_cli:main"
+korea-quant-momentum = "korea_quant.momentum_cli:main"
+korea-quant-compare = "korea_quant.comparison_cli:main"
+korea-quant-scan = "korea_quant.scanner_cli:main"
+korea-quant-candidates = "korea_quant.candidate_scanner_cli:main"
+korea-quant-candidate-validation = "korea_quant.candidate_validation_cli:main"
+korea-quant-universe-validation = "korea_quant.universe_validation_cli:main"
+korea-quant-walkforward = "korea_quant.walkforward_cli:main"
+korea-quant-sensitivity = "korea_quant.sensitivity_cli:main"
+korea-quant-daily-picks = "korea_quant.daily_picks_cli:main"
+korea-quant-reversion-validation = "korea_quant.reversion_validation_cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/korea_quant"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-o cache_dir=.cache/pytest_cache --basetemp=.pytest_tmp"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["scratch_test_*.py"]

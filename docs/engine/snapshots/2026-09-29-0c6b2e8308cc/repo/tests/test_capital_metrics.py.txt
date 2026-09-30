@@ -1,0 +1,465 @@
+"""Tests for the capital-aware evaluation layer.
+
+The per-trade metrics in ``strategy_goals`` answer "is each trade good?". These
+answer "what did the money do?", and the two can disagree -- a rule can hold a
+profit factor above 1.7 and still trail a buy-and-hold benchmark once signal
+bursts, slot limits and idle capital are accounted for. What follows pins the
+rules that produce that difference, so a future change to the simulator has to
+say which one it is changing.
+"""
+
+from __future__ import annotations
+
+import math
+
+import pandas as pd
+import pytest
+
+from korea_quant.capital_metrics import (
+    CAPITAL_COLUMNS,
+    LIVE_SELECTION_KEY,
+    DeploymentConfig,
+    benchmark_buy_and_hold,
+    can_measure_deployment,
+    deployment_metrics,
+    selection_bounds,
+    truncate_long_holds,
+    unmeasured_metrics,
+    validate_deployment_config,
+)
+
+
+def _trades(rows: list[tuple[str, str, float, str]]) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "Entry Timestamp": pd.Timestamp(entry),
+                "Exit Timestamp": pd.Timestamp(exit_),
+                "NetReturnPct": net_return,
+                "Symbol": symbol,
+                "Status": "closed",
+            }
+            for entry, exit_, net_return, symbol in rows
+        ]
+    )
+
+
+def test_the_daily_cap_drops_the_rest_of_a_session_rather_than_queueing_them():
+    # The scanner publishes a fixed-size list each session and has no memory of
+    # yesterday's rejects, so a signal that misses the cut is gone. Queueing it
+    # would credit the strategy with entries the live path never offers.
+    frame = _trades(
+        [("2020-01-02", "2020-02-03", 0.05, f"A{index}") for index in range(5)]
+    )
+    metrics = deployment_metrics(
+        frame, DeploymentConfig(position_slots=10, daily_entry_cap=2, ordering_samples=3)
+    )
+    assert metrics.deployed_trades == 2
+    assert metrics.skipped_daily_cap == 3
+    assert metrics.skipped_no_slot == 0
+
+
+def test_a_name_already_held_is_not_bought_again_while_it_is_open():
+    # daily_picks_cli filters out symbols the ledger is already tracking. The
+    # validation backtest does not -- it opened the same symbol concurrently 523
+    # times over the 10-year run -- so without this guard the simulation would
+    # deploy capital the live system would have refused.
+    frame = _trades(
+        [
+            ("2020-01-02", "2020-06-01", 0.10, "SAME"),
+            ("2020-02-03", "2020-04-01", 0.20, "SAME"),
+        ]
+    )
+    metrics = deployment_metrics(
+        frame, DeploymentConfig(position_slots=10, daily_entry_cap=3, ordering_samples=1)
+    )
+    assert metrics.deployed_trades == 1
+    assert metrics.skipped_held_already == 1
+
+    allowed = deployment_metrics(
+        frame,
+        DeploymentConfig(
+            position_slots=10, daily_entry_cap=3, ordering_samples=1, dedupe_symbols=False
+        ),
+    )
+    assert allowed.deployed_trades == 2
+
+
+def test_exit_fill_day_blocks_the_same_symbol_but_releases_others():
+    # The live bot scans after marking an observed exit PENDING_EXIT, so it
+    # rejects that symbol's new buy for the following open. A different symbol
+    # may use the freed slot at that same open.
+    frame = _trades(
+        [
+            ("2020-01-02", "2020-02-03", 0.10, "SAME"),
+            ("2020-02-03", "2020-03-02", 0.20, "SAME"),
+            ("2020-02-03", "2020-03-02", 0.20, "OTHER"),
+        ]
+    )
+    metrics = deployment_metrics(
+        frame, DeploymentConfig(position_slots=1, daily_entry_cap=3, ordering_samples=1)
+    )
+    assert metrics.deployed_trades == 2
+    assert metrics.skipped_held_already == 1
+
+
+def test_a_signal_arriving_with_every_slot_full_is_lost_not_deferred():
+    # This is the constraint that actually binds: with a median hold of about
+    # three weeks, slots free up far slower than signals arrive, and in the
+    # 10-year run 1,494 of 2,594 signals died here rather than at the daily cap.
+    frame = _trades(
+        [
+            ("2020-01-02", "2021-01-04", 0.10, "HELD"),
+            ("2020-03-02", "2020-04-01", 0.50, "MISSED"),
+        ]
+    )
+    metrics = deployment_metrics(
+        frame, DeploymentConfig(position_slots=1, daily_entry_cap=3, ordering_samples=1)
+    )
+    assert metrics.deployed_trades == 1
+    assert metrics.skipped_no_slot == 1
+
+
+def test_open_positions_and_zero_length_holds_never_reach_the_equity_curve():
+    # An open position carries a mark-to-market number and no exit date, so it
+    # would both book a return and occupy its slot forever. A same-day exit
+    # would book a return against no holding time.
+    frame = _trades([("2020-01-02", "2020-02-03", 0.10, "REAL")])
+    frame = pd.concat(
+        [
+            frame,
+            pd.DataFrame(
+                [
+                    {
+                        "Entry Timestamp": pd.Timestamp("2020-01-02"),
+                        "Exit Timestamp": pd.NaT,
+                        "NetReturnPct": -0.90,
+                        "Symbol": "OPEN",
+                        "Status": "open",
+                    },
+                    {
+                        "Entry Timestamp": pd.Timestamp("2020-01-02"),
+                        "Exit Timestamp": pd.Timestamp("2020-01-02"),
+                        "NetReturnPct": 5.0,
+                        "Symbol": "INSTANT",
+                        "Status": "closed",
+                    },
+                ]
+            ),
+        ],
+        ignore_index=True,
+    )
+    metrics = deployment_metrics(
+        frame, DeploymentConfig(position_slots=5, daily_entry_cap=5, ordering_samples=1)
+    )
+    assert metrics.deployed_trades == 1
+
+
+def test_each_position_is_a_slice_of_current_equity_so_losses_shrink_the_next_bet():
+    # Fixed-fraction sizing, not fixed-notional. Two consecutive -50% trades on
+    # a two-slot book leave 0.5625, not 0.5: the second position is sized off the
+    # equity the first one left behind, so the loss shrinks with the account
+    # instead of compounding it toward zero at a fixed notional.
+    frame = _trades(
+        [
+            ("2020-01-01", "2020-01-10", -0.50, "A"),
+            ("2020-01-20", "2020-01-30", -0.50, "B"),
+        ]
+    )
+    metrics = deployment_metrics(
+        frame, DeploymentConfig(position_slots=2, daily_entry_cap=1, ordering_samples=1)
+    )
+    years = (pd.Timestamp("2020-01-30") - pd.Timestamp("2020-01-01")).days / 365.25
+    assert metrics.deployed_trades == 2
+    assert metrics.cagr == pytest.approx(0.5625 ** (1 / years) - 1)
+    assert metrics.realised_max_drawdown == pytest.approx(-0.4375)
+
+
+def test_simultaneous_positions_keep_their_entry_notional_until_they_exit():
+    # Both positions enter when the account is 100 and each receives one of two
+    # 50-unit slots. A self-financing ledger therefore ends at 200 after two
+    # +100% exits. Resizing the second holding from the first exit's 150-unit
+    # account would incorrectly manufacture 225.
+    frame = _trades(
+        [
+            ("2020-01-02", "2020-02-03", 1.00, "A"),
+            ("2020-01-02", "2020-02-03", 1.00, "B"),
+        ]
+    )
+    metrics = deployment_metrics(
+        frame,
+        DeploymentConfig(
+            position_slots=2,
+            daily_entry_cap=2,
+            ordering_samples=1,
+            starting_capital=100.0,
+        ),
+    )
+    assert metrics.deployed_trades == 2
+    assert metrics.final_capital == pytest.approx(200.0)
+    assert metrics.cumulative_return_krw == pytest.approx(100.0)
+
+
+def test_hindsight_bounds_bracket_the_neutral_result_and_report_the_spread():
+    # When more names fire than the cap allows, something has to choose. The
+    # live tie-break is market capitalisation, which is not a quality ranking,
+    # so the honest neutral is a random draw -- and the distance to the
+    # hindsight bounds is how much that choice is worth.
+    frame = _trades(
+        [("2020-01-02", "2020-02-03", 0.40, "WIN"), ("2020-01-02", "2020-02-03", -0.30, "LOSS")]
+        + [(f"2021-0{month}-01", f"2021-0{month}-20", 0.01, f"F{month}") for month in range(1, 5)]
+    )
+    config = DeploymentConfig(position_slots=4, daily_entry_cap=1, ordering_samples=9)
+    worst, best = selection_bounds(frame, config)
+    neutral = deployment_metrics(frame, config).cagr
+    assert worst < best
+    assert worst <= neutral <= best
+
+
+def test_an_empty_or_fully_open_trade_list_reports_zeros_rather_than_raising():
+    # A regime gate strict enough to suppress every entry is a result the report
+    # still has to render, exactly as the summary tables already handle it.
+    empty = pd.DataFrame(
+        columns=["Entry Timestamp", "Exit Timestamp", "NetReturnPct", "Symbol", "Status"]
+    )
+    metrics = deployment_metrics(empty)
+    assert metrics.deployed_trades == 0
+    assert metrics.cagr == 0.0
+    assert selection_bounds(empty) == (0.0, 0.0)
+
+
+def test_missing_columns_name_themselves_instead_of_failing_deep_in_numpy():
+    with pytest.raises(ValueError, match="Exit Timestamp"):
+        deployment_metrics(pd.DataFrame({"Entry Timestamp": [], "NetReturnPct": []}))
+
+
+def test_the_benchmark_is_measured_on_the_span_the_trades_occupy():
+    # A 4% CAGR is a win against a falling market and a loss against a 15% one,
+    # so the comparison has to be drawn on the same window, not a standard one.
+    index = pd.date_range("2020-01-01", periods=5, freq="365D")
+    close = pd.Series([100.0, 120.0, 60.0, 140.0, 200.0], index=index)
+    cagr, drawdown = benchmark_buy_and_hold(close, index[0], index[-1])
+    years = (index[-1] - index[0]).days / 365.25
+    assert cagr == pytest.approx(2.0 ** (1 / years) - 1)
+    assert drawdown == pytest.approx(-0.5)
+
+    # Slicing to a sub-span must change the answer, or the span argument is
+    # decorative.
+    short, _ = benchmark_buy_and_hold(close, index[0], index[1])
+    assert short != pytest.approx(cagr)
+
+
+def test_a_benchmark_with_no_usable_history_is_not_silently_scored_as_flat():
+    empty = pd.Series(dtype=float, index=pd.DatetimeIndex([]))
+    cagr, drawdown = benchmark_buy_and_hold(empty, pd.Timestamp("2020-01-01"), pd.Timestamp("2021-01-01"))
+    assert math.isnan(cagr) and math.isnan(drawdown)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        DeploymentConfig(position_slots=0),
+        DeploymentConfig(daily_entry_cap=0),
+        DeploymentConfig(ordering_samples=0),
+    ],
+)
+def test_a_deployment_rule_that_can_never_trade_is_rejected(config: DeploymentConfig):
+    with pytest.raises(ValueError):
+        validate_deployment_config(config)
+
+
+def test_no_dates_is_reported_as_unmeasured_and_never_as_a_zero_return():
+    # "This book earned nothing" and "nobody measured this book" are different
+    # statements, and only one of them is true of a trade list with no dates.
+    assert can_measure_deployment(_trades([("2020-01-02", "2020-02-03", 0.1, "A")]))
+    assert not can_measure_deployment(pd.DataFrame({"NetReturnPct": [0.1]}))
+
+    blank = unmeasured_metrics()
+    assert math.isnan(blank.cagr) and math.isnan(blank.realised_max_drawdown)
+    # An empty-but-dated list is the other case: it really did earn nothing.
+    dated_but_empty = pd.DataFrame(
+        columns=["Entry Timestamp", "Exit Timestamp", "NetReturnPct", "Symbol", "Status"]
+    )
+    assert deployment_metrics(dated_but_empty).cagr == 0.0
+
+
+def test_every_published_column_has_a_value_behind_it():
+    frame = _trades([("2020-01-02", "2020-02-03", 0.10, "A")])
+    row = deployment_metrics(frame).as_row()
+    assert tuple(row) == CAPITAL_COLUMNS
+
+
+def test_default_capital_and_holding_cap_match_the_20_percent_target_framing():
+    # 1억 won is the figure the user fixed as the measurement base, and one
+    # year is the maximum a signal is allowed to occupy a slot for -- both
+    # defaults so every caller gets them without repeating the numbers.
+    config = DeploymentConfig()
+    assert config.starting_capital == pytest.approx(100_000_000.0)
+    assert config.max_holding_days == 365
+
+
+def test_final_capital_and_cumulative_return_krw_are_denominated_off_starting_capital():
+    # A single +10% trade with the whole book in one slot should leave the
+    # book at 1.1x its starting capital, in won, not just in percent.
+    frame = _trades([("2020-01-02", "2020-02-03", 0.10, "A")])
+    metrics = deployment_metrics(
+        frame,
+        DeploymentConfig(
+            position_slots=1, daily_entry_cap=1, ordering_samples=1, starting_capital=100_000_000.0
+        ),
+    )
+    assert metrics.final_capital == pytest.approx(110_000_000.0)
+    assert metrics.cumulative_return_krw == pytest.approx(10_000_000.0)
+
+
+def test_an_empty_trade_list_reports_zero_return_on_the_configured_starting_capital():
+    empty = pd.DataFrame(
+        columns=["Entry Timestamp", "Exit Timestamp", "NetReturnPct", "Symbol", "Status"]
+    )
+    metrics = deployment_metrics(empty, DeploymentConfig(starting_capital=50_000_000.0))
+    assert metrics.final_capital == pytest.approx(50_000_000.0)
+    assert metrics.cumulative_return_krw == pytest.approx(0.0)
+
+
+def _priced_trades(rows: list[tuple[str, str, float, str, float]]) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "Entry Timestamp": pd.Timestamp(entry),
+                "Exit Timestamp": pd.Timestamp(exit_),
+                "NetReturnPct": net_return,
+                "Symbol": symbol,
+                "Status": "closed",
+                "Avg Entry Price": entry_price,
+            }
+            for entry, exit_, net_return, symbol, entry_price in rows
+        ]
+    )
+
+
+def test_truncate_long_holds_force_exits_at_the_first_costed_fill_after_the_cap():
+    frame = _priced_trades(
+        [("2020-01-01", "2023-08-30", 0.80, "LONG", 10_000.0)]
+    )
+
+    def exit_at(row: pd.Series, date: pd.Timestamp) -> tuple[pd.Timestamp, float]:
+        assert row["Symbol"] == "LONG"
+        assert date == pd.Timestamp("2020-01-01") + pd.Timedelta(days=365)
+        return date + pd.Timedelta(days=1), 0.08
+
+    truncated = truncate_long_holds(frame, max_holding_days=365, exit_at=exit_at)
+    row = truncated.iloc[0]
+    assert row["Exit Timestamp"] == pd.Timestamp("2021-01-01")
+    assert row["NetReturnPct"] == pytest.approx(0.08)
+
+
+def test_truncate_long_holds_leaves_trades_within_the_cap_untouched():
+    frame = _priced_trades([("2020-01-01", "2020-06-01", 0.10, "SHORT", 10_000.0)])
+    truncated = truncate_long_holds(frame, max_holding_days=365, exit_at=lambda row, date: None)
+    row = truncated.iloc[0]
+    assert row["Exit Timestamp"] == pd.Timestamp("2020-06-01")
+    assert row["NetReturnPct"] == pytest.approx(0.10)
+
+
+def test_truncate_long_holds_rejects_a_missing_terminal_valuation():
+    frame = _priced_trades([("2020-01-01", "2023-08-30", 0.80, "DELISTED", 10_000.0)])
+    with pytest.raises(ValueError, match="must value"):
+        truncate_long_holds(frame, max_holding_days=365, exit_at=lambda row, date: None)
+
+
+def test_truncate_long_holds_is_a_no_op_when_the_cap_is_disabled():
+    frame = _priced_trades([("2020-01-01", "2023-08-30", 0.80, "LONG", 10_000.0)])
+    truncated = truncate_long_holds(frame, max_holding_days=0, exit_at=lambda row, date: None)
+    assert truncated.iloc[0]["Exit Timestamp"] == pd.Timestamp("2023-08-30")
+
+
+def _cash_exhausting_trades() -> pd.DataFrame:
+    """A book that admits an entry at the exact moment no cash exists to fund it.
+
+    Two slots fill on day one at half of equity each, leaving cash at 0. LOSER
+    then returns a fifth of its notional, and that fifth is all the cash NEXT
+    can be funded with -- less than the equity/slots it would otherwise get.
+    WIPEOUT releases nothing at all, so cash stays at exactly 0.0 while its slot
+    comes free, and UNFUNDED is admitted into a portfolio with no money left.
+    """
+
+    return _trades(
+        [
+            ("2020-01-01", "2020-02-01", -0.80, "LOSER"),
+            ("2020-01-01", "2020-03-01", -1.00, "WIPEOUT"),
+            ("2020-02-01", "2020-04-01", 0.00, "NEXT"),
+            ("2020-03-01", "2020-05-01", 0.10, "UNFUNDED"),
+        ]
+    )
+
+
+def test_an_entry_admitted_without_cash_does_not_break_the_exit_ledger():
+    # _run_once admits on slot availability while the cash replay funds from the
+    # account, and the two disagree once losses shrink equity below the notional
+    # already committed to open positions. The admitted-but-unfunded position
+    # used to raise KeyError when its exit released a principal it never got.
+    config = DeploymentConfig(position_slots=2, daily_entry_cap=3, ordering_samples=1)
+    metrics = deployment_metrics(_cash_exhausting_trades(), config)
+    assert metrics.deployed_trades == 4
+
+
+def test_an_unfunded_position_releases_nothing_at_exit():
+    # It received no capital, so it returns no capital: UNFUNDED's +10% is not
+    # paid on a notional that was never committed. Only NEXT's tenth survives,
+    # which is the whole account at the end.
+    config = DeploymentConfig(
+        position_slots=2, daily_entry_cap=3, ordering_samples=1, starting_capital=1_000.0
+    )
+    metrics = deployment_metrics(_cash_exhausting_trades(), config)
+    assert metrics.final_capital == pytest.approx(100.0)
+
+
+def test_selection_bounds_survives_a_cash_exhausting_book():
+    # Both hindsight orderings walk the same cash replay, so the greedy
+    # diagnostic has to tolerate the same state rather than raise mid-report.
+    low, high = selection_bounds(
+        _cash_exhausting_trades(), DeploymentConfig(position_slots=2, daily_entry_cap=3)
+    )
+    assert low <= high
+
+
+def test_exposure_uses_the_union_of_actual_taken_positions_not_source_row_numbers():
+    # A is accepted first. Its later duplicate is rejected, while B (source row
+    # 2) is accepted. This catches the former mask/index mismatch: exposure must
+    # use taken indices [0, 2], not the first two source rows.
+    frame = _trades(
+        [
+            ("2020-01-01", "2020-01-05", 0.10, "A"),
+            ("2020-01-02", "2020-01-07", 0.10, "A"),
+            ("2020-01-02", "2020-01-04", 0.10, "B"),
+        ]
+    )
+    metrics = deployment_metrics(
+        frame, DeploymentConfig(position_slots=2, daily_entry_cap=3, ordering_samples=1)
+    )
+
+    assert metrics.deployed_trades == 2
+    assert metrics.skipped_held_already == 1
+
+
+def test_live_selection_key_replays_the_fixed_candidate_order_once():
+    # Source order intentionally puts the loser first. A live key must instead
+    # select the lower market-cap rank and eliminate random-draw uncertainty.
+    frame = _trades(
+        [
+            ("2020-01-02", "2020-02-03", 0.50, "LATE"),
+            ("2020-01-02", "2020-02-03", -0.25, "FIRST"),
+        ]
+    )
+    frame[LIVE_SELECTION_KEY] = ["000002:LATE:00", "000001:FIRST:00"]
+    metrics = deployment_metrics(
+        frame, DeploymentConfig(position_slots=1, daily_entry_cap=1, ordering_samples=25)
+    )
+    assert metrics.deployed_trades == 1
+    assert metrics.final_capital == pytest.approx(75_000_000.0)
+    assert metrics.cagr == metrics.cagr_low == metrics.cagr_high
+
+
+def test_cumulative_return_is_not_a_published_capital_column():
+    row = deployment_metrics(_trades([("2020-01-02", "2020-02-03", 0.10, "A")])).as_row()
+    assert "Cumulative Return (KRW)" not in row

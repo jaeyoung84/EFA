@@ -1,0 +1,150 @@
+===== pullback_v4_forward run @ 2026-09-15 11:21:35 =====
+DB_STAT_BEFORE: size=1388085248 mtime=2026-09-10 08:49:02.771940
+HASH_LOCK(pre): {'strategy_validation_v4.py': True, 'data_loader.py': True, 'run.py': True, 'run_forward.py': True}
+HASH16(now): {'strategy_validation_v4.py': '8e4dc15f3f135f5b', 'data_loader.py': 'ff1f239c95de9c24', 'run.py': '4f57bec9d0c9ce55', 'run_forward.py': '4a0b6a38fc03d77e'}
+PARAMS: FORWARD_START=2026-09-09 DEADLINE=2028-09-08 MIN_CLOSED_TRADES=100 BAND_QUANTILE=0.05 BACKTEST=2022-01-01~2026-09-08
+HASH_LOCK: {'strategy_validation_v4.py': True, 'data_loader.py': True, 'run.py': True, 'run_forward.py': True}
+STEP 1. 시장 시리즈 로딩 (V2-2: 벤치마크 2개)
+FORWARD_WINDOW: 2026-09-09 ~ 2026-09-09 (DB 마지막 거래일 2026-09-09)
+STEP 2. 유니버스 (H-16) + 시장 매핑 (V2-3)
+UNIVERSE: 3161
+STEP 3. SQLite DB 로딩 (H-13)
+STEP 4. 데이터 정합성 점검 (전향 창)
+STEP 5. 전향 창 실행 (run_period, FIXED_CONFIG)
+FORWARD_TRADES: raw=0 closed=0 floor=100
+JUDGE_FORWARD: {'closed_trades': 0, 'floor_reached': False, 'deadline_passed': False, 'hash_lock_ok': True, 'verdict': '증거 아님(표본 미달)'}
+DB_STAT_AFTER : size=1388085248 mtime=2026-09-10 08:49:02.771940 unchanged=True
+HASH_LOCK(post): {'strategy_validation_v4.py': True, 'data_loader.py': True, 'run.py': True, 'run_forward.py': True}
+ELAPSED: 99.7s
+VERDICT_DICT: {'closed_trades': 0, 'floor_reached': False, 'deadline_passed': False, 'hash_lock_ok': True, 'verdict': '증거 아님(표본 미달)'}
+
+===== pullback_v4_forward run @ 2026-09-16 09:16:38 =====
+DB_STAT_BEFORE: size=1390415872 mtime=2026-09-15 18:31:15.607290
+HASH_LOCK(pre): {'strategy_validation_v4.py': True, 'data_loader.py': True, 'run.py': True, 'run_forward.py': True}
+HASH16(now): {'strategy_validation_v4.py': '8e4dc15f3f135f5b', 'data_loader.py': 'ff1f239c95de9c24', 'run.py': '4f57bec9d0c9ce55', 'run_forward.py': '4a0b6a38fc03d77e'}
+PARAMS: FORWARD_START=2026-09-09 DEADLINE=2028-09-08 MIN_CLOSED_TRADES=100 BAND_QUANTILE=0.05 BACKTEST=2022-01-01~2026-09-08
+HASH_LOCK: {'strategy_validation_v4.py': True, 'data_loader.py': True, 'run.py': True, 'run_forward.py': True}
+STEP 1. 시장 시리즈 로딩 (V2-2: 벤치마크 2개)
+FORWARD_WINDOW: 2026-09-09 ~ 2026-09-14 (DB 마지막 거래일 2026-09-14)
+STEP 2. 유니버스 (H-16) + 시장 매핑 (V2-3)
+UNIVERSE: 3161
+STEP 3. SQLite DB 로딩 (H-13)
+STEP 4. 데이터 정합성 점검 (전향 창)
+STEP 5. 전향 창 실행 (run_period, FIXED_CONFIG)
+FORWARD_TRADES: raw=5 closed=0 floor=100
+JUDGE_FORWARD: {'closed_trades': 0, 'floor_reached': False, 'deadline_passed': False, 'hash_lock_ok': True, 'verdict': '증거 아님(표본 미달)'}
+DB_STAT_AFTER : size=1390415872 mtime=2026-09-15 18:31:15.607290 unchanged=True
+HASH_LOCK(post): {'strategy_validation_v4.py': True, 'data_loader.py': True, 'run.py': True, 'run_forward.py': True}
+ELAPSED: 92.8s
+VERDICT_DICT: {'closed_trades': 0, 'floor_reached': False, 'deadline_passed': False, 'hash_lock_ok': True, 'verdict': '증거 아님(표본 미달)'}
+
+===== pullback_v4_forward run @ 2026-09-16 09:36:59 =====
+DB_STAT_BEFORE: size=1391075328 mtime=2026-09-16 09:34:55.533100
+HASH_LOCK(pre): {'strategy_validation_v4.py': True, 'data_loader.py': True, 'run.py': True, 'run_forward.py': True}
+HASH16(now): {'strategy_validation_v4.py': '8e4dc15f3f135f5b', 'data_loader.py': 'ff1f239c95de9c24', 'run.py': '4f57bec9d0c9ce55', 'run_forward.py': '4a0b6a38fc03d77e'}
+PARAMS: FORWARD_START=2026-09-09 DEADLINE=2028-09-08 MIN_CLOSED_TRADES=100 BAND_QUANTILE=0.05 BACKTEST=2022-01-01~2026-09-08
+HASH_LOCK: {'strategy_validation_v4.py': True, 'data_loader.py': True, 'run.py': True, 'run_forward.py': True}
+STEP 1. 시장 시리즈 로딩 (V2-2: 벤치마크 2개)
+FORWARD_WINDOW: 2026-09-09 ~ 2026-09-15 (DB 마지막 거래일 2026-09-15)
+STEP 2. 유니버스 (H-16) + 시장 매핑 (V2-3)
+UNIVERSE: 3161
+STEP 3. SQLite DB 로딩 (H-13)
+STEP 4. 데이터 정합성 점검 (전향 창)
+STEP 5. 전향 창 실행 (run_period, FIXED_CONFIG)
+FORWARD_TRADES: raw=5 closed=5 floor=100
+FORWARD_EXIT_REASONS: {'market_regime': np.int64(5)}
+FORWARD_TRADES_HASH: e4a229fc1300fb21
+JUDGE_FORWARD: {'closed_trades': 5, 'floor_reached': False, 'deadline_passed': False, 'hash_lock_ok': True, 'verdict': '증거 아님(표본 미달)'}
+DB_STAT_AFTER : size=1391075328 mtime=2026-09-16 09:34:55.533100 unchanged=True
+HASH_LOCK(post): {'strategy_validation_v4.py': True, 'data_loader.py': True, 'run.py': True, 'run_forward.py': True}
+ELAPSED: 97.2s
+VERDICT_DICT: {'closed_trades': 5, 'floor_reached': False, 'deadline_passed': False, 'hash_lock_ok': True, 'verdict': '증거 아님(표본 미달)'}
+
+===== pullback_v4_forward run @ 2026-09-17 08:58:07 =====
+DB_STAT_BEFORE: size=1391730688 mtime=2026-09-17 08:56:01.808408
+HASH_LOCK(pre): {'strategy_validation_v4.py': True, 'data_loader.py': True, 'run.py': True, 'run_forward.py': True}
+HASH16(now): {'strategy_validation_v4.py': '8e4dc15f3f135f5b', 'data_loader.py': 'ff1f239c95de9c24', 'run.py': '4f57bec9d0c9ce55', 'run_forward.py': '4a0b6a38fc03d77e'}
+PARAMS: FORWARD_START=2026-09-09 DEADLINE=2028-09-08 MIN_CLOSED_TRADES=100 BAND_QUANTILE=0.05 BACKTEST=2022-01-01~2026-09-08
+HASH_LOCK: {'strategy_validation_v4.py': True, 'data_loader.py': True, 'run.py': True, 'run_forward.py': True}
+STEP 1. 시장 시리즈 로딩 (V2-2: 벤치마크 2개)
+FORWARD_WINDOW: 2026-09-09 ~ 2026-09-16 (DB 마지막 거래일 2026-09-16)
+STEP 2. 유니버스 (H-16) + 시장 매핑 (V2-3)
+UNIVERSE: 3161
+STEP 3. SQLite DB 로딩 (H-13)
+STEP 4. 데이터 정합성 점검 (전향 창)
+STEP 5. 전향 창 실행 (run_period, FIXED_CONFIG)
+FORWARD_TRADES: raw=5 closed=5 floor=100
+FORWARD_EXIT_REASONS: {'market_regime': np.int64(5)}
+FORWARD_TRADES_HASH: e4a229fc1300fb21
+JUDGE_FORWARD: {'closed_trades': 5, 'floor_reached': False, 'deadline_passed': False, 'hash_lock_ok': True, 'verdict': '증거 아님(표본 미달)'}
+DB_STAT_AFTER : size=1391730688 mtime=2026-09-17 08:56:01.808408 unchanged=True
+HASH_LOCK(post): {'strategy_validation_v4.py': True, 'data_loader.py': True, 'run.py': True, 'run_forward.py': True}
+ELAPSED: 89.1s
+VERDICT_DICT: {'closed_trades': 5, 'floor_reached': False, 'deadline_passed': False, 'hash_lock_ok': True, 'verdict': '증거 아님(표본 미달)'}
+
+===== pullback_v4_forward run @ 2026-09-18 09:58:13 =====
+DB_STAT_BEFORE: size=1392439296 mtime=2026-09-18 09:56:09.371621
+HASH_LOCK(pre): {'strategy_validation_v4.py': True, 'data_loader.py': True, 'run.py': True, 'run_forward.py': True}
+HASH16(now): {'strategy_validation_v4.py': '8e4dc15f3f135f5b', 'data_loader.py': 'ff1f239c95de9c24', 'run.py': '4f57bec9d0c9ce55', 'run_forward.py': '4a0b6a38fc03d77e'}
+PARAMS: FORWARD_START=2026-09-09 DEADLINE=2028-09-08 MIN_CLOSED_TRADES=100 BAND_QUANTILE=0.05 BACKTEST=2022-01-01~2026-09-08
+HASH_LOCK: {'strategy_validation_v4.py': True, 'data_loader.py': True, 'run.py': True, 'run_forward.py': True}
+STEP 1. 시장 시리즈 로딩 (V2-2: 벤치마크 2개)
+FORWARD_WINDOW: 2026-09-09 ~ 2026-09-17 (DB 마지막 거래일 2026-09-17)
+STEP 2. 유니버스 (H-16) + 시장 매핑 (V2-3)
+UNIVERSE: 3161
+STEP 3. SQLite DB 로딩 (H-13)
+STEP 4. 데이터 정합성 점검 (전향 창)
+STEP 5. 전향 창 실행 (run_period, FIXED_CONFIG)
+FORWARD_TRADES: raw=9 closed=5 floor=100
+FORWARD_EXIT_REASONS: {'market_regime': np.int64(5)}
+FORWARD_TRADES_HASH: e4a229fc1300fb21
+JUDGE_FORWARD: {'closed_trades': 5, 'floor_reached': False, 'deadline_passed': False, 'hash_lock_ok': True, 'verdict': '증거 아님(표본 미달)'}
+DB_STAT_AFTER : size=1392439296 mtime=2026-09-18 09:56:09.371621 unchanged=True
+HASH_LOCK(post): {'strategy_validation_v4.py': True, 'data_loader.py': True, 'run.py': True, 'run_forward.py': True}
+ELAPSED: 96.0s
+VERDICT_DICT: {'closed_trades': 5, 'floor_reached': False, 'deadline_passed': False, 'hash_lock_ok': True, 'verdict': '증거 아님(표본 미달)'}
+
+===== pullback_v4_forward run @ 2026-09-23 12:45:59 =====
+DB_STAT_BEFORE: size=1394892800 mtime=2026-09-23 12:44:03.909895
+HASH_LOCK(pre): {'strategy_validation_v4.py': True, 'data_loader.py': True, 'run.py': True, 'run_forward.py': True}
+HASH16(now): {'strategy_validation_v4.py': '8e4dc15f3f135f5b', 'data_loader.py': 'ff1f239c95de9c24', 'run.py': '4f57bec9d0c9ce55', 'run_forward.py': '4a0b6a38fc03d77e'}
+PARAMS: FORWARD_START=2026-09-09 DEADLINE=2028-09-08 MIN_CLOSED_TRADES=100 BAND_QUANTILE=0.05 BACKTEST=2022-01-01~2026-09-08
+HASH_LOCK: {'strategy_validation_v4.py': True, 'data_loader.py': True, 'run.py': True, 'run_forward.py': True}
+STEP 1. 시장 시리즈 로딩 (V2-2: 벤치마크 2개)
+FORWARD_WINDOW: 2026-09-09 ~ 2026-09-22 (DB 마지막 거래일 2026-09-22)
+STEP 2. 유니버스 (H-16) + 시장 매핑 (V2-3)
+UNIVERSE: 3161
+STEP 3. SQLite DB 로딩 (H-13)
+STEP 4. 데이터 정합성 점검 (전향 창)
+STEP 5. 전향 창 실행 (run_period, FIXED_CONFIG)
+FORWARD_TRADES: raw=10 closed=6 floor=100
+FORWARD_EXIT_REASONS: {'market_regime': np.int64(5), 'stop': np.int64(1)}
+FORWARD_TRADES_HASH: 8e06e536cf98bf0b
+JUDGE_FORWARD: {'closed_trades': 6, 'floor_reached': False, 'deadline_passed': False, 'hash_lock_ok': True, 'verdict': '증거 아님(표본 미달)'}
+DB_STAT_AFTER : size=1394892800 mtime=2026-09-23 12:44:03.909895 unchanged=True
+HASH_LOCK(post): {'strategy_validation_v4.py': True, 'data_loader.py': True, 'run.py': True, 'run_forward.py': True}
+ELAPSED: 91.3s
+VERDICT_DICT: {'closed_trades': 6, 'floor_reached': False, 'deadline_passed': False, 'hash_lock_ok': True, 'verdict': '증거 아님(표본 미달)'}
+
+===== pullback_v4_forward run @ 2026-09-24 13:33:55 =====
+DB_STAT_BEFORE: size=1395564544 mtime=2026-09-24 13:31:59.721491
+HASH_LOCK(pre): {'strategy_validation_v4.py': True, 'data_loader.py': True, 'run.py': True, 'run_forward.py': True}
+HASH16(now): {'strategy_validation_v4.py': '8e4dc15f3f135f5b', 'data_loader.py': 'ff1f239c95de9c24', 'run.py': '4f57bec9d0c9ce55', 'run_forward.py': '4a0b6a38fc03d77e'}
+PARAMS: FORWARD_START=2026-09-09 DEADLINE=2028-09-08 MIN_CLOSED_TRADES=100 BAND_QUANTILE=0.05 BACKTEST=2022-01-01~2026-09-08
+HASH_LOCK: {'strategy_validation_v4.py': True, 'data_loader.py': True, 'run.py': True, 'run_forward.py': True}
+STEP 1. 시장 시리즈 로딩 (V2-2: 벤치마크 2개)
+FORWARD_WINDOW: 2026-09-09 ~ 2026-09-23 (DB 마지막 거래일 2026-09-23)
+STEP 2. 유니버스 (H-16) + 시장 매핑 (V2-3)
+UNIVERSE: 3161
+STEP 3. SQLite DB 로딩 (H-13)
+STEP 4. 데이터 정합성 점검 (전향 창)
+STEP 5. 전향 창 실행 (run_period, FIXED_CONFIG)
+FORWARD_TRADES: raw=11 closed=6 floor=100
+FORWARD_EXIT_REASONS: {'market_regime': np.int64(5), 'stop': np.int64(1)}
+FORWARD_TRADES_HASH: 8e06e536cf98bf0b
+JUDGE_FORWARD: {'closed_trades': 6, 'floor_reached': False, 'deadline_passed': False, 'hash_lock_ok': True, 'verdict': '증거 아님(표본 미달)'}
+DB_STAT_AFTER : size=1395564544 mtime=2026-09-24 13:31:59.721491 unchanged=True
+HASH_LOCK(post): {'strategy_validation_v4.py': True, 'data_loader.py': True, 'run.py': True, 'run_forward.py': True}
+ELAPSED: 84.3s
+VERDICT_DICT: {'closed_trades': 6, 'floor_reached': False, 'deadline_passed': False, 'hash_lock_ok': True, 'verdict': '증거 아님(표본 미달)'}
+

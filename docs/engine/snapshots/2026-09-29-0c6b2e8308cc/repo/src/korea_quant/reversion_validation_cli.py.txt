@@ -1,0 +1,101 @@
+"""CLI for point-in-time validation of standalone reversion strategies."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+from korea_quant.eligibility import (
+    DEFAULT_MARKET_BENCHMARKS,
+    DEFAULT_MARKET_CAP_TIERS,
+    build_market_benchmarks,
+    build_market_cap_tiers,
+)
+from korea_quant.krx import KrxDailyStore
+from korea_quant.reversion_validation import (
+    ReversionGoal,
+    ReversionValidationConfig,
+    run_reversion_validation,
+    write_reversion_validation_reports,
+)
+from korea_quant.strategy_profiles import PROFILES, strategies_for_profile
+
+
+def main() -> None:
+    default_tiers = dict(DEFAULT_MARKET_CAP_TIERS)
+    default_benchmarks = dict(DEFAULT_MARKET_BENCHMARKS)
+    parser = argparse.ArgumentParser(description="Validate KRX swing and long-term reversion strategies.")
+    parser.add_argument("--krx-db", type=Path, required=True)
+    parser.add_argument("--start", required=True)
+    parser.add_argument("--end", default=None)
+    parser.add_argument("--training-sessions", type=int, default=252)
+    parser.add_argument("--testing-sessions", type=int, default=63)
+    parser.add_argument("--kospi-tier", type=int, default=default_tiers["KOSPI"])
+    parser.add_argument("--kosdaq-tier", type=int, default=default_tiers["KOSDAQ"])
+    parser.add_argument("--minimum-average-trading-value", type=float, default=5_000_000_000)
+    parser.add_argument("--fee-rate", type=float, default=0.00015)
+    parser.add_argument("--sell-tax-rate", type=float, default=0.0018)
+    parser.add_argument("--slippage-rate", type=float, default=0.0005)
+    parser.add_argument("--minimum-win-rate", type=float, default=0.60)
+    parser.add_argument("--minimum-profit-factor", type=float, default=1.30)
+    parser.add_argument("--minimum-median-net-return", type=float, default=0.0)
+    parser.add_argument(
+        "--minimum-profitable-window-share", type=float, default=0.60,
+        help="Share of out-of-sample windows that must close net profitable.",
+    )
+    parser.add_argument("--minimum-swing-trades", type=int, default=100)
+    parser.add_argument("--minimum-long-term-trades", type=int, default=30)
+    parser.add_argument("--checkpoint-dir", type=Path, default=None)
+    parser.add_argument("--checkpoint-symbols-per-file", type=int, default=50)
+    parser.add_argument(
+        "--market-filter-window", type=int, default=0,
+        help="Sessions in the benchmark SMA regime gate; 0 disables it (baseline).",
+    )
+    parser.add_argument(
+        "--market-filter-mode", choices=("bullish", "bearish"), default="bearish",
+        help="This family buys weakness, so bearish (below the benchmark SMA) is the default.",
+    )
+    parser.add_argument("--kospi-benchmark", default=default_benchmarks["KOSPI"])
+    parser.add_argument("--kosdaq-benchmark", default=default_benchmarks["KOSDAQ"])
+    parser.add_argument("--profile", choices=("all", *PROFILES), default="reversion")
+    parser.add_argument("--report", type=Path, default=Path("reports/reversion_validation.html"))
+    args = parser.parse_args()
+
+    store = KrxDailyStore(args.krx_db)
+    history = store.market_history(args.start, args.end)
+    benchmark_close = None
+    if args.market_filter_window > 0:
+        benchmark_close = store.benchmark_closes(
+            build_market_benchmarks(args.kospi_benchmark, args.kosdaq_benchmark), args.end
+        )
+    config = ReversionValidationConfig(
+        training_sessions=args.training_sessions,
+        testing_sessions=args.testing_sessions,
+        market_cap_tiers=build_market_cap_tiers(args.kospi_tier, args.kosdaq_tier),
+        minimum_average_trading_value=args.minimum_average_trading_value,
+        fee_rate=args.fee_rate,
+        sell_tax_rate=args.sell_tax_rate,
+        slippage_rate=args.slippage_rate,
+        checkpoint_dir=args.checkpoint_dir or args.report.with_suffix("").with_name(
+            f"{args.report.stem}_checkpoints"
+        ),
+        checkpoint_symbols_per_file=args.checkpoint_symbols_per_file,
+        market_filter_window=args.market_filter_window,
+        market_filter_inverted=args.market_filter_mode == "bearish",
+        strategies=strategies_for_profile(args.profile),
+        goal=ReversionGoal(
+            minimum_win_rate=args.minimum_win_rate,
+            minimum_profit_factor=args.minimum_profit_factor,
+            minimum_median_net_return=args.minimum_median_net_return,
+            minimum_profitable_window_share=args.minimum_profitable_window_share,
+            minimum_swing_trades=args.minimum_swing_trades,
+            minimum_long_term_trades=args.minimum_long_term_trades,
+        ),
+    )
+    result = run_reversion_validation(history, config, benchmark_close)
+    html, csv = write_reversion_validation_reports(result, args.report, args.report.with_suffix(".csv"))
+    print(f"Reversion validation: {html.resolve()} | {csv.resolve()}")
+
+
+if __name__ == "__main__":
+    main()

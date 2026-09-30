@@ -1,0 +1,73 @@
+"""사전등록 §9 전향 관측 추기(#F1, #F2, …). 누적 러너 로그의 마지막 블록만 읽어 건수·불리언·해시·날짜 한 줄을 붙인다.
+용법: .venv/bin/python /home/gram/pullback_forward_append.py v2|v4 [--check]
+- 러너 로그(/home/gram/pullback_v{X}_forward_runs.log)는 읽기만, 사전등록은 append 만(LF 보존, 전면 재작성 금지).
+- 수치 규약: PF/CAGR/MDD/가격은 어디에도 없음(러너 출력 자체가 건수·불리언·해시만).
+- 잠금 대상 4파일은 접촉하지 않으며, 추기 전후 run_forward.verify_hash_lock() 4/4 를 확인한다.
+"""
+import hashlib, re, sys
+from pathlib import Path
+
+ver = sys.argv[1] if len(sys.argv) > 1 else ""
+assert ver in ("v2", "v4"), "v2|v4"
+CHECK = "--check" in sys.argv
+NOTE = sys.argv[sys.argv.index("--note") + 1] if "--note" in sys.argv else ""  # 줄 끝 부기(선택)
+REPO = Path("/home/gram/korea-quant-system")
+VDIR = REPO / f"research/daily_trend_pullback_{ver}"
+PRE = VDIR / f"PREREGISTRATION_{ver}.md"
+RUNS = Path(f"/home/gram/pullback_{ver}_forward_runs.log")
+
+sys.path.insert(0, str(VDIR))
+import run_forward as fwd  # noqa: E402
+
+def lock_ok():
+    d = fwd.verify_hash_lock()
+    return sum(bool(v) for v in d.values()), len(d)
+
+# ── 러너 로그 마지막 블록 파싱 ──
+runs_raw = RUNS.read_bytes(); assert b"\r\n" not in runs_raw
+blocks = [b for b in runs_raw.decode("utf-8").split("\n\n") if b.strip()]
+last = blocks[-1].splitlines()
+def grab(prefix):
+    m = [ln for ln in last if ln.startswith(prefix)]
+    assert len(m) == 1, f"{prefix}: {len(m)}"
+    return m[0]
+stamp = re.search(r"run @ (\S+ \S+) =====", grab("=====")).group(1)
+pre_ok = grab("HASH_LOCK(pre):").count("True"); post_ok = grab("HASH_LOCK(post):").count("True")
+win = re.search(r"FORWARD_WINDOW: (\S+) ~ (\S+) \(DB 마지막 거래일 (\S+)\)", grab("FORWARD_WINDOW:"))
+uni = grab("UNIVERSE:").split(":", 1)[1].strip()
+trades = grab("FORWARD_TRADES:").split(":", 1)[1].strip()
+judge = grab("JUDGE_FORWARD:").split(":", 1)[1].strip()
+exit_reasons = [re.sub(r"np\.int64\((\d+)\)", r"\1", ln) for ln in last if ln.startswith("FORWARD_EXIT_REASONS")]  # numpy repr 제거
+dbb = re.search(r"size=(\d+) mtime=(\S+ \S+)", grab("DB_STAT_BEFORE:"))
+unchanged = re.search(r"unchanged=(\w+)", grab("DB_STAT_AFTER")).group(1)
+elapsed = grab("ELAPSED:").split(":", 1)[1].strip()
+errs = [ln for ln in last if ln.startswith(("RUN_ERROR", "ABORT"))]
+assert not errs, errs
+assert pre_ok == 4 and post_ok == 4, (pre_ok, post_ok)
+assert unchanged == "True"
+
+# ── 사전등록 현재 상태 ──
+pre_raw = PRE.read_bytes(); assert b"\r\n" not in pre_raw and pre_raw.endswith(b"\n")
+src = pre_raw.decode("utf-8")
+assert "## 9. 부록" in src
+nums = [int(n) for n in re.findall(r"^- \*\*(?:기준선 실행 )?#F(\d+) \(", src, flags=re.M)]  # 실제 기록 줄만(본문의 "#F1, #F2, …" 제외)
+assert nums, "기록 줄 없음"
+nxt = max(nums) + 1
+assert f"({stamp})" not in src, "같은 실행 스탬프가 이미 추기됨"
+runs_lines = runs_raw.decode("utf-8").count("\n"); runs_sha = hashlib.sha256(runs_raw).hexdigest()[:16]
+db_size = f"{int(dbb.group(1)):,}"
+mt = dbb.group(2).split(".")[0]
+line = (f"- **#F{nxt} ({stamp})**: HASH_LOCK 전·후 {pre_ok}/4·{post_ok}/4 True(§7 표와 동일). "
+        f"FORWARD_WINDOW **{win.group(1)} ~ {win.group(2)}**(DB 마지막 거래일 {win.group(3)}). UNIVERSE {int(uni):,}. "
+        f"**FORWARD_TRADES {trades}.**" + (" " + exit_reasons[0] + "." if exit_reasons else "") +
+        f" JUDGE_FORWARD = {judge}. DB size {db_size} / mtime {mt} 전·후 불변 {unchanged}. 소요 {elapsed}. "
+        f"누적 로그 {runs_lines}행, sha256 앞16 `{runs_sha}`." + (f" {NOTE}" if NOTE else "") + "\n")
+before_sha = hashlib.sha256(pre_raw).hexdigest()[:16]
+print(f"[{ver}] next=#F{nxt} lock(before)={lock_ok()} prereg lines {src.count(chr(10))} sha16 {before_sha}")
+print("APPEND:", line.rstrip())
+if CHECK:
+    print("(dry run)"); sys.exit(0)
+with PRE.open("ab") as fh:
+    fh.write(line.encode("utf-8"))
+after = PRE.read_bytes(); assert b"\r\n" not in after
+print(f"[{ver}] written: lines {after.count(b'\n')} sha16 {hashlib.sha256(after).hexdigest()[:16]} lock(after)={lock_ok()}")

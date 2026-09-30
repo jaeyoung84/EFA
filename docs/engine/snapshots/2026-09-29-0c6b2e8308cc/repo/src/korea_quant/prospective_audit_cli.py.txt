@@ -1,0 +1,41 @@
+"""CLI for a descriptive, frozen-baseline prospective audit."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+import pandas as pd
+
+from korea_quant.prospective_audit import build_prospective_audit, write_prospective_audit_report
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Read prospective candidate/paper-execution evidence without changing recommendations."
+    )
+    parser.add_argument("--candidate-audit", type=Path, default=Path("data/bot_candidate_audit.csv"))
+    parser.add_argument("--event-log", type=Path, default=Path("data/bot_trade_log.csv"))
+    parser.add_argument("--active-positions", type=Path, default=Path("data/bot_active_positions.csv"))
+    parser.add_argument("--since", required=True, help="First prospective observation date (YYYY-MM-DD).")
+    parser.add_argument("--report", type=Path, default=Path("reports/prospective_audit.html"))
+    args = parser.parse_args()
+
+    for path in (args.candidate_audit, args.event_log, args.active_positions):
+        if not path.exists():
+            parser.error(f"Missing audit input: {path}")
+
+    report, summary = build_prospective_audit(
+        pd.read_csv(args.candidate_audit),
+        pd.read_csv(args.event_log),
+        pd.read_csv(args.active_positions),
+        args.since,
+    )
+    html, csv = write_prospective_audit_report(
+        report, summary, args.report, args.report.with_suffix(".csv")
+    )
+    print(f"Prospective audit: {html.resolve()} | {csv.resolve()}")
+
+
+if __name__ == "__main__":
+    main()

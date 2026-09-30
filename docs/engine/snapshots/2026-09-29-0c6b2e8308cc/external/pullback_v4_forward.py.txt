@@ -1,0 +1,85 @@
+"""
+pullback_v4_forward.py — Daily Trend Pullback v4 "국면 이탈 청산" 전향 관측(A방식: 오프라인 주기 실행) 러너 — v2 러너와 병행, 별개 파일·별개 로그
+
+사용자 지시(2026-09-15): "커밋승인 V4 전향관측 너가 권장하는데로 실행해" → 권고안 ② = v2 전향 관측과 병행(v2 러너·누적 로그 무접촉).
+  - 사전등록 v4 §6 착수 조건(판정 조건 전부 미해당일 때만)에 대한 사용자 결정에 의한 명시적 예외(D-43 사용자 결정 단락, D-42 선례). 판정 규칙 무변경.
+  - 판정 규칙은 research/daily_trend_pullback_v4/run_forward.py(해시 잠금) 그대로. 이 파일은 실행·기록 래퍼일 뿐이며
+    규칙·파라미터·판정 로직을 갖지 않는다.
+  - 실DB는 mode=ro URI 로만 연다(래퍼 + run_forward.main() 이중 강제). 저장소에는 아무 파일도 쓰지 않는다.
+  - 실행 전 해시 잠금(run_forward.verify_hash_lock) 4/4 일치가 아니면 실행하지 않는다(불일치 = 표본 리셋 사유, D-33 3항).
+  - 출력은 건수·불리언·해시·날짜만(run_forward.py 규약). PF/CAGR/MDD/가격 수치는 어디에도 쓰지 않는다.
+  - 매 실행은 /home/gram/pullback_v4_forward_runs.log 에 타임스탬프와 함께 append 된다(누적 기록).
+
+주기 실행 절차(A방식):
+  1) DB 갱신(다른 에이전트/사용자 영역 — 이 러너는 DB 를 쓰지 않는다)
+  2) wsl -d Ubuntu-26.04 bash -lc "cd /home/gram/korea-quant-system && .venv/bin/python /home/gram/pullback_v4_forward.py"
+  3) 마지막 JUDGE_FORWARD 의 verdict 가 "증거 아님(표본 미달)" 인 동안은 판정 없음. closed>=100 이 되면 밴드 재계산이
+     자동으로 붙고(BACKTEST_TRADES_HASH 가 사전등록 §8 부록 관측 #5 해시 77ee8e1492dc3ea6 와 같아야 유효) 1회 판정.
+  4) DEADLINE 2028-09-08 경과 시 "미도달 확정(시한 경과)".
+"""
+import sys, os, io, time, hashlib, sqlite3, datetime, contextlib
+
+V4_DIR   = "/home/gram/korea-quant-system/research/daily_trend_pullback_v4"
+DB_PATH  = "/home/gram/korea-quant-system/data/krx_daily.sqlite3"
+RUNS_LOG = "/home/gram/pullback_v4_forward_runs.log"
+sys.path.insert(0, V4_DIR)
+
+# ── 0. 읽기 전용 강제 (래퍼 층) ────────────────────────────────
+_orig_connect = sqlite3.connect
+def _ro_connect(database, *a, **k):
+    if isinstance(database, (str, os.PathLike)) and not str(database).startswith("file:"):
+        k["uri"] = True
+        return _orig_connect(f"file:{os.fspath(database)}?mode=ro", *a, **k)
+    return _orig_connect(database, *a, **k)
+sqlite3.connect = _ro_connect
+
+def sha(path, n=16):
+    return hashlib.sha256(open(path, "rb").read()).hexdigest()[:n]
+
+LOCK_FILES = ["strategy_validation_v4.py", "data_loader.py", "run.py", "run_forward.py"]
+lines = []
+def P(s=""):
+    lines.append(str(s)); print(s, flush=True)
+
+t0 = time.time()
+stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+P(f"===== pullback_v4_forward run @ {stamp} =====")
+db_before = os.stat(DB_PATH)
+P(f"DB_STAT_BEFORE: size={db_before.st_size} mtime={datetime.datetime.fromtimestamp(db_before.st_mtime)}")
+
+import run_forward as fwd                      # 해시 잠금 검사 + main()
+lock = fwd.verify_hash_lock()
+P("HASH_LOCK(pre): " + str({k: bool(v) for k, v in lock.items()}))
+P("HASH16(now): " + str({f: sha(f"{V4_DIR}/{f}") for f in LOCK_FILES}))
+P(f"PARAMS: FORWARD_START={fwd.FORWARD_START} DEADLINE={fwd.DEADLINE} MIN_CLOSED_TRADES={fwd.MIN_CLOSED_TRADES} "
+  f"BAND_QUANTILE={fwd.BAND_QUANTILE} BACKTEST={fwd.BACKTEST_START}~{fwd.BACKTEST_END}")
+
+if not all(bool(v) for v in lock.values()):
+    P("ABORT: 해시 잠금 불일치 — 실행하지 않음(표본 리셋 사유). 사전등록 §7 표와 파일을 대조할 것.")
+    verdict = None
+else:
+    buf = io.StringIO()
+    err = None
+    try:
+        with contextlib.redirect_stdout(buf):
+            verdict = fwd.main()               # forward_end=None → DB 마지막 거래일까지; compute_band 자동(closed>=100 일 때만)
+    except Exception as e:                     # 전향 창이 비어 있으면 check_data_coverage 가 RuntimeError
+        err = f"{type(e).__name__}: {e}"
+        verdict = None
+    for ln in buf.getvalue().splitlines():
+        s = ln.rstrip()
+        if s.startswith(("HASH_LOCK", "FORWARD_WINDOW", "UNIVERSE", "FORWARD_TRADES", "FORWARD_EXIT_REASONS",
+                         "FORWARD_TRADES_HASH", "BACKTEST_TRADES_HASH", "JUDGE_FORWARD", "STEP ")):
+            P(s)
+    if err:
+        P(f"RUN_ERROR: {err}")
+
+db_after = os.stat(DB_PATH)
+P(f"DB_STAT_AFTER : size={db_after.st_size} mtime={datetime.datetime.fromtimestamp(db_after.st_mtime)} "
+  f"unchanged={db_after.st_size == db_before.st_size and db_after.st_mtime == db_before.st_mtime}")
+lock2 = fwd.verify_hash_lock()
+P("HASH_LOCK(post): " + str({k: bool(v) for k, v in lock2.items()}))
+P(f"ELAPSED: {time.time() - t0:.1f}s")
+P(f"VERDICT_DICT: {verdict}")
+with open(RUNS_LOG, "a", encoding="utf-8") as f:
+    f.write("\n".join(lines) + "\n\n")

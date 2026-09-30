@@ -1,0 +1,347 @@
+import numpy as np
+import pandas as pd
+import pytest
+
+from korea_quant.index_tsmom_backtest import (
+    ONE_SIDE_COST,
+    BacktestError,
+    Metrics,
+    build_total_return_index,
+    cd91_daily_growth,
+    compute_metrics,
+    compute_signals,
+    decide_verdict,
+    month_end_trading_days,
+    simulate,
+)
+
+
+def _business_days(start, periods):
+    return pd.bdate_range(start, periods=periods)
+
+
+def _prices(days, closes, *, opens=None):
+    return pd.DataFrame(
+        {
+            "date": days,
+            "open": closes if opens is None else opens,
+            "close": closes,
+        }
+    )
+
+
+def _distributions(rows):
+    frame = pd.DataFrame(rows, columns=["ex_dividend_date", "payment_date", "amount"])
+    if frame.empty:
+        return frame.astype({"amount": float})
+    return frame
+
+
+def _flat_cd91(days, rate_pct):
+    return pd.DataFrame({"date": days, "cd91_value": rate_pct})
+
+
+# --- 신호층 총수익 지수 (§9) -------------------------------------------------
+
+
+def test_total_return_index_is_flat_without_distributions():
+    days = _business_days("2020-01-01", 5)
+    tr = build_total_return_index(_prices(days, [100.0] * 5), _distributions([]))
+
+    assert np.allclose(tr.to_numpy(), 1.0)
+
+
+def test_total_return_index_reinvests_at_ex_dividend_close():
+    days = _business_days("2020-01-01", 5)
+    dist = _distributions([(days[2], days[4], 10.0)])
+
+    tr = build_total_return_index(_prices(days, [100.0] * 5), dist)
+
+    # 배당락일 종가 재투자: 그 하루만 (100+10)/100 만큼 상승하고 이후 유지된다.
+    assert tr.iloc[1] == pytest.approx(1.0)
+    assert tr.iloc[2] == pytest.approx(1.10)
+    assert tr.iloc[4] == pytest.approx(1.10)
+
+
+def test_total_return_index_rejects_ex_date_off_the_trading_calendar():
+    days = _business_days("2020-01-01", 5)
+    dist = _distributions([(pd.Timestamp("2020-01-11"), days[4], 10.0)])
+
+    with pytest.raises(BacktestError, match="not trading days"):
+        build_total_return_index(_prices(days, [100.0] * 5), dist)
+
+
+# --- CD91 발생주의 (§8) ------------------------------------------------------
+
+
+def test_cd91_growth_uses_act_365_and_the_previously_published_rate():
+    days = pd.to_datetime(["2020-01-02", "2020-01-03", "2020-01-06"])
+    growth = cd91_daily_growth(pd.DataFrame({"date": days, "cd91_value": [3.65, 3.65, 7.30]}))
+
+    assert growth.iloc[0] == pytest.approx(1.0)  # 직전 기간 없음
+    assert growth.iloc[1] == pytest.approx(1.0 + 0.0365 * 1 / 365)
+    # 1/6 구간은 주말 3일이 경과했고, 요율은 직전 영업일(1/3)의 3.65%를 쓴다.
+    assert growth.iloc[2] == pytest.approx(1.0 + 0.0365 * 3 / 365)
+
+
+def test_cd91_growth_never_uses_the_same_day_quote():
+    days = pd.to_datetime(["2020-01-02", "2020-01-03"])
+    spiked = cd91_daily_growth(pd.DataFrame({"date": days, "cd91_value": [3.65, 999.0]}))
+
+    assert spiked.iloc[1] == pytest.approx(1.0 + 0.0365 * 1 / 365)
+
+
+# --- 월말 판정 신호 (§1) -----------------------------------------------------
+
+
+def test_month_end_trading_days_picks_the_last_observed_session():
+    days = _business_days("2020-01-01", 45)
+    ends = month_end_trading_days(days)
+
+    assert ends[0] == pd.Timestamp("2020-01-31")
+    assert all(a < b for a, b in zip(ends, ends[1:]))
+
+
+def test_signal_holds_when_asset_beats_cash_over_twelve_months():
+    days = _business_days("2019-01-01", 400)
+    rising = np.linspace(100.0, 200.0, len(days))
+    tr = build_total_return_index(_prices(days, rising), _distributions([]))
+    growth = cd91_daily_growth(_flat_cd91(days, 2.0))
+
+    signals = compute_signals(tr, growth, month_end_trading_days(days))
+
+    assert signals and all(s.hold for s in signals)
+    assert all(s.excess_return > 0 for s in signals)
+
+
+def test_signal_goes_to_cash_when_asset_trails_cash():
+    days = _business_days("2019-01-01", 400)
+    falling = np.linspace(200.0, 100.0, len(days))
+    tr = build_total_return_index(_prices(days, falling), _distributions([]))
+    growth = cd91_daily_growth(_flat_cd91(days, 2.0))
+
+    signals = compute_signals(tr, growth, month_end_trading_days(days))
+
+    assert signals and not any(s.hold for s in signals)
+
+
+def test_signals_use_no_data_after_the_judgment_month_end():
+    days = _business_days("2019-01-01", 400)
+    closes = 100.0 + np.arange(len(days), dtype=float)
+    tr = build_total_return_index(_prices(days, closes), _distributions([]))
+    growth = cd91_daily_growth(_flat_cd91(days, 2.0))
+    full = compute_signals(tr, growth, month_end_trading_days(days))
+
+    cutoff = full[2].judged_on
+    kept = days[days <= cutoff]
+    truncated = compute_signals(
+        tr.loc[kept], growth.loc[kept], month_end_trading_days(kept)
+    )
+
+    assert [s.judged_on for s in truncated] == [s.judged_on for s in full[: len(truncated)]]
+    assert [s.excess_return for s in truncated] == pytest.approx(
+        [s.excess_return for s in full[: len(truncated)]]
+    )
+
+
+def test_signals_and_metrics_use_plain_python_scalars():
+    """Numpy scalars leak through dataclass fields and break json.dumps at report time."""
+
+    days = _business_days("2019-01-01", 400)
+    prices = _prices(days, np.linspace(100.0, 200.0, len(days)))
+    dist = _distributions([])
+    growth = cd91_daily_growth(_flat_cd91(days, 2.0))
+    signals = compute_signals(build_total_return_index(prices, dist), growth, month_end_trading_days(days))
+    metrics = compute_metrics(simulate(prices, dist, growth, signals))
+
+    assert type(signals[0].hold) is bool
+    assert type(signals[0].excess_return) is float
+    assert type(sum(s.hold for s in signals)) is int
+    for value in (metrics.cagr, metrics.mdd, metrics.calmar, metrics.monthly_win_rate):
+        assert type(value) is float
+
+
+def test_compute_signals_requires_more_than_the_lookback():
+    days = _business_days("2020-01-01", 200)
+    tr = build_total_return_index(_prices(days, [100.0] * len(days)), _distributions([]))
+    growth = cd91_daily_growth(_flat_cd91(days, 2.0))
+
+    with pytest.raises(BacktestError, match="month-end"):
+        compute_signals(tr, growth, month_end_trading_days(days))
+
+
+# --- 자본원장 시뮬레이션 (§2, §7, §9) ----------------------------------------
+
+
+def _always_hold_setup(closes=None, distributions=None, rate_pct=0.0):
+    days = _business_days("2019-01-01", 400)
+    closes = np.linspace(100.0, 200.0, len(days)) if closes is None else closes
+    prices = _prices(days, closes)
+    dist = _distributions(distributions or [])
+    tr = build_total_return_index(prices, dist)
+    growth = cd91_daily_growth(_flat_cd91(days, rate_pct))
+    signals = compute_signals(tr, growth, month_end_trading_days(days))
+    return prices, dist, growth, signals
+
+
+def test_trend_and_buy_and_hold_agree_when_the_signal_never_leaves():
+    prices, dist, growth, signals = _always_hold_setup()
+
+    trend = simulate(prices, dist, growth, signals)
+    bench = simulate(prices, dist, growth, signals, always_hold=True)
+
+    assert all(s.hold for s in signals)
+    assert trend.index.equals(bench.index)
+    assert trend.to_numpy() == pytest.approx(bench.to_numpy())
+
+
+def test_buy_and_hold_pays_exactly_one_round_trip_of_costs():
+    prices, dist, growth, signals = _always_hold_setup()
+    bench = simulate(prices, dist, growth, signals, always_hold=True)
+
+    days = prices["date"]
+    entry = days[days > signals[0].judged_on].iloc[0]
+    entry_open = float(prices.loc[prices["date"] == entry, "open"].iloc[0])
+    final_close = float(prices["close"].iloc[-1])
+    expected = (1.0 - ONE_SIDE_COST) / entry_open * final_close * (1.0 - ONE_SIDE_COST)
+
+    assert bench.iloc[-1] == pytest.approx(expected)
+
+
+def test_cash_position_accrues_cd91_and_holds_no_shares():
+    days = _business_days("2019-01-01", 400)
+    falling = np.linspace(200.0, 100.0, len(days))
+    prices, dist = _prices(days, falling), _distributions([])
+    tr = build_total_return_index(prices, dist)
+    growth = cd91_daily_growth(_flat_cd91(days, 3.65))
+    signals = compute_signals(tr, growth, month_end_trading_days(days))
+
+    curve = simulate(prices, dist, growth, signals)
+
+    assert not any(s.hold for s in signals)
+    assert curve.is_monotonic_increasing  # 현금만 보유하므로 CD91만큼 단조 증가
+    assert curve.iloc[-1] > 1.0
+
+
+def test_distribution_cash_lands_on_the_payment_date_not_the_ex_date():
+    days = _business_days("2019-01-01", 400)
+    ex_date, pay_date = days[300], days[320]
+    prices, dist, growth, signals = _always_hold_setup(
+        distributions=[(ex_date, pay_date, 5.0)]
+    )
+    curve = simulate(prices, dist, growth, signals)
+
+    baseline_prices, baseline_dist, baseline_growth, baseline_signals = _always_hold_setup()
+    baseline = simulate(baseline_prices, baseline_dist, baseline_growth, baseline_signals)
+
+    # 배당락일에는 현금 유입이 없고, 실지급일에 비로소 자본원장이 갈라진다.
+    assert curve.loc[ex_date] == pytest.approx(baseline.loc[ex_date])
+    assert curve.loc[pay_date] > baseline.loc[pay_date]
+
+
+def test_distribution_before_the_first_execution_is_not_credited():
+    days = _business_days("2019-01-01", 400)
+    prices, dist, growth, signals = _always_hold_setup(
+        distributions=[(days[3], days[8], 5.0)]
+    )
+    curve = simulate(prices, dist, growth, signals)
+
+    baseline_prices, baseline_dist, baseline_growth, baseline_signals = _always_hold_setup()
+    baseline = simulate(baseline_prices, baseline_dist, baseline_growth, baseline_signals)
+
+    assert curve.iloc[-1] == pytest.approx(baseline.iloc[-1])
+
+
+def test_switching_to_cash_costs_one_side_at_the_next_open():
+    days = _business_days("2019-01-01", 400)
+    # 12개월 상승 후 급락시켜 판정이 보유 -> 현금으로 한 번 뒤집히게 만든다.
+    closes = np.concatenate(
+        [np.linspace(100.0, 200.0, 330), np.linspace(200.0, 60.0, len(days) - 330)]
+    )
+    prices, dist = _prices(days, closes), _distributions([])
+    tr = build_total_return_index(prices, dist)
+    growth = cd91_daily_growth(_flat_cd91(days, 0.0))
+    signals = compute_signals(tr, growth, month_end_trading_days(days))
+
+    curve = simulate(prices, dist, growth, signals)
+
+    assert any(s.hold for s in signals) and not all(s.hold for s in signals)
+    # 무이자 현금이므로 마지막 매도 전환 이후 자본은 완전히 평평하다.
+    assert curve.iloc[-1] == pytest.approx(curve.iloc[-2])
+
+
+def test_simulate_requires_a_trading_day_after_the_first_judgment():
+    days = _business_days("2019-01-01", 400)
+    prices, dist, growth, signals = _always_hold_setup()
+    last = signals[-1]
+    trimmed = prices[prices["date"] <= last.judged_on]
+
+    with pytest.raises(BacktestError, match="No trading day follows"):
+        simulate(trimmed, dist, growth.loc[trimmed["date"]], [last])
+
+
+# --- 성과 지표 --------------------------------------------------------------
+
+
+def test_cagr_matches_a_known_doubling_over_one_year():
+    days = pd.to_datetime(["2021-01-01", "2022-01-01"])  # 윤년을 피한 정확히 365일
+    metrics = compute_metrics(pd.Series([1.0, 2.0], index=days))
+
+    assert metrics.cagr == pytest.approx(2 ** (365.25 / 365) - 1)
+    assert metrics.cagr == pytest.approx(1.0, abs=2e-3)
+
+
+def test_mdd_is_reported_as_an_absolute_magnitude():
+    days = _business_days("2020-01-01", 4)
+    metrics = compute_metrics(pd.Series([1.0, 2.0, 1.0, 1.5], index=days))
+
+    assert metrics.mdd == pytest.approx(0.5)
+    assert metrics.calmar == pytest.approx(metrics.cagr / 0.5)
+
+
+# --- §10 판정표 --------------------------------------------------------------
+
+
+def _metrics(cagr, mdd):
+    return Metrics(cagr=cagr, mdd=mdd, calmar=0.0, monthly_win_rate=0.0)
+
+
+def test_verdict_pass_requires_a_strictly_better_mdd():
+    result = decide_verdict(_metrics(0.05, 0.30), _metrics(0.04, 0.40))
+
+    assert result == {"cagr_direction": "개선", "mdd_direction": "개선", "verdict": "PASS"}
+
+
+def test_verdict_tied_mdd_is_never_a_pass():
+    result = decide_verdict(_metrics(0.09, 0.40), _metrics(0.04, 0.40))
+
+    assert result["mdd_direction"] == "동률"
+    assert result["verdict"] == "INCONCLUSIVE"
+
+
+def test_verdict_trend_following_tradeoff_is_inconclusive():
+    result = decide_verdict(_metrics(0.03, 0.20), _metrics(0.04, 0.40))
+
+    assert result["cagr_direction"] == "악화"
+    assert result["mdd_direction"] == "개선"
+    assert result["verdict"] == "INCONCLUSIVE"
+
+
+def test_verdict_fails_when_both_metrics_worsen():
+    result = decide_verdict(_metrics(0.03, 0.50), _metrics(0.04, 0.40))
+
+    assert result["verdict"] == "FAIL"
+
+
+def test_verdict_fails_on_a_single_worsening_against_a_tie():
+    result = decide_verdict(_metrics(0.04, 0.50), _metrics(0.04, 0.40))
+
+    assert result == {"cagr_direction": "동률", "mdd_direction": "악화", "verdict": "FAIL"}
+
+
+def test_verdict_rounds_to_one_basis_point_before_comparing():
+    result = decide_verdict(_metrics(0.040001, 0.400001), _metrics(0.04, 0.40))
+
+    assert result["cagr_direction"] == "동률"
+    assert result["mdd_direction"] == "동률"
+    assert result["verdict"] == "INCONCLUSIVE"

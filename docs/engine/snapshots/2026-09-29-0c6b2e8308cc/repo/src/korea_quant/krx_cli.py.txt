@@ -1,0 +1,139 @@
+"""Command line for initial KRX backfills and daily refreshes."""
+
+from __future__ import annotations
+
+import argparse
+import json
+from datetime import UTC, date, datetime
+from pathlib import Path
+
+import pandas as pd
+
+from korea_quant.audit import audit_krx_database
+from korea_quant.krx import MARKET_ENDPOINTS, KrxCollector, KrxDailyStore, KrxOpenApiClient
+
+SYMBOL_COLUMNS = ("Symbol", "symbol", "종목코드", "단축코드", "ISU_CD")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    today = datetime.now(UTC).date().isoformat()
+    parser = argparse.ArgumentParser(description="Collect KOSPI/KOSDAQ/ETF daily bars from KRX.")
+    parser.add_argument("--db", type=Path, default=Path("data/krx_daily.sqlite3"))
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    backfill = subparsers.add_parser("backfill", help="Resume an initial historical backfill")
+    backfill.add_argument("--start", default="2010-01-04")
+    backfill.add_argument("--end", default=today)
+    backfill.add_argument("--delay", type=float, default=0.1)
+    backfill.add_argument(
+        "--markets", nargs="+", choices=tuple(MARKET_ENDPOINTS), default=list(MARKET_ENDPOINTS),
+        help="Markets to collect; use ETF alone for the initial ETF backfill",
+    )
+
+    update = subparsers.add_parser("update", help="Refresh recent dates with UPSERT")
+    update.add_argument("--end", default=today)
+    update.add_argument("--lookback-days", type=int, default=10)
+    update.add_argument("--delay", type=float, default=0.1)
+    update.add_argument(
+        "--markets", nargs="+", choices=tuple(MARKET_ENDPOINTS),
+        default=list(MARKET_ENDPOINTS),
+    )
+
+    subparsers.add_parser("status", help="Show local database coverage")
+    audit = subparsers.add_parser("audit", help="Run read-only KRX data quality checks")
+    audit.add_argument("--output", type=Path, default=None, help="Optional JSON report path")
+    audit.add_argument("--sample-limit", type=int, default=20)
+    audit.add_argument("--strict", action="store_true", help="Exit non-zero when issues exist")
+
+    universe_import = subparsers.add_parser(
+        "universe-import", help="Import one point-in-time universe snapshot from CSV"
+    )
+    universe_import.add_argument("--universe", required=True)
+    universe_import.add_argument("--effective-date", required=True)
+    universe_import.add_argument("--available-date", default=None)
+    universe_import.add_argument("--source", required=True)
+    universe_import.add_argument("--file", type=Path, required=True)
+    universe_import.add_argument("--symbol-column", default=None)
+    universe_import.add_argument("--allow-empty", action="store_true")
+
+    universe_show = subparsers.add_parser(
+        "universe-show", help="Show the point-in-time members knowable on a date"
+    )
+    universe_show.add_argument("--universe", required=True)
+    universe_show.add_argument("--as-of", required=True)
+    universe_show.add_argument("--known-on", default=None)
+    return parser
+
+
+def read_universe_csv(path: Path, symbol_column: str | None = None) -> list[str]:
+    """Read symbols as text so KRX leading zeroes are preserved."""
+
+    frame = pd.read_csv(path, dtype=str, encoding="utf-8-sig")
+    if symbol_column is None:
+        symbol_column = next((column for column in SYMBOL_COLUMNS if column in frame), None)
+    if symbol_column is None or symbol_column not in frame:
+        expected = ", ".join(SYMBOL_COLUMNS)
+        raise ValueError(f"Cannot find a symbol column. Expected one of: {expected}")
+    return [
+        value
+        for value in frame[symbol_column].dropna().astype(str).str.strip().tolist()
+        if value
+    ]
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    if args.command == "audit":
+        report = audit_krx_database(args.db, args.sample_limit)
+        payload = json.dumps(report, ensure_ascii=False, indent=2)
+        print(payload)
+        if args.output:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(payload, encoding="utf-8")
+        if args.strict and not report["healthy"]:
+            raise SystemExit(1)
+        return
+    store = KrxDailyStore(args.db)
+    if args.command == "status":
+        print(json.dumps(store.status(), ensure_ascii=False, indent=2))
+        return
+    if args.command == "universe-import":
+        symbols = read_universe_csv(args.file, args.symbol_column)
+        if not symbols and not args.allow_empty:
+            raise SystemExit("Universe CSV has no members; pass --allow-empty to store it.")
+        count = store.upsert_universe_snapshot(
+            args.universe,
+            args.effective_date,
+            symbols,
+            source=args.source,
+            available_date=args.available_date,
+        )
+        print(json.dumps({"universe": args.universe.upper(), "members": count}))
+        return
+    if args.command == "universe-show":
+        members = store.universe_members(
+            args.universe, args.as_of, known_on=args.known_on
+        )
+        print(json.dumps(members.to_dict(orient="records"), ensure_ascii=False, indent=2))
+        return
+
+    client = KrxOpenApiClient.from_env()
+    collector = KrxCollector(client, store, delay_seconds=args.delay)
+    if args.command == "backfill":
+        totals = collector.collect_range(
+            date.fromisoformat(args.start),
+            date.fromisoformat(args.end),
+            markets=tuple(args.markets),
+            progress=lambda day, market, count: print(day, market, count),
+        )
+    else:
+        totals = collector.update_recent(
+            date.fromisoformat(args.end),
+            lookback_days=args.lookback_days,
+            markets=tuple(args.markets),
+        )
+    print(json.dumps(totals, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()

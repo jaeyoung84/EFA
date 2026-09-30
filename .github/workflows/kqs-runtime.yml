@@ -1,0 +1,102 @@
+name: KQS recommendation runtime
+
+on:
+  pull_request:
+    paths: ['engine/kqs/**', 'docs/engine/**', 'docs/KQS*.md', 'app/backend/**', 'app/frontend/js/views/kqsRecommendations.js', 'app/frontend/js/views/kqsEngineViews.js', 'app/frontend/js/views/kqsManualRecords.js', 'app/frontend/js/views/strategyList.js', 'tests/**', 'scripts/check_engine_evidence.py', 'scripts/check_kqs*.py', 'scripts/test_database_safety.py', 'scripts/run_kqs_offline_baseline.py', 'scripts/tests/**', 'requirements*.txt', 'pytest.ini', 'AGENTS.md', 'infra/**', 'docker-compose.prod.yml', 'Dockerfile*', '.github/workflows/kqs-runtime.yml', '.github/workflows/deploy.yml']
+  push:
+    branches: [main]
+    paths: ['engine/kqs/**', 'docs/engine/**', 'docs/KQS*.md', 'app/backend/**', 'app/frontend/js/views/kqsRecommendations.js', 'app/frontend/js/views/kqsEngineViews.js', 'app/frontend/js/views/kqsManualRecords.js', 'app/frontend/js/views/strategyList.js', 'tests/**', 'scripts/check_engine_evidence.py', 'scripts/check_kqs*.py', 'scripts/test_database_safety.py', 'scripts/run_kqs_offline_baseline.py', 'scripts/tests/**', 'requirements*.txt', 'pytest.ini', 'AGENTS.md', 'infra/**', 'docker-compose.prod.yml', 'Dockerfile*', '.github/workflows/kqs-runtime.yml', '.github/workflows/deploy.yml']
+  workflow_dispatch: {}
+  workflow_call: {}
+
+permissions:
+  contents: read
+
+jobs:
+  recommendation-only:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.12', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Check immutable evidence and initial migration (no engine execution)
+        run: |
+          python scripts/check_engine_evidence.py
+          python engine/kqs/tools/check_migration.py
+          python engine/kqs/tools/check_revision.py
+          python -m unittest discover -s scripts/tests -p test_kqs_revision.py -v
+          python -m unittest discover -s scripts/tests -p test_database_safety.py -v
+          python -m pip install PyYAML
+          python scripts/check_kqs_release.py --require-clean
+          python -m unittest discover -s scripts/tests -p test_kqs_release_safety.py -v
+          python -m unittest discover -s scripts/tests -p test_kqs_deployment_preflight.py -v
+      - name: Build and install the independent package
+        run: |
+          python -m pip install -r engine/kqs/requirements.lock
+          python -m pip install ./engine/kqs
+          python -m pip check
+      - name: Synthetic isolated regressions (no backend fixture or research)
+        run: python -m unittest discover -s engine/kqs/tests -v
+      - name: Isolated authenticated API/manual-evidence tests (no Mongo fixture)
+        run: |
+          python -m pip install -r scripts/tests/requirements.kqs-api.txt
+          python -m unittest discover -s scripts/tests -p test_kqs_publication_api.py -v
+          python -m unittest discover -s scripts/tests -p test_kqs_native_views_api.py -v
+      - name: Offline runner holdout guard (fake API; research dependencies only)
+        run: |
+          python -m pip install requests scikit-learn
+          python -m unittest discover -s scripts/tests -p test_kqs_offline_baseline.py -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Recommendation reason/trace/escaping rendering
+        run: |
+          node scripts/tests/kqs_recommendations_render.mjs
+          node scripts/tests/kqs_engine_views_render.mjs
+          node scripts/tests/kqs_manual_records_render.mjs
+      - name: Entry point outside repository
+        working-directory: /tmp
+        run: |
+          kqs-recommend --help
+          kqs-verify-market-inputs --help
+          kqs-publish-worker --help
+          kqs-daily-pipeline --help
+          kqs-backup --help
+          kqs-pipeline-status --help
+      - name: Operations scripts and worker compose are well-formed (no deployment)
+        run: |
+          for script in infra/ops/*.sh; do bash -n "$script"; done
+          docker compose -f infra/docker/docker-compose.engine.yml --profile engine config --quiet
+
+  manual-ledger-and-datasets:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.12', '3.14']
+    services:
+      mongo:
+        image: mongo:7
+        ports: ['27017:27017']
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ping:1}).ok'"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      MONGODB_URL: mongodb://127.0.0.1:27017/?directConnection=true
+      MONGODB_DB: jy_investing_test_kqs_ci
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install only KQS backend test dependencies
+        run: |
+          python -m pip install -r scripts/tests/requirements.kqs-backend.txt
+          python -m pip install --no-deps ./engine/kqs
+          python -m pip check
+      - name: Manual ledger, leakage-safe dataset, quality and consent regressions (EINT-008/009/012/013/014/015)
+        run: python -m pytest tests/test_kqs_bridge.py tests/test_kqs_contract.py tests/test_kqs_native_views.py tests/test_kqs_manual_records.py tests/test_kqs_learning_provenance.py tests/test_kqs_learning_readiness.py -v

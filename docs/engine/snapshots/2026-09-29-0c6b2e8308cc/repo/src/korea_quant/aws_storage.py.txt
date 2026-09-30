@@ -1,0 +1,75 @@
+"""AWS storage adapter for partitioned KRX daily Parquet objects."""
+
+from __future__ import annotations
+
+import io
+from collections.abc import Iterable
+from dataclasses import dataclass
+from datetime import date
+from typing import Any
+
+from korea_quant.krx import Market
+
+
+@dataclass
+class S3ParquetDailyStore:
+    """Write one deterministic Parquet object per trading date and market."""
+
+    bucket: str
+    s3_client: Any
+    prefix: str = "krx/daily"
+
+    def object_key(self, market: Market, trading_day: date) -> str:
+        root = self.prefix.strip("/")
+        return (
+            f"{root}/year={trading_day:%Y}/month={trading_day:%m}/"
+            f"day={trading_day:%d}/market={market}/data.parquet"
+        )
+
+    def is_collected(self, market: Market, trading_day: date) -> bool:
+        key = self.object_key(market, trading_day)
+        response = self.s3_client.list_objects_v2(
+            Bucket=self.bucket, Prefix=key, MaxKeys=1
+        )
+        return any(item.get("Key") == key for item in response.get("Contents", []))
+
+    def upsert_day(
+        self, market: Market, trading_day: date, rows: Iterable[dict[str, Any]]
+    ) -> int:
+        materialized = list(rows)
+        body = rows_to_parquet(materialized)
+        self.s3_client.put_object(
+            Bucket=self.bucket,
+            Key=self.object_key(market, trading_day),
+            Body=body,
+            ContentType="application/vnd.apache.parquet",
+            ServerSideEncryption="AES256",
+            Metadata={
+                "market": market,
+                "trade-date": trading_day.isoformat(),
+                "row-count": str(len(materialized)),
+            },
+        )
+        return len(materialized)
+
+
+def rows_to_parquet(rows: list[dict[str, Any]]) -> bytes:
+    """Serialize normalized KRX rows without placing credentials in output."""
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    schema = pa.schema(
+        [
+            ("trade_date", pa.string()), ("symbol", pa.string()),
+            ("name", pa.string()), ("market", pa.string()), ("section", pa.string()),
+            ("open", pa.int64()), ("high", pa.int64()), ("low", pa.int64()),
+            ("close", pa.int64()), ("volume", pa.int64()),
+            ("trading_value", pa.int64()), ("market_cap", pa.int64()),
+            ("listed_shares", pa.int64()),
+        ]
+    )
+    table = pa.Table.from_pylist(rows, schema=schema)
+    output = io.BytesIO()
+    pq.write_table(table, output, compression="zstd")
+    return output.getvalue()

@@ -1,0 +1,233 @@
+"""D-37 재현 검증 스크립트: cci-zero-cross-v1 1단계(Stage 1) 승격 실패 판정.
+
+읽기 전용. DB/CSV/설정을 쓰지 않으며 pytest 스위트에도 포함되지 않는다(라이브 DB에
+의존하고 실행에 수 분이 걸리므로 일반 회귀 테스트로 부적합). 목적은 사람이 필요할 때
+`.venv/bin/python research/cci_zero_cross_v1_stage1_verification.py` 로 직접 실행해
+DECISIONS.md D-37 항목의 수치를 재현·감사할 수 있게 하는 것이다.
+
+## 방법론 요약
+CCI(20) 0선 상향돌파 진입, 하향돌파 청산, 익일 시가 체결(paper_trading.py 의 실제 체결
+헬퍼 재사용 -- 매수취소/매도강제대기 규칙 포함). MA/거래량/손절 필터 없음, 레짐 게이트
+미적용(사전등록 스펙 원형 그대로). 순수익률은 paper_returns 와 동일한 비용식(수수료
+0.015% + 슬리피지 0.05% 편도 x2 + 매도세 0.18%, 왕복 약 31bp)을 그대로 적용한다.
+OOS 윈도우 라벨링은 reversion_validation.ReversionValidationConfig/_label_windows 를
+그대로 재사용(첫 252세션 in-sample 제외, 이후 63세션 단위 분기 윈도우) -- 새 기준을
+발명하지 않는다.
+
+## 판정 프레임 (D-37 합의사항, Codex 교정 반영)
+- ReversionGoal(strategy_goals.py, D-7): 참고/보조 진단으로만 사용. 평균회귀 계열
+  (bollinger-rsi, rsi-obv) 승격 기준이며 CCI 손익구조(페이오프>2, 낮은 승률)에는
+  범주가 맞지 않는다.
+- TrendGoal(strategy_goals.py): 공식/최종 판정 기준. CCI 의 실측 손익구조가 추세추종형
+  (darvas-box/turtle 과 유사한 고페이오프·저승률)이라는 판단에 따라, 이미 존재하는
+  추세추종 승격 기준을 그대로 적용한다.
+- 사전합의 즉시기각선(비용후 거래당 기대수익 <= 0)은 TrendGoal 과 별개로 항상 표시한다.
+  CCI 는 이 선은 통과하지만(+3.5bp) TrendGoal 의 PF/이익윈도우 기준에서 탈락한다 --
+  기준을 결과를 보고 나중에 고른 것이 아님을 기록에 남기기 위해 두 판정을 분리해서 보여준다.
+
+## 재현성 메타데이터 (2026-09-09 실행 기준, 실행할 때마다 DB 최신 상태로 갱신됨에 유의)
+- Git SHA (스크립트 작성 시점): 86c992b01250d26409a747c72c80067396ebb598
+  (브랜치 claude/reversion-exit-redesign, 작업 트리 dirty -- 본 연구와 무관한
+  파일들의 기존 변경 상태 포함. `git status --short` 로 항상 재확인할 것)
+- DB 날짜 범위 (스크립트 작성 시점 data/krx_daily.sqlite3.daily_prices):
+  2016-08-29 ~ 2026-09-08, 거래일수 2,459일. 이 값이 이후 갱신되면 결과 수치도
+  자연히 달라질 수 있음 -- 그것 자체가 새로운 독립 검증을 의미하지는 않는다
+  (D-37 은 "이미 소진된 데이터의 post-warmup 탐색 평가"로 기록됨).
+- 시뮬레이션 시작일: 2018-01-01 (첫 252세션 학습구간이 DB 시작일(2016-08-29)
+  기준 이미 소진되어 있어 OOS 제외 표본이 0건이 되는 것은 정상이며, 독립적인 신규
+  홀드아웃이 생성되었다는 의미가 아님에 유의)
+- 원본 실험 스크립트(2026-09-09 작성, 본 파일의 기반): cci_stage1_rejection.py
+  sha256 = 90c0294274b9483e2a336df5e4379be06744d61ddfb3828bc3c5bd734971a0b1
+- 사전 turnover-cost 스크립트(재사용 안 함, 참고용): cci_fill_simulation.py
+  sha256 = e540ed72f439d26f14ac61ac09d0debd6aa0f2da53534132ceeba5dc19ab5cdf
+- 실행 시점 스크립트 작성 시점 실측치(참고, 재현 시 DB 갱신에 따라 달라질 수 있음):
+  완결거래 24,614건, 35개 분기 윈도우, 승률 26.01%, PF 1.011, 중앙값 -2.314%,
+  평균 순수익 +0.035%(3.5bp), 페이오프비 2.877, 이익윈도우비율 45.71%.
+
+## 금지 사항 (D-37, 이 스크립트를 근거로 재시도하지 말 것)
+동일 데이터에서 MA20/거래량 필터, CCI ±60/±70, ±100선, 손절/익절 재탐색 금지.
+평균회귀 전략과의 결합 금지. D-20/D-21 홀드아웃 재사용 금지. 이 결과는 CCI 계열
+전체에 대한 반증이 아니며, 라이브/코드/설정/DB 기본값 변경 없음.
+"""
+from __future__ import annotations
+
+import sqlite3
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+from numpy.lib.stride_tricks import sliding_window_view
+
+REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "src"))
+
+from korea_quant.eligibility import entry_eligibility  # noqa: E402
+from korea_quant.krx import _fill_halted_trading_days  # noqa: E402
+from korea_quant.paper_trading import (  # noqa: E402
+    PaperCostConfig,
+    _first_observed_row_after,
+    _first_row_after,
+    _prepared_history,
+)
+from korea_quant.reversion_validation import (  # noqa: E402
+    ReversionValidationConfig,
+    _label_windows,
+)
+from korea_quant.strategy_goals import ReversionGoal, TrendGoal, trade_metrics  # noqa: E402
+
+DB = REPO / "data" / "krx_daily.sqlite3"
+
+
+def _load_data() -> pd.DataFrame:
+    con = sqlite3.connect(DB)
+    try:
+        raw = pd.read_sql_query(
+            "SELECT trade_date,symbol,name,market,open,high,low,close,volume,"
+            "trading_value,market_cap FROM daily_prices WHERE market IN ('KOSPI','KOSDAQ') "
+            "ORDER BY symbol,trade_date",
+            con,
+        )
+    finally:
+        con.close()
+    raw = raw.rename(columns={
+        "trade_date": "Date", "symbol": "Symbol", "name": "Name", "market": "Market",
+        "open": "Open", "high": "High", "low": "Low", "close": "Close",
+        "volume": "Volume", "trading_value": "TradingValue", "market_cap": "MarketCap",
+    })
+    raw["Date"] = pd.to_datetime(raw["Date"])
+    raw["Symbol"] = raw["Symbol"].astype(str)
+    for c in ("Open", "High", "Low", "Close"):
+        raw[c] = pd.to_numeric(raw[c], errors="coerce")
+
+    filled = _fill_halted_trading_days(raw.copy())
+    data = entry_eligibility(
+        filled, market_cap_tiers=(("KOSPI", 200), ("KOSDAQ", 150)), liquidity_window=20,
+        minimum_average_trading_value=5_000_000_000, minimum_history_sessions=260,
+        outlier_gap_threshold=0.50, outlier_cooldown_sessions=60,
+    )
+    return data.sort_values(["Symbol", "Date"]).reset_index(drop=True)
+
+
+def _add_cci(data: pd.DataFrame, window: int = 20) -> pd.DataFrame:
+    tp = ((data["High"] + data["Low"] + data["Close"]) / 3.0).to_numpy(float)
+    win = sliding_window_view(tp, window)
+    ma_w = win.mean(axis=1)
+    mad_w = np.abs(win - ma_w[:, None]).mean(axis=1)
+    cci = np.full(len(tp), np.nan)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        cci[window - 1:] = (tp[window - 1:] - ma_w) / (0.015 * mad_w)
+    cci[data.groupby("Symbol").cumcount().to_numpy() < window - 1] = np.nan
+    data = data.copy()
+    data["CCI"] = cci
+    prev = data.groupby("Symbol")["CCI"].shift(1)
+    data["CrossUp"] = ((prev <= 0) & (data["CCI"] > 0)).fillna(False)
+    data["CrossDown"] = ((prev >= 0) & (data["CCI"] < 0)).fillna(False)
+    return data
+
+
+def _build_signal_trades(data: pd.DataFrame, sim_start: pd.Timestamp) -> pd.DataFrame:
+    trades = []
+    sig = data[(data["CrossUp"] | data["CrossDown"]) & (data["Date"] >= sim_start)]
+    for sym, g in sig.groupby("Symbol", sort=False):
+        g = g.sort_values("Date")
+        awaiting_exit = False
+        entry_date = None
+        for _, row in g.iterrows():
+            if row["CrossUp"]:
+                if awaiting_exit or not bool(row["EntryAllowed"]):
+                    continue
+                entry_date = row["Date"]
+                awaiting_exit = True
+            elif row["CrossDown"] and awaiting_exit:
+                trades.append({
+                    "Symbol": sym, "EntrySignalDate": entry_date, "ExitSignalDate": row["Date"],
+                })
+                awaiting_exit = False
+                entry_date = None
+    return pd.DataFrame(trades)
+
+
+def _fill_trades(data: pd.DataFrame, trades_df: pd.DataFrame, costs: PaperCostConfig) -> pd.DataFrame:
+    prepared = _prepared_history(data.copy(), costs.price_limit_ratio)
+    prepared["Idx"] = prepared.groupby("Symbol").cumcount()
+    group_dict = {sym: g for sym, g in prepared.groupby("Symbol", sort=False)}
+
+    results = []
+    for t in trades_df.itertuples(index=False):
+        rows = group_dict.get(t.Symbol)
+        if rows is None:
+            continue
+        next_session = _first_observed_row_after(rows, t.EntrySignalDate)
+        if next_session is None:
+            continue
+        fillable = (
+            pd.notna(next_session["Open"]) and float(next_session["Open"]) > 0
+            and not bool(next_session["cant_buy"])
+        )
+        if not fillable:
+            continue
+        entry_date = next_session["Date"]
+        entry_price = float(next_session["Open"])
+
+        exit_fill = _first_row_after(rows, t.ExitSignalDate, "cant_sell")
+        if exit_fill is None:
+            continue
+
+        results.append({
+            "Symbol": t.Symbol, "Entry Timestamp": entry_date, "EntryPrice": entry_price,
+            "ExitDate": exit_fill["Date"], "ExitPrice": float(exit_fill["Open"]),
+        })
+
+    res = pd.DataFrame(results)
+    entry_cash = res["EntryPrice"] * (1 + costs.slippage_rate) * (1 + costs.fee_rate)
+    exit_cash = res["ExitPrice"] * (1 - costs.slippage_rate) * (1 - costs.fee_rate - costs.sell_tax_rate)
+    res["NetReturnPct"] = (exit_cash / entry_cash - 1) * 100
+    res["Status"] = "closed"
+    return res
+
+
+def main() -> None:
+    data = _add_cci(_load_data())
+    sim_start = pd.Timestamp("2018-01-01")
+    trades_df = _build_signal_trades(data, sim_start)
+    costs = PaperCostConfig()
+    res = _fill_trades(data, trades_df, costs)
+
+    config = ReversionValidationConfig()
+    dates = pd.DatetimeIndex(data["Date"].drop_duplicates().sort_values())
+    labelled = _label_windows(res, dates, config)
+    oos = labelled[labelled["Window"].notna()].copy()
+
+    metrics = trade_metrics(oos, return_column="NetReturnPct", window_column="Window")
+
+    print("=== cci-zero-cross-v1 Stage 1 재현 검증 (D-37) ===")
+    print(f"완결거래 {metrics.closed_trades}건, 윈도우 {metrics.window_count}개")
+    print(f"승률 {metrics.win_rate*100:.2f}%  PF {metrics.profit_factor:.3f}  "
+          f"중앙값 {metrics.median_net_return:.3f}%  평균 {metrics.mean_net_return:.3f}%  "
+          f"페이오프비 {metrics.payoff_ratio:.3f}  이익윈도우비율 {metrics.profitable_window_share*100:.2f}%")
+
+    immediate_reject = metrics.mean_net_return <= 0.0
+    print(f"\n[사전합의 즉시기각선: 비용후 평균수익 <= 0] "
+          f"{'FAIL(기각)' if immediate_reject else 'PASS(통과, 추가 기준으로 판정 계속)'}")
+
+    print("\n[참고 진단: ReversionGoal (D-7, 평균회귀 계열 기준 -- 최종 판정 아님)]")
+    rev_goal = ReversionGoal()
+    print("  " + ("PASS" if rev_goal.passes(metrics, rev_goal.minimum_long_term_trades) else "FAIL"))
+
+    print("\n[공식 판정: TrendGoal (추세추종 계열 기준 -- CCI 손익구조에 맞는 프레임)]")
+    trend_goal = TrendGoal()
+    trend_pass = trend_goal.passes(metrics)
+    print("  " + ("PASS" if trend_pass else "FAIL"))
+    print(f"  (payoff>={trend_goal.minimum_payoff_ratio}: {metrics.payoff_ratio:.3f}, "
+          f"PF>={trend_goal.minimum_profit_factor}: {metrics.profit_factor:.3f}, "
+          f"expectancy>0: {metrics.expectancy:.3f}%, "
+          f"window_share>={trend_goal.minimum_profitable_window_share}: "
+          f"{metrics.profitable_window_share:.3f}, "
+          f"trades>={trend_goal.minimum_trades}: {metrics.closed_trades})")
+
+    print("\n=== 결론: Stage 1 승격", "PASS" if trend_pass else "FAIL, 연구 중단 (D-37)", "===")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,143 @@
+"""Causal agreement scoring across independent daily-chart strategies."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+
+import pandas as pd
+
+from korea_quant.backtest import (
+    BacktestConfig,
+    apply_outlier_filter,
+    generate_signals,
+)
+
+COMPONENT_GROUPS = {
+    "ema30-resistance": "trend",
+    "donchian-atr": "trend",
+    "macd-trend": "trend",
+    "sma": "trend",
+    "volatility-squeeze": "trend",
+    "candle-volume": "volume",
+    "rsi-obv": "volume",
+    "bollinger-rsi": "reversion",
+}
+
+
+@dataclass(frozen=True)
+class ConfluenceConfig:
+    """Rules for combining independent strategy order signals."""
+
+    minimum_signals: int = 2
+    require_trend: bool = True
+    require_volume: bool = False
+
+
+def generate_confluence_signals(
+    prices: pd.DataFrame,
+    base_config: BacktestConfig,
+    config: ConfluenceConfig | None = None,
+) -> pd.DataFrame:
+    """Create a next-open entry only when multiple strategy orders agree.
+
+    Component entry columns already represent orders delayed one session after
+    their close-based observations. Combining them therefore keeps the same
+    no-look-ahead execution rule. Exit is based on the prior close crossing
+    below EMA30 and is also delayed to the next open.
+    """
+    config = config or ConfluenceConfig()
+    if config.minimum_signals < 1:
+        raise ValueError("minimum_signals must be positive.")
+    required = {"Close"}
+    missing = required - set(prices.columns)
+    if missing:
+        raise ValueError(f"Confluence prices are missing: {', '.join(sorted(missing))}")
+
+    prices = _normalize_halt_days(prices)
+    component_entries: dict[str, pd.Series] = {}
+    for strategy in COMPONENT_GROUPS:
+        component = generate_signals(prices, replace(base_config, strategy=strategy))
+        component_entries[strategy] = component["entries"].astype(bool)
+    support = pd.DataFrame(component_entries, index=prices.index)
+    trend_support = support[
+        [name for name, group in COMPONENT_GROUPS.items() if group == "trend"]
+    ].sum(axis=1)
+    volume_support = support[
+        [name for name, group in COMPONENT_GROUPS.items() if group == "volume"]
+    ].sum(axis=1)
+    signal_count = support.sum(axis=1)
+    entry_candidate = signal_count >= config.minimum_signals
+    if config.require_trend:
+        entry_candidate &= trend_support >= 1
+    if config.require_volume:
+        entry_candidate &= volume_support >= 1
+
+    close = pd.to_numeric(prices["Close"], errors="coerce")
+    ema = close.ewm(
+        span=base_config.ema_window,
+        adjust=False,
+        min_periods=base_config.ema_window,
+    ).mean()
+    exit_candidate = (close < ema).shift(1, fill_value=False)
+    entries, exits = _long_only_orders(entry_candidate, exit_candidate)
+    result = pd.DataFrame(
+        {
+            "ema30": ema,
+            "confluence_count": signal_count,
+            "confluence_trend_count": trend_support,
+            "confluence_volume_count": volume_support,
+            "confluence_entry_candidate": entry_candidate,
+            "confluence_exit_candidate": exit_candidate,
+            "entries": entries,
+            "exits": exits,
+        },
+        index=prices.index,
+    )
+    for strategy in COMPONENT_GROUPS:
+        result[f"signal_{strategy.replace('-', '_')}"] = support[strategy]
+    # Block entries observed within the outlier cooldown so a corporate-action
+    # price gap (e.g. a rights offering or split artifact) cannot surface as a
+    # next-session buy candidate, matching the single-strategy backtest engine.
+    result = apply_outlier_filter(
+        result, close, base_config.outlier_gap_threshold, base_config.outlier_cooldown_sessions
+    )
+    return result
+
+
+def _normalize_halt_days(prices: pd.DataFrame) -> pd.DataFrame:
+    """Treat a KRX halt day's zero O/H/L as a flat candle at the close.
+
+    A halted session is reported with zero Open/High/Low next to a real
+    close. Left as-is, that reads as an artificially huge candle body or
+    shadow to the component strategies (candlestick patterns, Donchian/ATR
+    channels), which can masquerade as a bullish or bearish signal.
+    """
+    columns = [column for column in ("Open", "High", "Low") if column in prices.columns]
+    if not columns:
+        return prices
+    normalized = prices.copy()
+    close = normalized["Close"]
+    for column in columns:
+        normalized[column] = normalized[column].where(normalized[column] > 0, close)
+    return normalized
+
+
+def _long_only_orders(
+    entry_candidate: pd.Series, exit_candidate: pd.Series
+) -> tuple[pd.Series, pd.Series]:
+    holding = False
+    entries: list[bool] = []
+    exits: list[bool] = []
+    for enter, exit_ in zip(entry_candidate, exit_candidate, strict=True):
+        entry = bool(enter) and not holding
+        exit_order = bool(exit_) and holding
+        if entry:
+            holding = True
+        elif exit_order:
+            holding = False
+        entries.append(entry)
+        exits.append(exit_order)
+    return (
+        pd.Series(entries, index=entry_candidate.index, dtype=bool),
+        pd.Series(exits, index=entry_candidate.index, dtype=bool),
+    )

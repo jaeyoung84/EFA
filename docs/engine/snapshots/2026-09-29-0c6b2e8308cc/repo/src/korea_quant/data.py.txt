@@ -1,0 +1,183 @@
+"""Market-data interfaces and a FinanceDataReader implementation."""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from datetime import date, timedelta
+from pathlib import Path
+from typing import Protocol
+
+import pandas as pd
+
+
+class PriceDataSource(Protocol):
+    """Interface implemented by daily price providers."""
+
+    def daily_prices(
+        self, symbol: str, start: str | date, end: str | date | None = None
+    ) -> pd.DataFrame: ...
+
+
+@dataclass(frozen=True)
+class FinanceDataReaderSource:
+    """Load KRX daily prices through FinanceDataReader."""
+
+    source_prefix: str = "NAVER"
+
+    def daily_prices(
+        self, symbol: str, start: str | date, end: str | date | None = None
+    ) -> pd.DataFrame:
+        import FinanceDataReader as fdr
+
+        normalized_symbol = validate_krx_symbol(symbol)
+        provider_symbol = f"{self.source_prefix}:{normalized_symbol}"
+        frame = fdr.DataReader(provider_symbol, str(start), None if end is None else str(end))
+        return normalize_ohlcv(frame, allow_empty=True)
+
+
+@dataclass
+class CachedPriceDataSource:
+    """Cache daily prices and fetch only requested dates outside cached coverage."""
+
+    source: PriceDataSource
+    cache_dir: Path = Path(".cache/market-data")
+
+    def daily_prices(
+        self, symbol: str, start: str | date, end: str | date | None = None
+    ) -> pd.DataFrame:
+        normalized_symbol = validate_krx_symbol(symbol)
+        requested_start = _as_date(start, "start")
+        requested_end = (
+            pd.Timestamp.now(tz="Asia/Seoul").date() if end is None else _as_date(end, "end")
+        )
+        if requested_start > requested_end:
+            raise ValueError("start must be on or before end.")
+
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        data_path = self.cache_dir / f"{normalized_symbol}.csv"
+        metadata_path = self.cache_dir / f"{normalized_symbol}.json"
+        cached, covered_start, covered_end = self._read_cache(data_path, metadata_path)
+
+        missing_ranges: list[tuple[date, date]] = []
+        if covered_start is None or covered_end is None:
+            missing_ranges.append((requested_start, requested_end))
+            new_covered_start, new_covered_end = requested_start, requested_end
+        else:
+            if requested_start < covered_start:
+                missing_ranges.append((requested_start, covered_start - timedelta(days=1)))
+            if requested_end > covered_end:
+                missing_ranges.append((covered_end + timedelta(days=1), requested_end))
+            new_covered_start = min(requested_start, covered_start)
+            new_covered_end = max(requested_end, covered_end)
+
+        parts = [cached]
+        for range_start, range_end in missing_ranges:
+            fetched = self.source.daily_prices(normalized_symbol, range_start, range_end)
+            parts.append(normalize_ohlcv(fetched, allow_empty=True))
+
+        if missing_ranges:
+            combined = normalize_ohlcv(pd.concat(parts), allow_empty=True)
+            self._write_cache(
+                combined, data_path, metadata_path, new_covered_start, new_covered_end
+            )
+        else:
+            combined = cached
+
+        mask = (combined.index.date >= requested_start) & (
+            combined.index.date <= requested_end
+        )
+        result = combined.loc[mask].copy()
+        if result.empty:
+            raise ValueError("No usable price observations were returned for the requested period.")
+        return result
+
+    @staticmethod
+    def _read_cache(
+        data_path: Path, metadata_path: Path
+    ) -> tuple[pd.DataFrame, date | None, date | None]:
+        if not data_path.exists() or not metadata_path.exists():
+            return _empty_ohlcv(), None, None
+        try:
+            frame = pd.read_csv(data_path, index_col="Date", parse_dates=["Date"])
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            return (
+                normalize_ohlcv(frame, allow_empty=True),
+                date.fromisoformat(metadata["covered_start"]),
+                date.fromisoformat(metadata["covered_end"]),
+            )
+        except (KeyError, ValueError, json.JSONDecodeError) as exc:
+            raise ValueError(f"Invalid price cache for {data_path.stem}: {exc}") from exc
+
+    @staticmethod
+    def _write_cache(
+        frame: pd.DataFrame,
+        data_path: Path,
+        metadata_path: Path,
+        covered_start: date,
+        covered_end: date,
+    ) -> None:
+        data_tmp = data_path.with_suffix(".csv.tmp")
+        metadata_tmp = metadata_path.with_suffix(".json.tmp")
+        frame.to_csv(data_tmp, index_label="Date")
+        metadata_tmp.write_text(
+            json.dumps(
+                {
+                    "covered_start": covered_start.isoformat(),
+                    "covered_end": covered_end.isoformat(),
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        data_tmp.replace(data_path)
+        metadata_tmp.replace(metadata_path)
+
+
+def validate_krx_symbol(symbol: str) -> str:
+    """Validate a six-character alphanumeric KRX short code."""
+
+    value = str(symbol).strip().upper()
+    if len(value) != 6 or not value.isascii() or not value.isalnum():
+        raise ValueError(
+            "KRX symbol must contain six ASCII letters/digits, "
+            "for example '005930', '00104K', or '0030R0'."
+        )
+    return value
+
+
+def normalize_ohlcv(frame: pd.DataFrame, *, allow_empty: bool = False) -> pd.DataFrame:
+    """Return sorted, unique, numeric OHLCV data with required columns."""
+
+    required = ["Open", "High", "Low", "Close", "Volume"]
+    missing = [column for column in required if column not in frame.columns]
+    if missing:
+        raise ValueError(f"Price data is missing required columns: {', '.join(missing)}")
+
+    result = frame.loc[:, required].copy()
+    result.index = pd.to_datetime(result.index)
+    if result.index.isna().any():
+        raise ValueError("Price data contains missing or invalid dates.")
+    result = result[~result.index.duplicated(keep="last")].sort_index()
+    result[required] = result[required].apply(pd.to_numeric, errors="coerce")
+
+    if result.empty and not allow_empty:
+        raise ValueError("No usable price observations were returned.")
+    if result[required].isna().any().any():
+        raise ValueError("OHLCV columns cannot contain missing or non-numeric values.")
+    if (result[["Open", "High", "Low", "Close"]] <= 0).any().any():
+        raise ValueError("Price columns must contain positive values.")
+    if (result["Volume"] < 0).any():
+        raise ValueError("Volume cannot be negative.")
+    return result
+
+
+def _as_date(value: str | date, name: str) -> date:
+    try:
+        return value if isinstance(value, date) else date.fromisoformat(str(value))
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an ISO date (YYYY-MM-DD).") from exc
+
+
+def _empty_ohlcv() -> pd.DataFrame:
+    return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])

@@ -1,0 +1,292 @@
+"""
+pullback_v4_obs5.py — 변형 v4.0-rc1 "국면 이탈 청산" 실데이터 1회 실행 = 관측 #5 (사전등록 PREREGISTRATION_v4.md §4)
+
+원칙 (2026-09-13 pullback_v3_obs4.py 와 동일 패턴)
+  - research/daily_trend_pullback_v4 는 import/해시만, 절대 수정하지 않음. 저장소에는 아무 파일도 쓰지 않는다.
+  - v3(커밋 c0edb5a)·v2(커밋 2bfed1d, 전향 관측 중)·v1(커밋 c6b80f3)·t0(커밋 2162861) 디렉터리는 해시 대조만(무수정 확인).
+  - 실DB는 mode=ro URI로만 연다 (본 래퍼 + v4 run.main() 이중 강제).
+  - 요약(pullback_v4_obs5_summary.txt)에는 건수·기간·분포·플래그·해시만 — 가격·NAV·PF·MDD·CAGR 수치 없음.
+    라이브러리 원출력(수치 포함)은 pullback_v4_obs5.log 로만 간다(미열람).
+  - 실행 전 해시 잠금(run_forward.verify_hash_lock)과 본 래퍼 자신의 해시가 사전등록 §7 표와 일치해야 진행(D-36 3.5A).
+  - 1회 실행 후 창(2022-01-01~2026-09-08)은 소비된다(5회째). 재실행 금지(사전등록 §4-5).
+
+v4 전용 (2026-09-15)
+  - 진입 블록 무변경이므로 ㉮ 기본 신호 81,470 **과 눌림목 통과 20,605 둘 다** 관측 #3 과 같아야 한다(불변량; 다르면 배선 오류).
+  - run_full_system 의 [V4 REGIME EXIT DIAGNOSTIC] market_regime_* 줄(건수)을 회수한다.
+    F-i(배선 검사): market_regime_total == 0 → 배선 오류로 취급, 결과를 해석하지 않는다(사전등록 §3.3).
+  - 플래그는 `not bool(x)` 로 판정한다(관측 #3 래퍼의 `numpy.bool_ is not True` 라벨 오류 재발 방지, 로그 §10).
+
+대조 기준: 관측 #3 (2026-09-12, pullback_v2_obs3_summary.txt) — v2 = v4 의 기반. 397거래 / KOSDAQ 204·KOSPI 193 /
+  R1 False·R3 True / 즉시기각 True. v4 는 청산 블록(market_regime 추가)만 다르므로 "무엇이 달라졌는가"를 줄 단위로 대조한다.
+  (v3 관측 #4 는 기반이 아니므로 대조 대상이 아님 — 기록용 해시만.)
+"""
+import sys, os, io, time, hashlib, sqlite3, datetime, contextlib, re
+
+V4_DIR   = "/home/gram/korea-quant-system/research/daily_trend_pullback_v4"
+V3_DIR   = "/home/gram/korea-quant-system/research/daily_trend_pullback_v3"
+V2_DIR   = "/home/gram/korea-quant-system/research/daily_trend_pullback_v2"
+V1_DIR   = "/home/gram/korea-quant-system/research/daily_trend_pullback_v1"
+T0_DIR   = "/home/gram/korea-quant-system/research/daily_trend_pullback_t0"
+sys.path.insert(0, V4_DIR)
+
+import pandas as pd
+
+DB_PATH  = "/home/gram/korea-quant-system/data/krx_daily.sqlite3"
+SUMMARY  = "/home/gram/pullback_v4_obs5_summary.txt"
+BASELINE = "/home/gram/pullback_v2_obs3_summary.txt"           # 관측 #3 (v2 = 기반)
+PREREG   = f"{V4_DIR}/PREREGISTRATION_v4.md"
+SELF     = os.path.abspath(__file__)
+EXPECT_UNIV  = 3161
+EXPECT_MULTI = 14                                              # 이전 종목(KOSDAQ→KOSPI) 수 — 2026-09-12 DB 사전 조사
+EXPECT_BASE, EXPECT_PB = 81_470, 20_605                        # 관측 #3 기준 (창 내 신호 건수; v4 진입 무변경 → 둘 다 동일 기대)
+
+# ── 0. 읽기 전용 강제 (래퍼 층) ────────────────────────────────
+_orig_connect = sqlite3.connect
+def _ro_connect(database, *a, **k):
+    if isinstance(database, (str, os.PathLike)) and not str(database).startswith("file:"):
+        k["uri"] = True
+        return _orig_connect(f"file:{os.fspath(database)}?mode=ro", *a, **k)
+    return _orig_connect(database, *a, **k)
+sqlite3.connect = _ro_connect
+
+def sha(path, n=16):
+    return hashlib.sha256(open(path, "rb").read()).hexdigest()[:n]
+
+V4_FILES = ["strategy_validation_v4.py", "data_loader.py", "run.py", "run_forward.py",
+            "test_strategy_validation_v4.py", "test_run_forward_v4.py", "PREREGISTRATION_v4.md"]
+V3_FILES = ["strategy_validation_v3.py", "data_loader.py", "run.py", "run_forward.py",
+            "test_strategy_validation_v3.py", "test_run_forward_v3.py", "PREREGISTRATION_v3.md"]
+V2_FILES = ["strategy_validation_v2.py", "data_loader.py", "run.py", "run_forward.py",
+            "test_strategy_validation_v2.py", "test_run_forward_v2.py", "PREREGISTRATION_v2.md"]
+V1_FILES = ["strategy_validation_v1.py", "data_loader.py", "run.py", "run_forward.py",
+            "test_strategy_validation_v1.py", "test_run_forward_v1.py", "PREREGISTRATION_v1.md"]
+T0_FILES = ["strategy_validation_v03_final2.py", "data_loader.py", "test_strategy_validation.py", "run.py"]
+ART = ([f"{V4_DIR}/{f}" for f in V4_FILES] + [f"{V3_DIR}/{f}" for f in V3_FILES]
+       + [f"{V2_DIR}/{f}" for f in V2_FILES] + [f"{V1_DIR}/{f}" for f in V1_FILES]
+       + [f"{T0_DIR}/{f}" for f in T0_FILES])
+art_before = {p: sha(p) for p in ART}
+db_stat_before = os.stat(DB_PATH)
+
+import run as v4_run                          # v4 진입점 (STEP 1~5, ro 강제 포함)
+import run_forward as v4_fwd                  # 해시 잠금 검사만 사용 (main 은 호출하지 않음)
+from strategy_validation_v4 import (full_validation, validate_trade_frame, validate_equity_frame,
+                                    trend_goal_check, TRADE_COLUMNS, CONFIG, FIXED_CONFIG, RANK_WEIGHTS,
+                                    VALID_EXIT_REASONS, gate_day_counts, trades_by_market, regime_exit_counts)
+from data_loader import load_market_from_sqlite
+
+assert os.path.abspath(v4_run.__file__) == f"{V4_DIR}/run.py", v4_run.__file__
+assert os.path.abspath(v4_run.DB_PATH) == DB_PATH, v4_run.DB_PATH      # 덮어쓰기 없음 (W-2 절대경로)
+assert v4_run.run_full_system.__module__ == "strategy_validation_v4", v4_run.run_full_system.__module__
+
+lines = []
+def S(msg=""):
+    lines.append(msg); print("[SUMMARY]", msg, flush=True)
+
+# 예외 시에도 그때까지의 요약 줄을 SUMMARY 에, 라이브러리 원출력·트레이스백은 .log(sys.__stdout__)에 보존 (관측 1회 보호).
+def _excepthook(tp, val, tb):
+    import traceback
+    b = globals().get("buf")
+    if b is not None and "lib_out" not in globals():
+        sys.__stdout__.write(b.getvalue())
+    traceback.print_exception(tp, val, tb, file=sys.__stdout__)
+    S(f"[래퍼 예외] {tp.__name__}: {val} — 요약은 예외 시점까지의 줄만(트레이스백은 .log)")
+    with open(SUMMARY, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+sys.excepthook = _excepthook
+
+T0 = time.time()
+S(f"실행 시각: {datetime.datetime.now():%Y-%m-%d %H:%M:%S}  python={sys.version.split()[0]}  pandas={pd.__version__}")
+nv4, nv3, nv2, nv1 = len(V4_FILES), len(V3_FILES), len(V2_FILES), len(V1_FILES)
+S("v4 sha256(앞16) 실행 전: " + ", ".join(f"{os.path.basename(p)}={art_before[p]}" for p in ART[:nv4]))
+S("v3 sha256(앞16) 실행 전: " + ", ".join(f"{os.path.basename(p)}={art_before[p]}" for p in ART[nv4:nv4+nv3]))
+S("v2 sha256(앞16) 실행 전: " + ", ".join(f"{os.path.basename(p)}={art_before[p]}" for p in ART[nv4+nv3:nv4+nv3+nv2]))
+S("v1 sha256(앞16) 실행 전: " + ", ".join(f"{os.path.basename(p)}={art_before[p]}" for p in ART[nv4+nv3+nv2:nv4+nv3+nv2+nv1]))
+S("t0 sha256(앞16) 실행 전: " + ", ".join(f"{os.path.basename(p)}={art_before[p]}" for p in ART[nv4+nv3+nv2+nv1:]))
+S(f"사전등록 문서 sha256(전체): {sha(PREREG, 64)}")
+S(f"본 래퍼 sha256(전체): {sha(SELF, 64)}")
+
+# ── 1. 해시 잠금 (D-36 3.5A / 사전등록 §7) — 불일치면 실행 중단 ──
+lock = v4_fwd.verify_hash_lock(PREREG, V4_DIR)
+exp  = v4_fwd.expected_hashes(PREREG)
+self_ok = exp.get("pullback_v4_obs5.py") == sha(SELF, 64)
+S(f"[해시 잠금] 코드 4파일={lock}  래퍼 자신={self_ok}")
+if not (all(lock.values()) and self_ok):
+    S("[해시 잠금] 불일치 → 관측 #5 실행 중단 (사전등록 표를 먼저 확인)")
+    open(SUMMARY, "w", encoding="utf-8").write("\n".join(lines) + "\n")
+    sys.exit(2)
+
+# ── 1b. v4 선언 상수 확인 — 사전등록 §2.2 와 다르면 실행 중단 ──
+decl_ok = (CONFIG["declared_observations"] == 5 and CONFIG["regime_exit"] is True
+           and FIXED_CONFIG["regime_exit"] is True and "market_regime" in VALID_EXIT_REASONS)
+S(f"[v4 선언] declared_observations={CONFIG['declared_observations']}  regime_exit(CONFIG/FIXED)="
+  f"{CONFIG['regime_exit']}/{FIXED_CONFIG['regime_exit']}  market_sma={CONFIG['market_sma']}  "
+  f"VALID_EXIT_REASONS={sorted(VALID_EXIT_REASONS)}  RANK_WEIGHTS={RANK_WEIGHTS}  → 사전등록 일치={decl_ok}")
+if not decl_ok:
+    S("[v4 선언] 사전등록 §2.2 와 불일치 → 관측 #5 실행 중단")
+    open(SUMMARY, "w", encoding="utf-8").write("\n".join(lines) + "\n")
+    sys.exit(2)
+
+S(f"run.py 상수: START={v4_run.START_DATE} END={v4_run.END_DATE} DB_START={v4_run.DB_START} "
+  f"CAPITAL={v4_run.CAPITAL:,} MARKET={v4_run.MARKET_TICKER} KOSDAQ_MARKET={v4_run.KOSDAQ_MARKET_TICKER} "
+  f"UNIVERSE_EXCLUDE={v4_run.UNIVERSE_EXCLUDE} DB_PATH={v4_run.DB_PATH}")
+
+# ── 2. 유니버스·시장 매핑·벤치마크 사전 확인 (건수만) ─────────────
+with contextlib.redirect_stdout(io.StringIO()):
+    univ, mmap = v4_run.load_universe_and_markets()
+n_multi = sum(1 for v in mmap.values() if not isinstance(v, str))
+seg_shapes = sorted({tuple(m for _, m in v) for v in mmap.values() if not isinstance(v, str)})
+S(f"[H-16/V2-3] 유니버스 {len(univ)} (관측 #1~#4 기준 {EXPECT_UNIV}) → {'일치' if len(univ)==EXPECT_UNIV else '불일치'}; "
+  f"시장 매핑 {len(mmap)}, 단일 시장 KOSPI={sum(1 for v in mmap.values() if v=='KOSPI')} "
+  f"KOSDAQ={sum(1 for v in mmap.values() if v=='KOSDAQ')}, 이전 종목={n_multi} (사전 조사 {EXPECT_MULTI}) "
+  f"→ {'일치' if n_multi==EXPECT_MULTI else '불일치'}; 구간 형태={seg_shapes}")
+with contextlib.redirect_stdout(io.StringIO()):
+    bench = v4_run.load_benchmarks(v4_run.END_DATE)
+S(f"[V2-2 벤치마크] KOSPI(069500) 행수={len(bench['KOSPI'])} {bench['KOSPI'].index.min().date()}~{bench['KOSPI'].index.max().date()}; "
+  f"KOSDAQ(229200) 행수={len(bench['KOSDAQ'])} {bench['KOSDAQ'].index.min().date()}~{bench['KOSDAQ'].index.max().date()}; "
+  f"날짜축 동일={bench['KOSPI'].index.equals(bench['KOSDAQ'].index)}")
+gd = gate_day_counts(bench, v4_run.START_DATE, v4_run.END_DATE)
+S(f"[V2-4 게이트 일수(창 {v4_run.START_DATE}~{v4_run.END_DATE})] " + "  ".join(f"{k}={v}" for k, v in gd.items()))
+del bench
+
+# ── 3. v4 run.main() 그대로 실행 (STEP 1~5) ──────────────────
+t1 = time.time()
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    equity, trades, fold_report = v4_run.main()
+lib_out = buf.getvalue()
+sys.__stdout__.write(lib_out)                 # 원출력은 .log 로 (수치 포함 — 요약에는 안 넣음)
+S(f"[run.main] 완료  소요 {time.time()-t1:.1f}s  반환={'None' if equity is None else 'OK'}  "
+  f"STEP 줄 수={sum(1 for l in lib_out.splitlines() if l.startswith('STEP'))}  "
+  f"경고/오류 줄 수={sum(1 for l in lib_out.splitlines() if re.search(r'경고|WARN|Error|오류', l))}")
+
+def _grab(pattern):
+    m = re.search(pattern, lib_out)
+    return m.group(1) if m else None
+
+# ㉮ 눌림목 필터 통과율 (F-f, 권고 수준) — 로그에서 건수만 회수. v4 는 진입 무변경 → 기본·통과 둘 다 관측 #3 과 동일 기대(불변량)
+pb_base = _grab(r"기본 신호:\s+(\d+)건"); pb_pass = _grab(r"눌림목 통과:\s+(\d+)건")
+pb_flag = "권고 발생" if "[㉮ 권고]" in lib_out else "20~80% 안"
+entry_invariant_ok = (pb_base == str(EXPECT_BASE)) and (pb_pass == str(EXPECT_PB))
+S(f"[㉮ 신호] 기본 신호={pb_base}건  눌림목 통과={pb_pass}건  F-f(20~80% 권고)={pb_flag}  "
+  f"(기대 {EXPECT_BASE:,}/{EXPECT_PB:,} = 관측 #3: {'일치' if entry_invariant_ok else '불일치 = 배선 오류'})")
+
+# V2-4 진단 줄(건수만) — run_full_system 출력에서 회수
+v2_diag = [l.strip() for l in lib_out.splitlines()
+           if re.match(r"^\s+(gate_|trades_|market_map_tickers)", l)]
+S("[V2-4 진단(run_full_system)] " + "  ".join(v2_diag))
+
+# V4-4 국면 이탈 청산 진단 줄(건수만) — F-i 배선 검사 입력
+v4_diag = [l.strip() for l in lib_out.splitlines() if re.match(r"^\s+(market_regime_\w+|other_exits):", l)]
+v4_map  = {}
+for l in v4_diag:
+    m = re.match(r"(\w+):\s*(-?\d+)", l)
+    if m:
+        v4_map[m.group(1)] = int(m.group(2))
+S("[V4-4 진단(run_full_system)] " + "  ".join(v4_diag))
+
+tbm = {}
+if equity is None:
+    S("거래 없음 → F-a 해당 (거래 수 < 30)")
+    fin, tg, rc = {}, {"closed_trades": 0, "immediate_reject": True, "trend_goal_pass": False, "criteria": {}}, {}
+else:
+    eq_ok, eq_err = validate_equity_frame(equity, raise_on_error=False)
+    tr_ok, tr_err = validate_trade_frame(trades, raise_on_error=False)
+    S(f"[검증기] validate_equity_frame={eq_ok} (오류 {len(eq_err)}건)  validate_trade_frame={tr_ok} (오류 {len(tr_err)}건)")
+    S(f"[equity] 행수={len(equity)}  기간={equity.index.min().date()}~{equity.index.max().date()}  "
+      f"positions max={int(equity['positions'].max())}  positions==0 일수={int((equity['positions']==0).sum())}  "
+      f"cash<0 일수={int((equity['cash']<0).sum())}")
+    S(f"[trades] 건수={len(trades)}  종목수={trades['ticker'].nunique()}  "
+      f"entry {trades['entry_date'].min().date()}~{trades['entry_date'].max().date()}  "
+      f"exit {trades['exit_date'].min().date()}~{trades['exit_date'].max().date()}")
+    S(f"[trades] exit_reason 분포: {trades['exit_reason'].value_counts().to_dict()}")
+    hd = trades["holding_days"]
+    S(f"[trades] holding_days min={int(hd.min())} max={int(hd.max())} mean={hd.mean():.2f}  "
+      f"==1 건수={int((hd==1).sum())}  stop&==1 건수(F-9c 경로)={int(((trades['exit_reason']=='stop')&(hd==1)).sum())}  "
+      f">holding_limit({CONFIG['holding_limit']}) 건수={int((hd>CONFIG['holding_limit']).sum())}")
+    fc = trades[trades["exit_reason"] == "forced_close"]
+    last_day = equity.index.max()
+    S(f"[trades] forced_close={len(fc)}  (기간종료형 exit_date==마지막날: {int((fc['exit_date']==last_day).sum())}, "
+      f"루프내형(상장폐지 등): {int((fc['exit_date']!=last_day).sum())})")
+    S(f"[trades] 승/패 건수: {int((trades['pnl_net']>0).sum())}/{int((trades['pnl_net']<=0).sum())}  "
+      f"r_multiple<-2 건수={int((trades['r_multiple']<-2).sum())}")
+    S(f"[trades] 연도별 건수: {trades['entry_date'].dt.year.value_counts().sort_index().to_dict()}")
+    tbm = trades_by_market(trades, mmap)
+    S(f"[trades] 시장별 건수(V2-4, 진입일 기준): {tbm}")
+    rc = regime_exit_counts(trades, mmap)
+    rg = trades[trades["exit_reason"] == "market_regime"]
+    S(f"[trades] market_regime 청산(V4-4, 청산일 기준 시장별): {rc}  "
+      f"holding_days 분포(market_regime 만): {rg['holding_days'].value_counts().sort_index().to_dict()}  "
+      f"승/패(market_regime 만): {int((rg['pnl_net']>0).sum())}/{int((rg['pnl_net']<=0).sum())}  "
+      f"연도별(market_regime, 청산일): {rg['exit_date'].dt.year.value_counts().sort_index().to_dict()}  "
+      f"진단 == 출력 일치={rc == {k: v for k, v in v4_map.items()}}")
+    S(f"[fold_report] 폴드 수={len(fold_report)}  컬럼={list(fold_report.columns)}  "
+      f"판정 분포={fold_report['판정'].value_counts().to_dict() if '판정' in fold_report else None}")
+    market_df = load_market_from_sqlite(DB_PATH, index_ticker=v4_run.MARKET_TICKER,
+                                        start_date=v4_run.DB_START, end_date=v4_run.END_DATE)
+    with contextlib.redirect_stdout(io.StringIO()):
+        fin = full_validation(equity, trades, market_df)
+    keep = ["원시_거래_수", "실효_표본_수", "[강제] 검정력_상태", "최대_낙폭_지속_거래일", "미회복_종료",
+            "손절_거래_수", "R1_보수_하한>1.00", "R3_MDD≤20%", "최종_통과", "[주의] 결과_등급", "관측_횟수"]
+    S("[full_validation 플래그] " + "  ".join(f"{k}={fin.get(k)}" for k in keep))
+    tg = trend_goal_check(trades, v4_run.START_DATE, v4_run.END_DATE)
+    S(f"[TrendGoal V1-6] closed={tg['closed_trades']}  windows={tg['window_count']}  "
+      f"immediate_reject={tg['immediate_reject']}  trend_goal_pass={tg['trend_goal_pass']}  "
+      f"criteria={tg['criteria']}")
+    h_tr = hashlib.sha256(trades[TRADE_COLUMNS].to_csv(index=False).encode()).hexdigest()[:16]
+    h_eq = hashlib.sha256(equity.to_csv().encode()).hexdigest()[:16]
+    S(f"[hash] trades={h_tr}  equity={h_eq}  (관측 #3(기반 v2): trades=dd6aeef95b64ddd7 equity=4ba5cc00d60d489d; "
+      f"관측 #4: 5032c4707365fa25/09052e530a8591d4; 관측 #2: b4feeacd358e5e48/135f9916ffee2426; "
+      f"관측 #1: d6d1778e6a49bda7/013e2d14359ff6cb — 규칙이 다르므로 상이가 정상)")
+
+# ── 4. 사전등록 실패 조건 F-a~F-g·F-i 판정 (사전등록 §3.3, 등급 상한 = 힌트) — `not bool(x)` ──
+n_tr = 0 if equity is None else len(trades)
+hl_share_over = (False if equity is None or n_tr == 0
+                 else bool((trades["exit_reason"] == "holding_limit").mean() > 0.50))
+gate_degenerate = (n_tr > 0) and (tbm.get("KOSPI", 0) == 0 or tbm.get("KOSDAQ", 0) == 0)
+n_regime = int(rc.get("market_regime_total", 0)) if rc else int(v4_map.get("market_regime_total", 0))
+wiring_bad = (n_tr > 0 and n_regime == 0) or (not entry_invariant_ok)
+F = {
+    "F-a 거래<30":                 bool(n_tr < 30),
+    "F-b R1 False":                not bool(fin.get("R1_보수_하한>1.00")),
+    "F-c R3 False":                not bool(fin.get("R3_MDD≤20%")),
+    "F-d TrendGoal 실패":          not bool(tg["trend_goal_pass"]),
+    "F-d' 즉시기각(D-37)":         bool(tg["immediate_reject"]),
+    "F-e holding_limit>50%(진단)": bool(hl_share_over),
+    "F-f 통과율 권고(권고)":       pb_flag == "권고 발생",
+    "F-g 시장별 거래 0건(진단)":   bool(gate_degenerate),
+    "F-i 배선 오류(무효)":         bool(wiring_bad),
+}
+hard = [k for k, v in F.items() if v and not k.endswith("(진단)") and not k.endswith("(권고)") and not k.endswith("(무효)")]
+S("[사전등록 실패 조건] " + "  ".join(f"{k}={v}" for k, v in F.items()))
+if wiring_bad:
+    S(f"[관측 #5 결론] F-i 배선 오류(market_regime 청산 {n_regime}건 / 진입 불변량 {'일치' if entry_invariant_ok else '불일치'}) "
+      f"→ 결과 해석 없음. 원인 기록 후 수정·재실행은 '실행 횟수 2'(사전등록 §4-6)")
+else:
+    S(f"[관측 #5 결론] 결과 등급 상한=힌트(①b)  판정 조건 해당={len(hard)}건 {hard}  "
+      f"→ {'조건 전부 미해당 = 힌트(전향 관측 진행 근거)' if not hard else '실패 조건 해당 = 불통과 힌트(규칙 변경 필요 여부는 사용자 결정)'}")
+
+# ── 5. 관측 #3(기반 v2) 요약과 줄 단위 대조 (건수·분포·플래그 줄만; 상이 = 청산 블록 변경 효과) ──
+if os.path.exists(BASELINE):
+    base = open(BASELINE, encoding="utf-8").read().splitlines()
+    keys = ["[trades] 건수", "[trades] exit_reason", "[trades] forced_close", "[trades] holding_days",
+            "[trades] 승/패", "[trades] 연도별", "[trades] 시장별", "[equity] 행수", "[fold_report]",
+            "[full_validation 플래그]", "[TrendGoal V1-6]", "[검증기]", "[㉮ 신호]",
+            "[V2-4 게이트 일수", "[V2-4 진단(run_full_system)]"]
+    for k in keys:
+        b = next((l for l in base if l.startswith(k)), None)
+        n = next((l for l in lines if l.startswith(k)), None)
+        S(f"[대조 #3→#5] {k}: {'동일' if b == n else '상이'}")
+        if b != n:
+            S(f"    #3: {b}")
+            S(f"    #5: {n}")
+
+# ── 6. 무수정·읽기전용 확인 ──────────────────────────────────
+art_after = {p: sha(p) for p in ART}
+db_stat_after = os.stat(DB_PATH)
+S(f"v4·v3·v2·v1·t0 {len(ART)}파일 무수정: {art_before == art_after}   DB mtime/size 불변: "
+  f"{db_stat_before.st_mtime == db_stat_after.st_mtime and db_stat_before.st_size == db_stat_after.st_size}")
+S(f"총 소요: {time.time()-T0:.1f}s")
+
+with open(SUMMARY, "w", encoding="utf-8") as f:
+    f.write("\n".join(lines) + "\n")
+print("SUMMARY WRITTEN:", SUMMARY, flush=True)

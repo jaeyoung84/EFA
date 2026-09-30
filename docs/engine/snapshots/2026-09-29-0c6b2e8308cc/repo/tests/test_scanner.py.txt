@@ -1,0 +1,103 @@
+import pandas as pd
+import pytest
+
+from korea_quant import scanner
+from korea_quant.scanner import ScannerConfig, scan_ema30_candidates, write_scanner_report
+
+
+def _history(symbols=("A", "B"), periods=40):
+    dates = pd.bdate_range("2024-01-01", periods=periods)
+    rows = []
+    for symbol in symbols:
+        for number, day in enumerate(dates):
+            close = 100 + number
+            rows.append(
+                {
+                    "Date": day, "Symbol": symbol, "Name": symbol,
+                    "Market": "KOSPI", "Open": close - 1, "High": close + 2,
+                    "Low": close - 2, "Close": close,
+                    "TradingValue": 2_000_000_000,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def _signals(index, breakout=False):
+    frame = pd.DataFrame(
+        {
+            "ema30": 100.0, "resistance": 140.0, "latest_support": 120.0,
+            "structure_stop": float("nan"), "confirmed_swing_high": float("nan"),
+            "confirmed_swing_low": float("nan"), "strong_bullish": False,
+            "breakout": False, "entries": False, "exits": False,
+        },
+        index=index,
+    )
+    if breakout:
+        frame.iloc[-1, frame.columns.get_loc("breakout")] = True
+        frame.iloc[-1, frame.columns.get_loc("strong_bullish")] = True
+    return frame
+
+
+def test_scanner_classifies_signal_and_calculates_risk_size(monkeypatch):
+    history = _history(("A",))
+    monkeypatch.setattr(
+        scanner, "ema_resistance_signals",
+        lambda prices, **_kwargs: _signals(prices.index, breakout=True),
+    )
+    result = scan_ema30_candidates(
+        history,
+        ScannerConfig(account_value=10_000, risk_fraction=0.01,
+                      minimum_average_trading_value=1),
+    )
+    row = result.iloc[0]
+    assert row["state"] == "signal_today"
+    assert row["risk_per_share"] == 19
+    assert row["suggested_shares"] == 5
+
+
+def test_scanner_prefilters_low_liquidity_before_strategy(monkeypatch):
+    history = _history(("A",))
+    history["TradingValue"] = 10
+    monkeypatch.setattr(
+        scanner, "ema_resistance_signals",
+        lambda *_args, **_kwargs: pytest.fail("strategy should not run"),
+    )
+    result = scan_ema30_candidates(
+        history, ScannerConfig(minimum_average_trading_value=100)
+    )
+    assert result.loc[0, "state"] == "low_liquidity"
+
+
+def test_scanner_marks_security_missing_on_latest_date_as_stale():
+    history = _history()
+    latest = history["Date"].max()
+    history = history[~((history["Symbol"] == "B") & (history["Date"] == latest))]
+    result = scan_ema30_candidates(
+        history, ScannerConfig(minimum_average_trading_value=10**20)
+    )
+    assert result.set_index("symbol").loc["B", "state"] == "stale_security"
+
+
+def test_scanner_report_exports_all_rows(tmp_path):
+    scan = pd.DataFrame(
+        [{"state": "signal_today", "symbol": "A", "name": "Alpha", "market": "KOSPI",
+          "close": 100, "average_trading_value": 2_000_000_000,
+          "distance_to_resistance": -0.01, "stop_loss_percent": 0.05}]
+    )
+    html, csv = write_scanner_report(scan, tmp_path / "scan.html", tmp_path / "scan.csv")
+    assert "signal_today" in html.read_text(encoding="utf-8")
+    assert pd.read_csv(csv)["symbol"].tolist() == ["A"]
+
+
+def test_scanner_rejects_invalid_config():
+    with pytest.raises(ValueError):
+        scan_ema30_candidates(_history(), ScannerConfig(risk_fraction=0))
+
+
+def test_scanner_rejects_large_calendar_gap():
+    history = _history(periods=10)
+    later = history.iloc[[-1]].copy()
+    later["Date"] = pd.Timestamp("2024-03-01")
+    history = pd.concat([history, later], ignore_index=True)
+    with pytest.raises(ValueError, match="Collect the missing dates"):
+        scan_ema30_candidates(history, ScannerConfig())

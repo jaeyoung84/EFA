@@ -1,0 +1,41 @@
+"""Named strategy families used for like-for-like KRX research comparisons."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class StrategyProfile:
+    name: str
+    label: str
+    objective: str
+    strategies: tuple[str, ...]
+
+
+PROFILES = {
+    "reversion": StrategyProfile("reversion", "평균회귀·승률형", "승률과 손실 회복 속도", ("bollinger-rsi", "rsi-obv")),
+    "breakout": StrategyProfile("breakout", "추세·돌파 수익률형", "낮은 빈도에서 큰 추세 수익", ("donchian-atr", "volatility-squeeze", "ema30-resistance", "trend-multiplier")),
+    "pullback": StrategyProfile("pullback", "추세 눌림목 혼합형", "추세 내 재진입", ("trend-pullback",)),
+    "multiplier": StrategyProfile("multiplier", "고수익 보유형", "강한 추세의 장기 보유", ("trend-multiplier",)),
+    "darvas-turtle": StrategyProfile(
+        "darvas-turtle", "박스·터틀 구조적 추세추종형", "구조적 손절 추세추종, 낮은 빈도 큰 수익",
+        ("darvas-box", "turtle"),
+    ),
+}
+
+
+def strategies_for_profile(profile: str) -> tuple[str, ...]:
+    if profile == "all":
+        return tuple(strategy for item in PROFILES.values() for strategy in item.strategies)
+    try:
+        return PROFILES[profile].strategies
+    except KeyError as error:
+        raise ValueError(f"Unknown strategy profile: {profile}") from error
+
+
+def profile_label(strategy: str) -> str:
+    for profile in PROFILES.values():
+        if strategy in profile.strategies:
+            return profile.label
+    return "기타"

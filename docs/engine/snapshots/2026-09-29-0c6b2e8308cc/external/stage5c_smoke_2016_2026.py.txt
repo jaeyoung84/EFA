@@ -1,0 +1,139 @@
+"""Stage 5C phase A pre-verification (사전등록 §6 "실행 전 검증 완료 조건").
+
+Runs the full index_tsmom_backtest engine end-to-end on the ALREADY-CONSUMED
+2016-08-29~ segment, using live sources (krx_daily.sqlite3 + ECOS CD91 + the
+raw distribution xls) rather than the locked-window artifacts. The locked
+window is not opened and not read by this script.
+
+Purpose is plumbing/schema verification, not a research result. The 2016~2026
+segment was consumed long ago, so its figures may be printed.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+import sys
+from datetime import date
+from pathlib import Path
+
+import pandas as pd
+
+sys.path.insert(0, "src")
+
+from korea_quant.ecos import EcosOpenApiClient, fetch_cd91  # noqa: E402
+from korea_quant.index_tsmom_backtest import (  # noqa: E402
+    build_total_return_index,
+    cd91_daily_growth,
+    compute_metrics,
+    compute_signals,
+    decide_verdict,
+    month_end_trading_days,
+    simulate,
+)
+from korea_quant.index_tsmom_collection import (  # noqa: E402
+    approximate_ex_dividend_date,
+    attach_cd91_with_carry_forward,
+)
+
+SYMBOL = "069500"
+DIST_XLS = Path("/mnt/c/Users/gram/Downloads/상품별_분배_현황_20260908.xls")
+
+
+def load_prices() -> pd.DataFrame:
+    con = sqlite3.connect("data/krx_daily.sqlite3")
+    try:
+        frame = pd.read_sql_query(
+            "select trade_date as date, open, close from daily_prices "
+            "where symbol = ? order by trade_date",
+            con,
+            params=(SYMBOL,),
+        )
+    finally:
+        con.close()
+    frame["date"] = pd.to_datetime(frame["date"])
+    return frame
+
+
+def load_distributions(trading_days: pd.DatetimeIndex) -> pd.DataFrame:
+    """Same parsing as index_tsmom_collection.normalize_distributions, plus 실지급일.
+
+    The locked-window artifact drops 실지급일, which §9's capital-ledger layer
+    needs; here we confirm the column is present and usable in the raw export.
+    """
+
+    raw = pd.read_excel(DIST_XLS, engine="xlrd", header=2)
+    code = raw["상품코드"].astype(str).str.strip().str.replace(r"\.0$", "", regex=True).str.zfill(6)
+    df = raw[code == SYMBOL].copy()
+
+    df["record_date"] = pd.to_datetime(df["지급기준일"].astype(str), format="%Y%m%d").dt.date
+    df["payment_raw"] = pd.to_datetime(df["실지급일"].astype(str), format="%Y%m%d").dt.date
+    df["amount"] = pd.to_numeric(df["주당분배금"])
+
+    days = sorted({pd.Timestamp(d).date() for d in trading_days})
+    df = df[(df["record_date"] >= days[0]) & (df["record_date"] <= days[-1])].copy()
+    df["ex_dividend_date"] = df["record_date"].apply(
+        lambda d: approximate_ex_dividend_date(d, trading_days)
+    )
+
+    # 실지급일이 휴장일이면 다음 거래일에 현금이 반영된 것으로 본다.
+    def snap(day: date) -> date | None:
+        later = [d for d in days if d >= day]
+        return later[0] if later else None
+
+    df["payment_date"] = df["payment_raw"].apply(snap)
+    dropped = int(df["payment_date"].isna().sum())
+    df = df.dropna(subset=["payment_date"]).copy()
+
+    for column in ("ex_dividend_date", "payment_date"):
+        df[column] = pd.to_datetime(df[column])
+
+    print(f"분배금: 창내 {len(df) + dropped}건, 실지급일 창밖 제외 {dropped}건")
+    print(f"실지급일 != 배당락일 인 건수: {int((df['payment_date'] != df['ex_dividend_date']).sum())}")
+    return df[["ex_dividend_date", "payment_date", "amount"]].reset_index(drop=True)
+
+
+def load_cd91(price_dates: pd.Series) -> pd.DataFrame:
+    client = EcosOpenApiClient.from_env()
+    start, end = price_dates.iloc[0].date(), price_dates.iloc[-1].date()
+    raw = fetch_cd91(client, start - pd.Timedelta(days=30), end)
+    print(f"CD91 원본 행수={len(raw)}")
+    return attach_cd91_with_carry_forward(price_dates, raw)
+
+
+def describe(label: str, metrics) -> None:
+    print(
+        f"  {label:12s} CAGR={metrics.cagr:8.4%}  MDD={metrics.mdd:8.4%}  "
+        f"Calmar={metrics.calmar:6.3f}  월간승률={metrics.monthly_win_rate:6.2%}"
+    )
+
+
+def main() -> None:
+    prices = load_prices()
+    print(f"가격 행수={len(prices)} 기간={prices['date'].iloc[0].date()}~{prices['date'].iloc[-1].date()}")
+
+    trading_days = pd.DatetimeIndex(prices["date"])
+    distributions = load_distributions(trading_days)
+    cd91 = load_cd91(prices["date"])
+    print(f"CD91 정렬 행수={len(cd91)} (가격 행수와 일치={len(cd91) == len(prices)})")
+
+    tr_index = build_total_return_index(prices, distributions)
+    growth = cd91_daily_growth(cd91)
+    month_ends = month_end_trading_days(trading_days)
+    signals = compute_signals(tr_index, growth, month_ends)
+    held = sum(s.hold for s in signals)
+    print(f"월말 판정 횟수={len(signals)} 보유={held} 현금={len(signals) - held}")
+
+    trend = simulate(prices, distributions, growth, signals)
+    bench = simulate(prices, distributions, growth, signals, always_hold=True)
+    print(f"자본곡선 길이: 추세={len(trend)} B&H={len(bench)} (일치={trend.index.equals(bench.index)})")
+
+    trend_metrics = compute_metrics(trend)
+    bench_metrics = compute_metrics(bench)
+    print("성과 (2016~2026, 이미 소비된 구간 — 사전검증용):")
+    describe("추세", trend_metrics)
+    describe("B&H", bench_metrics)
+    print(f"판정: {decide_verdict(trend_metrics, bench_metrics)}")
+
+
+if __name__ == "__main__":
+    main()

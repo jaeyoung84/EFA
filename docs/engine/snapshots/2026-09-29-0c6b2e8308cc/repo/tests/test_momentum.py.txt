@@ -1,0 +1,225 @@
+import pandas as pd
+import pytest
+
+from korea_quant.momentum import (
+    MomentumConfig,
+    _portfolio_from_targets,
+    build_target_weights,
+    calculate_target_turnover,
+    run_momentum,
+    write_momentum_report,
+)
+
+
+def _panels():
+    index = pd.bdate_range("2024-01-01", "2024-03-05")
+    close = pd.DataFrame(
+        {
+            "A": [100 + value * 2 for value in range(len(index))],
+            "B": [100 + value for value in range(len(index))],
+            "C": [100 - value * 0.5 for value in range(len(index))],
+        },
+        index=index,
+    )
+    trading_value = pd.DataFrame(
+        {"A": 1_000_000, "B": 2_000_000, "C": 3_000_000}, index=index
+    )
+    return close, trading_value
+
+
+def test_momentum_ranks_at_month_end_and_executes_next_session():
+    close, trading_value = _panels()
+    config = MomentumConfig(lookback_sessions=5, liquidity_sessions=3, top_n=1)
+
+    weights, selections = build_target_weights(close, trading_value, config)
+
+    january_signal = pd.Timestamp("2024-01-31")
+    february_execution = pd.Timestamp("2024-02-01")
+    january = selections[selections["signal_date"] == january_signal]
+    assert january["symbol"].tolist() == ["A"]
+    assert january["execution_date"].tolist() == [february_execution]
+    assert weights.loc[january_signal].isna().all()
+    assert weights.loc[february_execution, "A"] == 1.0
+    assert weights.loc[february_execution, ["B", "C"]].eq(0).all()
+
+
+def test_momentum_requires_positive_return():
+    close, trading_value = _panels()
+    for offset, symbol in enumerate(close.columns):
+        close[symbol] = [200 + offset - value for value in range(len(close))]
+    weights, selections = build_target_weights(
+        close, trading_value, MomentumConfig(lookback_sessions=5, liquidity_sessions=3, top_n=2)
+    )
+    assert selections.empty
+    assert weights.dropna(how="all").eq(0).all().all()
+
+
+def test_momentum_liquidity_filter_precedes_ranking():
+    close, trading_value = _panels()
+    for number in range(7):
+        symbol = f"X{number}"
+        close[symbol] = [100 + value for value in range(len(close))]
+        trading_value[symbol] = 500_000 + number
+    close["ILLIQUID"] = [100 + value * 10 for value in range(len(close))]
+    trading_value["ILLIQUID"] = 1
+    _, selections = build_target_weights(
+        close, trading_value, MomentumConfig(lookback_sessions=5, liquidity_sessions=3, top_n=1)
+    )
+    assert "ILLIQUID" not in selections["symbol"].tolist()
+
+
+def test_momentum_uses_point_in_time_eligibility_without_removing_price_lookback():
+    close, trading_value = _panels()
+    eligible = pd.DataFrame(False, index=close.index, columns=close.columns)
+    eligible["B"] = True
+
+    _, selections = build_target_weights(
+        close,
+        trading_value,
+        MomentumConfig(lookback_sessions=5, liquidity_sessions=3, top_n=1),
+        eligible,
+    )
+
+    assert set(selections["symbol"]) == {"B"}
+    assert selections.iloc[0]["momentum"] > 0
+
+
+def test_target_turnover_includes_cash_entry_and_full_rotation():
+    weights = pd.DataFrame(
+        [[1.0, 0.0], [0.0, 1.0]],
+        index=pd.to_datetime(["2024-02-01", "2024-03-01"]),
+        columns=["A", "B"],
+    )
+
+    turnover = calculate_target_turnover(weights)
+
+    assert turnover.tolist() == [1.0, 1.0]
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        MomentumConfig(lookback_sessions=0),
+        MomentumConfig(liquidity_sessions=0),
+        MomentumConfig(top_n=0),
+    ],
+)
+def test_invalid_momentum_config_raises(config):
+    close, trading_value = _panels()
+    with pytest.raises(ValueError):
+        build_target_weights(close, trading_value, config)
+
+
+def test_portfolio_charges_sell_tax_from_the_actual_order_side():
+    import vectorbt as vbt
+
+    index = pd.to_datetime(["2024-01-02", "2024-02-01"])
+    prices = pd.DataFrame({"A": [100.0, 100.0], "B": [100.0, 100.0]}, index=index)
+    targets = pd.DataFrame({"A": [1.0, 0.0], "B": [0.0, 1.0]}, index=index)
+    config = MomentumConfig(
+        initial_cash=1_000,
+        fee_rate=0.001,
+        sell_tax_rate=0.002,
+        slippage_rate=0,
+    )
+
+    portfolio = _portfolio_from_targets(vbt, prices, prices, targets, config)
+
+    orders = portfolio.orders.records_readable
+    sell = orders[(orders["Timestamp"] == index[1]) & (orders["Column"] == "A")].iloc[0]
+    assert sell["Side"] == "Sell"
+    assert sell["Fees"] == pytest.approx(sell["Size"] * sell["Price"] * 0.003)
+
+
+def test_run_momentum_applies_costs():
+    close, trading_value = _panels()
+    rows = []
+    for date in close.index:
+        for symbol in close.columns:
+            rows.append(
+                {
+                    "Date": date, "Symbol": symbol, "Open": close.loc[date, symbol],
+                    "Close": close.loc[date, symbol],
+                    "TradingValue": trading_value.loc[date, symbol],
+                }
+            )
+    history = pd.DataFrame(rows)
+    free = run_momentum(
+        history,
+        MomentumConfig(lookback_sessions=5, liquidity_sessions=3, top_n=1,
+                       fee_rate=0, slippage_rate=0),
+    )
+    costly = run_momentum(
+        history,
+        MomentumConfig(lookback_sessions=5, liquidity_sessions=3, top_n=1,
+                       fee_rate=0.01, slippage_rate=0.01),
+    )
+    assert costly.equity.iloc[-1] < free.equity.iloc[-1]
+    assert costly.metrics["Total Fees"] > 0
+
+
+def test_run_momentum_reports_costed_point_in_time_benchmark():
+    close, trading_value = _panels()
+    history = pd.DataFrame(
+        [
+            {
+                "Date": day, "Symbol": symbol, "Open": close.loc[day, symbol],
+                "Close": close.loc[day, symbol],
+                "TradingValue": trading_value.loc[day, symbol],
+            }
+            for day in close.index
+            for symbol in close.columns
+        ]
+    )
+    eligible = pd.DataFrame(True, index=close.index, columns=close.columns)
+
+    result = run_momentum(
+        history,
+        MomentumConfig(lookback_sessions=5, liquidity_sessions=3, top_n=1),
+        eligible,
+    )
+
+    assert result.benchmark_equity is not None
+    assert "Benchmark Total Return" in result.metrics
+    assert "Average Target Turnover" in result.metrics
+
+
+def test_momentum_report_exports_benchmark_and_turnover(tmp_path):
+    close, trading_value = _panels()
+    history = pd.DataFrame(
+        [
+            {
+                "Date": day, "Symbol": symbol, "Open": close.loc[day, symbol],
+                "Close": close.loc[day, symbol],
+                "TradingValue": trading_value.loc[day, symbol],
+            }
+            for day in close.index
+            for symbol in close.columns
+        ]
+    )
+    eligible = pd.DataFrame(True, index=close.index, columns=close.columns)
+    result = run_momentum(
+        history,
+        MomentumConfig(lookback_sessions=5, liquidity_sessions=3, top_n=1),
+        eligible,
+    )
+
+    html, csv = write_momentum_report(
+        result, tmp_path / "momentum.html", tmp_path / "momentum.csv", "PIT Momentum"
+    )
+
+    assert "Point-in-time Universe Benchmark" in html.read_text(encoding="utf-8")
+    sections = set(pd.read_csv(csv)["section"])
+    assert {"benchmark_equity_curve", "target_turnover"} <= sections
+
+
+def test_run_momentum_rejects_large_calendar_gap():
+    history = pd.DataFrame(
+        {
+            "Date": pd.to_datetime(["2024-01-02", "2024-01-31"]),
+            "Symbol": ["A", "A"], "Open": [100, 101], "Close": [100, 101],
+            "TradingValue": [1_000_000, 1_000_000],
+        }
+    )
+    with pytest.raises(ValueError, match="Collect the missing dates"):
+        run_momentum(history, MomentumConfig())

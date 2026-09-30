@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the KQS daily pipeline after KRX data is expected (06:00 KST) with one retry
+
+[Timer]
+OnCalendar=*-*-* 08:30:00 Asia/Seoul
+OnCalendar=*-*-* 10:30:00 Asia/Seoul
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

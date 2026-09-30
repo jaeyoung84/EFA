@@ -1,0 +1,129 @@
+"""D-36 Stage 5A: isolated collection of the real locked-window `index-tsmom-v1` data.
+
+Runs the hash-locked, pre-validated pipeline in src/korea_quant/index_tsmom_collection.py
+against the real hash-locked source files (8 price CSVs + distribution xls in
+C:\\Users\\gram\\Downloads, and a real ECOS CD91 fetch for the locked window
+2002-10-14~2016-08-31). Writes normalized outputs to data/locked_window/index_tsmom_v1/
+(gitignored) and records the Stage 4.5 audit-trail fields that could only be filled
+in once this artifact exists (§3 정규화 파일 해시, §6 수집시각, §8 실행횟수).
+
+Per D-36's stage discipline, this script computes NO returns, signals, or
+performance figures, and prints NO actual price/dividend/CD91 magnitudes —
+only row counts, date ranges, hash values, and quality-check pass/fail flags.
+Stage 5C (signal computation + judgment) remains separately gated.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from datetime import date, datetime, timezone
+from pathlib import Path
+
+from korea_quant.ecos import EcosOpenApiClient, fetch_cd91
+from korea_quant.index_tsmom_collection import (
+    approximate_ex_dividend_date,  # noqa: F401  (used indirectly via normalize_distributions)
+    attach_cd91_with_carry_forward,
+    check_price_continuity,
+    merge_price_files,
+    normalize_distributions,
+)
+
+DOWNLOADS = Path("/mnt/c/Users/gram/Downloads")
+PRICE_FILES = [
+    "data_4421_20260909.csv",
+    "data_2117_20260909.csv",
+    "data_2207_20260909.csv",
+    "data_2256_20260909.csv",
+    "data_2339_20260909.csv",
+    "data_2416_20260909.csv",
+    "data_2444_20260909.csv",
+    "data_2515_20260909.csv",
+]
+DIST_XLS = DOWNLOADS / "상품별_분배_현황_20260908.xls"
+SYMBOL = "069500"
+WINDOW_START = date(2002, 10, 14)
+WINDOW_END = date(2016, 8, 31)
+
+OUT_DIR = Path("data/locked_window/index_tsmom_v1")
+
+
+def sha256_of(path: Path) -> str:
+    h = hashlib.sha256()
+    h.update(path.read_bytes())
+    return h.hexdigest()
+
+
+def main() -> None:
+    started_at = datetime.now(timezone.utc)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    price_paths = [DOWNLOADS / name for name in PRICE_FILES]
+    merged_price = merge_price_files(price_paths)
+    # max_calendar_gap_days=5 matches the Stage 3.5A cross_check_069500.py threshold,
+    # which found 10 such gaps (disclosed in PREREGISTRATION §4.1). Reusing the same
+    # threshold here lets this count be checked against that disclosure directly.
+    gaps = check_price_continuity(merged_price["일자"], max_calendar_gap_days=5)
+
+    trading_days = merged_price["일자"]
+    distributions = normalize_distributions(DIST_XLS, symbol=SYMBOL, trading_days=trading_days)
+
+    client = EcosOpenApiClient.from_env()
+    cd91_raw = fetch_cd91(client, WINDOW_START, WINDOW_END)
+    cd91_aligned = attach_cd91_with_carry_forward(trading_days, cd91_raw, max_gap_business_days=10)
+
+    price_out = OUT_DIR / "price_merged.csv"
+    dist_out = OUT_DIR / "distributions_normalized.csv"
+    cd91_out = OUT_DIR / "cd91_aligned.csv"
+
+    merged_price.to_csv(price_out, index=False)
+    distributions.to_csv(dist_out, index=False)
+    cd91_aligned.to_csv(cd91_out, index=False)
+
+    finished_at = datetime.now(timezone.utc)
+
+    summary = {
+        "started_at_utc": started_at.isoformat(),
+        "finished_at_utc": finished_at.isoformat(),
+        "price": {
+            "rows": len(merged_price),
+            "date_range": [
+                str(merged_price["일자"].min().date()),
+                str(merged_price["일자"].max().date()),
+            ],
+            "calendar_gaps_over_5d": len(gaps),
+            "matches_stage3_5a_disclosure_of_10_gaps": len(gaps) == 10,
+            "sha256": sha256_of(price_out),
+        },
+        "distributions": {
+            "rows": len(distributions),
+            "record_date_range": [
+                str(distributions["record_date"].min()),
+                str(distributions["record_date"].max()),
+            ]
+            if len(distributions)
+            else None,
+            "sha256": sha256_of(dist_out),
+        },
+        "cd91": {
+            "rows": len(cd91_aligned),
+            "date_range": [
+                str(cd91_aligned["date"].min().date()),
+                str(cd91_aligned["date"].max().date()),
+            ],
+            "quality_check": "PASS (no leading gap, no >10-business-day internal gap)",
+            "sha256": sha256_of(cd91_out),
+        },
+    }
+
+    summary_path = OUT_DIR / "stage5a_collection_summary.json"
+    summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    print("=== Stage 5A 수집 완료 (구조/품질 요약만 — 실제 값 미출력) ===")
+    print(json.dumps(summary, indent=2, ensure_ascii=False))
+    print()
+    print("요약 JSON SHA256:", sha256_of(summary_path))
+
+
+if __name__ == "__main__":
+    main()

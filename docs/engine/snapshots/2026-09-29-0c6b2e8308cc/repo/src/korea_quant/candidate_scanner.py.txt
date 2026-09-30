@@ -1,0 +1,296 @@
+"""Rank causal common-signal candidates across the Korean stock universe."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from html import escape
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+
+from korea_quant.backtest import BacktestConfig
+from korea_quant.confluence import ConfluenceConfig, generate_confluence_signals
+
+
+@dataclass(frozen=True)
+class CandidateScannerConfig:
+    """Research-only filters applied before ranking a common buy signal."""
+
+    liquidity_window: int = 20
+    minimum_average_trading_value: float = 5_000_000_000
+    minimum_signal_trading_value: float = 0.0
+    relative_strength_short_window: int = 63
+    relative_strength_long_window: int = 126
+    minimum_relative_strength: float | None = None
+    market_filter_window: int | None = None
+    high_window: int = 252
+    minimum_history_rows: int = 252
+    confluence_minimum_signals: int = 2
+    confluence_require_volume: bool = False
+
+
+def scan_confluence_candidates(
+    history: pd.DataFrame,
+    benchmark_close: pd.Series | dict[str, pd.Series],
+    config: CandidateScannerConfig | None = None,
+    base_config: BacktestConfig | None = None,
+) -> pd.DataFrame:
+    """Return candidates observed at the latest close for the next session.
+
+    Component orders are already delayed one session after their close-based
+    observations. A synthetic trailing row exposes the latest observation as
+    a next-session order without using future market data. This scanner never
+    places broker orders.
+    """
+    config = config or CandidateScannerConfig()
+    base_config = base_config or BacktestConfig()
+    _validate_config(config)
+    required = {
+        "Date",
+        "Symbol",
+        "Name",
+        "Market",
+        "Open",
+        "High",
+        "Low",
+        "Close",
+        "Volume",
+        "TradingValue",
+    }
+    missing = required - set(history.columns)
+    if missing:
+        raise ValueError(f"Candidate history is missing: {', '.join(sorted(missing))}")
+    if history.empty:
+        raise ValueError("Candidate history cannot be empty.")
+    universe = history.copy()
+    universe["Date"] = pd.to_datetime(universe["Date"])
+    universe = universe.sort_values(["Symbol", "Date"])
+    as_of = universe["Date"].max()
+    rows: list[dict[str, Any]] = []
+    confluence_config = ConfluenceConfig(
+        minimum_signals=config.confluence_minimum_signals,
+        require_trend=True,
+        require_volume=config.confluence_require_volume,
+    )
+
+    for symbol, group in universe.groupby("Symbol", sort=True):
+        group = group.sort_values("Date")
+        latest = group.iloc[-1]
+        trading_value = pd.to_numeric(group["TradingValue"], errors="coerce")
+        average_value = trading_value.tail(config.liquidity_window).mean()
+        signal_value = float(trading_value.iloc[-1])
+        row: dict[str, Any] = {
+            "as_of": as_of.date().isoformat(),
+            "execution_timing": "next_trading_session",
+            "symbol": symbol,
+            "name": latest["Name"],
+            "market": latest["Market"],
+            "close": float(latest["Close"]),
+            "average_trading_value": float(average_value),
+            "signal_trading_value": signal_value,
+            "state": "no_common_signal",
+            "confluence_count": 0,
+            "trend_count": 0,
+            "volume_count": 0,
+            "relative_strength_63": None,
+            "relative_strength_126": None,
+            "high_252_proximity": None,
+            "market_close": None,
+            "market_sma": None,
+            "market_entry_allowed": None,
+            "candidate_score": None,
+        }
+        if pd.Timestamp(latest["Date"]) != as_of:
+            row["state"] = "stale_security"
+        elif len(group) < config.minimum_history_rows:
+            row["state"] = "insufficient_history"
+        elif average_value < config.minimum_average_trading_value:
+            row["state"] = "low_liquidity"
+        elif signal_value < config.minimum_signal_trading_value:
+            row["state"] = "low_signal_trading_value"
+        else:
+            prices = group.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]]
+            benchmark = _benchmark_for_market(benchmark_close, str(latest["Market"]))
+            current = _next_session_signal(prices, base_config, confluence_config)
+            row["confluence_count"] = int(current["confluence_count"])
+            row["trend_count"] = int(current["confluence_trend_count"])
+            row["volume_count"] = int(current["confluence_volume_count"])
+            for column, value in current.items():
+                if str(column).startswith("signal_"):
+                    row[str(column)] = bool(value)
+            short_rs = _relative_strength(
+                prices["Close"], benchmark, config.relative_strength_short_window
+            )
+            long_rs = _relative_strength(
+                prices["Close"], benchmark, config.relative_strength_long_window
+            )
+            proximity = float(
+                prices["Close"].iloc[-1] / prices["High"].tail(config.high_window).max()
+            )
+            market_value, market_sma, market_allowed = _market_regime(
+                benchmark, as_of, config.market_filter_window
+            )
+            row.update(
+                {
+                    "relative_strength_63": short_rs,
+                    "relative_strength_126": long_rs,
+                    "high_252_proximity": proximity,
+                    "market_close": market_value,
+                    "market_sma": market_sma,
+                    "market_entry_allowed": market_allowed,
+                }
+            )
+            if not bool(current["entries"]):
+                row["state"] = "no_common_signal"
+            elif (
+                config.minimum_relative_strength is not None
+                and short_rs < config.minimum_relative_strength
+            ):
+                row["state"] = "weak_relative_strength"
+            elif not market_allowed:
+                row["state"] = "bearish_market"
+            else:
+                row["state"] = "entry_due_next_session"
+                row["candidate_score"] = 0.60 * long_rs + 0.25 * short_rs + 0.15 * (proximity - 1)
+        rows.append(row)
+
+    result = pd.DataFrame(rows)
+    priority = {
+        "entry_due_next_session": 0,
+        "no_common_signal": 1,
+        "weak_relative_strength": 2,
+        "bearish_market": 3,
+        "low_signal_trading_value": 4,
+        "low_liquidity": 5,
+        "insufficient_history": 6,
+        "stale_security": 7,
+    }
+    result["_priority"] = result["state"].map(priority)
+    return (
+        result.sort_values(
+            ["_priority", "candidate_score", "average_trading_value"],
+            ascending=[True, False, False],
+            na_position="last",
+        )
+        .drop(columns="_priority")
+        .reset_index(drop=True)
+    )
+
+
+def write_candidate_report(
+    scan: pd.DataFrame, html_output: Path, csv_output: Path
+) -> tuple[Path, Path]:
+    """Write candidate-first HTML and complete CSV research outputs."""
+    if scan.empty:
+        raise ValueError("Candidate scan cannot be empty.")
+    html_output.parent.mkdir(parents=True, exist_ok=True)
+    csv_output.parent.mkdir(parents=True, exist_ok=True)
+    scan.to_csv(csv_output, index=False)
+    candidates = scan[scan["state"] == "entry_due_next_session"].copy()
+    display = candidates.head(100) if not candidates.empty else scan.head(100).copy()
+    for column in ("relative_strength_63", "relative_strength_126", "high_252_proximity"):
+        display[column] = display[column].map(
+            lambda value: "" if pd.isna(value) else f"{value:.2%}"
+        )
+    display["candidate_score"] = display["candidate_score"].map(
+        lambda value: "" if pd.isna(value) else f"{value:.2%}"
+    )
+    display["close"] = display["close"].map(lambda value: f"{value:,.0f}")
+    for column in ("average_trading_value", "signal_trading_value"):
+        display[column] = display[column].map(lambda value: f"{value:,.0f}")
+    counts = scan["state"].value_counts().to_dict()
+    cards = "".join(
+        f"<li>{escape(key)}: <strong>{value:,}</strong></li>" for key, value in counts.items()
+    )
+    html = f"""<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>Common Signal Candidates</title>
+<style>body{{font-family:system-ui;margin:32px;max-width:1600px}}table{{border-collapse:collapse;width:100%;font-size:13px}}th,td{{padding:7px;border:1px solid #ddd;text-align:right}}th{{position:sticky;top:0;background:#f5f5f5}}th:nth-child(-n+4),td:nth-child(-n+4){{text-align:left}}</style>
+</head><body><h1>공통 매수 신호 후보</h1><p>최신 종가까지 관측한 공통 신호 중 다음 거래일 후보를 우선 표시합니다. 점수는 종목별 시장 벤치마크 대비 63·126일 상대강도와 252일 고점 근접도를 합친 연구용 정렬값이며, 주문·수익 보장이 아닙니다.</p><ul>{cards}</ul>{display.to_html(index=False, border=0, escape=True)}</body></html>"""
+    html_output.write_text(html, encoding="utf-8")
+    return html_output, csv_output
+
+
+def _relative_strength(close: pd.Series, benchmark: pd.Series, window: int) -> float:
+    aligned = pd.DataFrame(
+        {"close": pd.to_numeric(close, errors="coerce"), "benchmark": benchmark}
+    ).dropna()
+    if len(aligned) <= window:
+        raise ValueError("Insufficient aligned benchmark history for relative strength.")
+    stock_return = aligned["close"].iloc[-1] / aligned["close"].iloc[-1 - window] - 1
+    benchmark_return = aligned["benchmark"].iloc[-1] / aligned["benchmark"].iloc[-1 - window] - 1
+    return float(stock_return - benchmark_return)
+
+
+def _benchmark_for_market(
+    benchmark_close: pd.Series | dict[str, pd.Series], market: str
+) -> pd.Series:
+    if isinstance(benchmark_close, dict):
+        if market not in benchmark_close:
+            raise ValueError(f"Benchmark close is missing market: {market}")
+        values = benchmark_close[market]
+    else:
+        values = benchmark_close
+    benchmark = (
+        pd.Series(
+            pd.to_numeric(values, errors="coerce").to_numpy(),
+            index=pd.to_datetime(values.index),
+            dtype=float,
+        )
+        .dropna()
+        .sort_index()
+    )
+    if benchmark.empty or (benchmark <= 0).any():
+        raise ValueError(f"Benchmark close for {market} must contain positive values.")
+    return benchmark
+
+
+def _market_regime(
+    benchmark: pd.Series, as_of: pd.Timestamp, window: int | None
+) -> tuple[float, float | None, bool]:
+    observed = benchmark.loc[:as_of]
+    if observed.empty or observed.index[-1] != as_of:
+        raise ValueError("Benchmark does not cover the latest universe date.")
+    market_close = float(observed.iloc[-1])
+    if window is None:
+        return market_close, None, True
+    if len(observed) < window:
+        raise ValueError("Benchmark history is shorter than the market filter window.")
+    market_sma = float(observed.tail(window).mean())
+    return market_close, market_sma, market_close > market_sma
+
+
+def _next_session_signal(
+    prices: pd.DataFrame,
+    base_config: BacktestConfig,
+    confluence_config: ConfluenceConfig,
+) -> pd.Series:
+    placeholder = prices.iloc[[-1]].copy()
+    placeholder.index = pd.DatetimeIndex([prices.index[-1] + pd.Timedelta(days=1)])
+    extended = pd.concat([prices, placeholder])
+    return generate_confluence_signals(extended, base_config, confluence_config).iloc[-1]
+
+
+def _validate_config(config: CandidateScannerConfig) -> None:
+    if (
+        min(
+            config.liquidity_window,
+            config.relative_strength_short_window,
+            config.relative_strength_long_window,
+            config.high_window,
+            config.minimum_history_rows,
+        )
+        <= 1
+    ):
+        raise ValueError("Candidate scanner windows must be greater than one.")
+    if config.minimum_history_rows < max(
+        config.relative_strength_long_window + 1, config.high_window
+    ):
+        raise ValueError("minimum_history_rows must cover relative strength and high windows.")
+    if (
+        config.minimum_average_trading_value <= 0
+        or config.minimum_signal_trading_value < 0
+        or config.confluence_minimum_signals < 1
+    ):
+        raise ValueError("Liquidity threshold and minimum signals must be positive.")
+    if config.market_filter_window is not None and config.market_filter_window <= 1:
+        raise ValueError("market_filter_window must be greater than one.")

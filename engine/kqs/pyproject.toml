@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "iv-kqs-engine"
+version = "0.6.0"
+description = "Read-only KQS recommendation worker, without order or paper-fill paths"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+worker = ["pandas==2.3.3", "numpy==2.3.5"]
+
+[project.scripts]
+kqs-recommend = "kqs_runtime.cli:main"
+kqs-verify-market-inputs = "kqs_collection.cli:main"
+kqs-publish-worker = "kqs_runtime.worker:main"
+kqs-daily-pipeline = "kqs_runtime.pipeline:main"
+kqs-backup = "kqs_ops.backup:main"
+kqs-pipeline-status = "kqs_ops.status:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["korea_quant*", "kqs_runtime*", "kqs_publication*", "kqs_collection*", "kqs_ops*"]
+
+[tool.setuptools.package-data]
+kqs_publication = ["calendars/*.json"]

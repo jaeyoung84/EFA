@@ -1,0 +1,211 @@
+{
+  "schema": "kqs-change-verification/v1",
+  "change_id": "EINT-011",
+  "verified_at": "2026-09-29T12:57:47.882075+00:00",
+  "status": "native_website_views_locally_verified; candidate_price_scheduler_change_pending_user_approval",
+  "scope": "Native recommendation status/candidates/evidence projections and separate observation history. No engine changes or deployment.",
+  "reused_decisions": [
+    "D-27",
+    "D-28",
+    "D-30",
+    "D-44",
+    "EINT-003 publication contract",
+    "EINT-007A standalone native engine",
+    "EINT-008 manual FIFO regressions",
+    "EINT-009 immutable dataset regressions"
+  ],
+  "engine": {
+    "version": "0.6.0",
+    "registered_revision": "EINT-007A",
+    "revision_sha256": "ebc166f5d0fd7c93b9b0fa294e34d0c6a439c22365bed9ae5c7a15533cc9e380",
+    "source_unchanged": true,
+    "revision_check_passed": true
+  },
+  "previous_verification_unchanged": {
+    "path": "docs/engine/verification/EINT-010.json",
+    "sha256": "d2fbf2ca9303a5fb3f21a05dbdd38df4b05c462bd940dccbae16a94736098ab4"
+  },
+  "boundaries": {
+    "default_source": "snapshot",
+    "legacy_requires_explicit_source": "bridge",
+    "automatic_bridge_fallback": false,
+    "current_reviews_scoped_to_snapshot": true,
+    "operations_health_observed": false,
+    "automatic_position_applicability": "not_applicable",
+    "blocked_scan_count": "not provided; null, not fabricated zero",
+    "native_collections": [
+      "kqs_native_candidate_reviews",
+      "kqs_native_candidate_review_snapshots",
+      "kqs_native_candidate_queue_snapshots",
+      "kqs_native_candidate_outcomes"
+    ],
+    "legacy_collections_renamed_or_deleted": false,
+    "manual_ledger_and_dataset_code_preserved": true,
+    "manual_ledger_preservation_check": "Compared the KQS_DECISION_TYPES through /review-candidates/reviews block against the pre-EINT-011 capture; identical.",
+    "recommendation_reads_do_not_write": true,
+    "api_reads_are_not_atomic_across_multiple_requests": true,
+    "daily_queue_is_not_immutable_republication_archive": true
+  },
+  "artifacts": {
+    "app/backend/kqs_recommendations.py": "8ec8bbf32cba1fbe1360f2ed13edc2498694ee21ed7d2ec698c096b18db0ca97",
+    "app/backend/routers/kqs.py": "e003e7982e61a3c146b6f0c63692c617c509f27cc87c860de05b813be21f7932",
+    "app/frontend/js/views/kqsEngineViews.js": "32c33eb2a8b47fbe030462ec8d48555c047a29c0485184541b1f76f0ae05a6c1",
+    "app/frontend/js/views/strategyList.js": "d1138532541904560d60f3420a810ac1aaa746038aa8c6794819a02d5f501639",
+    "tests/conftest.py": "ae1b60e4b45b78b649188aec4296271df2b6b92f2879213116c949a426c6b91c",
+    "tests/test_kqs_bridge.py": "4b00cfe1bb780e00edb4beccf141223c5033a1d5cf432f3beada5c78bbb92fd7",
+    "tests/test_kqs_native_views.py": "d7aff10d6c9ae2f73583f7fe6525960375a5d737dc8d3af0c485c6a0acc39984",
+    "scripts/tests/test_kqs_native_views_api.py": "d790a446cff2f846c4397d33f57290101e4b2a8674ecd3ebbda88ed04012c9ac",
+    "scripts/tests/kqs_engine_views_render.mjs": "0d7bab88c265b8d0553c8c5d8288a4ee344c71e2b8bb8b691b4045f3ea077579",
+    ".github/workflows/kqs-runtime.yml": "c99d45ce79887fc7e0211b8f524d037eb2033005f121f6b7ead317263a3df9ec",
+    "docs/engine/NATIVE_VIEWS.md": "93f2eb01b3018f7bc79dc9f427def810d74b908f04d0d845e0058804e2c0ebf5",
+    "docs/engine/README.md": "dc50ba309d50a84979ceb63df5b2f97e30e04c227e18fd3737be4d6640552e4d",
+    "docs/engine/OPERATIONS.md": "28a35a2771945845ae790fc63ac838c1e2fda9ff068e65ecc6e1848004799a53",
+    "docs/engine/CHANGES.md": "c35200a03a5ae26a860e783717c4f1b6a4225f9700890e0668572c6550bc6b5f",
+    "docs/engine/verification/EINT-010.json": "d2fbf2ca9303a5fb3f21a05dbdd38df4b05c462bd940dccbae16a94736098ab4",
+    "engine/kqs/revisions/EINT-007A.json": "ebc166f5d0fd7c93b9b0fa294e34d0c6a439c22365bed9ae5c7a15533cc9e380",
+    "app/backend/scheduler.py": "2ea4b4970e7ec70c3ae8bc51dd15b8eb69b2e12e25555f2e0e93d319def083d3",
+    ".github/workflows/deploy.yml": "5d2cad7b568800528a2c6f456388132148acf2b6d7b64fa16f0e39599e6c8e83"
+  },
+  "tests": [
+    {
+      "command": "python -m pytest tests/test_kqs_bridge.py tests/test_kqs_contract.py tests/test_kqs_native_views.py -q -p no:cacheprovider",
+      "environment": "Python 3.14.4 /tmp/iv-kqs-eint010-ci.5qz9Uk/venv",
+      "passed": 65,
+      "skipped": 0,
+      "new_tests": 4,
+      "warnings": 13,
+      "data_boundary": "Dedicated MongoDB 7 container, loopback random port 32769, jy_investing_test_eint011, tmpfs only. Synthetic temporary SQLite publication. No original DB or volumes.",
+      "initial_failure": "64 pass/1 fail from test expecting review-snapshots JSON key snapshots instead of documented items. Corrected test, reran all 65 without skips."
+    },
+    {
+      "command": "python -m unittest discover -s scripts/tests -v",
+      "environment": "Python 3.14.4 engine venv with isolated /tmp/iv-kqs-eint010-testdeps",
+      "passed": 66,
+      "skipped": 0,
+      "new_tests": 6,
+      "data_boundary": "Temporary SQLite, synthetic publications, fake annotations/API/Docker; no historical research."
+    },
+    {
+      "command": "python -m unittest discover -s engine/kqs/tests -v",
+      "environment": "Python 3.14.4 engine venv",
+      "passed": 101,
+      "skipped": 0,
+      "data_boundary": "Synthetic isolated regressions only; no real pipeline, market collection, strategy sweeps or holdout."
+    },
+    {
+      "command": "node scripts/tests/kqs_engine_views_render.mjs",
+      "passed": true,
+      "environment": "node:22 container, network none, read-only rootfs and workspace",
+      "scope": "Reasons/trace/valid zero/errors/HTML escaping/not-applicable reconciliation and imported renderer wiring; not browser E2E."
+    },
+    {
+      "command": "node scripts/tests/kqs_recommendations_render.mjs",
+      "passed": true,
+      "environment": "Same node:22 restricted container"
+    },
+    {
+      "command": "node --check app/frontend/js/views/strategyList.js",
+      "passed": true
+    },
+    {
+      "command": "python -m pip check",
+      "passed": true,
+      "environment": "Temporary backend CI venv"
+    },
+    {
+      "command": "python scripts/check_engine_evidence.py --topic 무신호",
+      "passed": true,
+      "archived_files": 167,
+      "decision_count": 45,
+      "metadata_only_files": 1735,
+      "full_backup_complete": false
+    },
+    {
+      "command": "python engine/kqs/tools/check_revision.py",
+      "passed": true
+    },
+    {
+      "command": "python engine/kqs/tools/check_migration.py",
+      "passed": true
+    },
+    {
+      "command": "python scripts/check_kqs_release.py",
+      "passed": true,
+      "production_verified": false
+    },
+    {
+      "command": "python scripts/check_kqs_release.py --require-clean --require-deployment-ready",
+      "exit_code": 1,
+      "expected_failure": true,
+      "reason": "Dirty/untracked source and EINT-010 automatic-deployment workflow still approval-pending."
+    },
+    {
+      "command": "git diff --check",
+      "passed": true
+    }
+  ],
+  "unit_regression_total_passed": 232,
+  "new_tests": 10,
+  "ci": {
+    "matrix": [
+      "3.12",
+      "3.14"
+    ],
+    "local_versions_tested": [
+      "3.14.4"
+    ],
+    "remote_workflow_executed": false,
+    "backend_mongo": "dedicated GitHub mongo:7 service, jy_investing_test_kqs_ci",
+    "native_views_tests_and_renderer_wired": true
+  },
+  "approval_pending": [
+    {
+      "file": "app/backend/scheduler.py",
+      "file_unchanged_since_captured_attempt": true,
+      "sha256": "2ea4b4970e7ec70c3ae8bc51dd15b8eb69b2e12e25555f2e0e93d319def083d3",
+      "reason": "Safety reviewer rejected full-file preservation because unrelated leverage-DCA automatic execution exists in the same file. No workaround attempted.",
+      "requested_scope": "Only switch the KQS candidate ticker collection lookup to configured native/bridge source; preserve separate DCA code and scheduling exactly. No restart/deployment.",
+      "request_sent": true,
+      "approval_received": false,
+      "remaining_gap": "Candidate-only native symbols are not yet included via the new queue in scheduled daily-price targets. Existing holdings/strategies/manual-decision target paths unchanged. Native candidate-only outcome observation readiness is not asserted."
+    },
+    {
+      "file": ".github/workflows/deploy.yml",
+      "file_unchanged": true,
+      "matches_git_head": true,
+      "sha256": "5d2cad7b568800528a2c6f456388132148acf2b6d7b64fa16f0e39599e6c8e83",
+      "reason": "EINT-010 persistent automatic-deployment change remains approval-pending. Its four documented deployment warnings remain.",
+      "approval_received": false
+    }
+  ],
+  "cleanup": {
+    "mongo_test_container": "kqs-eint011-test-mongo",
+    "container_id": "15eb0e84a9f26e00513f578473b50a775328a9a579277f870ad44f1b1634addc",
+    "stopped_and_removed": true,
+    "tmpfs_test_data_discarded": true,
+    "existing_db_volumes_mounted": false,
+    "user_data_deleted": false
+  },
+  "limits": [
+    "Candidate-only native daily-price target wiring remains incomplete until scheduler-file approval and scoped regression.",
+    "No AWS commands, deployment, restart or production authenticated check.",
+    "No actual browser E2E; authenticated API flows and pure rendering tested separately.",
+    "Python 3.12 and remote CI not executed locally.",
+    "Only the relevant 65 backend tests, not all historical application tests, were executed.",
+    "Publication availability is not evidence of timer/process operational health.",
+    "Daily queue upserts and retrospective aggregate review metrics are not immutable per-publication evaluation records.",
+    "Legacy observation history is preserved but not merged into native history or human decision datasets.",
+    "Separate leverage DCA code and scheduler timings preserved; no new automatic trading introduced.",
+    "Existing deprecation warnings remain.",
+    "Private Mongo ledger backup and 1735 raw-data/report backups are still outstanding.",
+    "Passing regressions does not establish strategy returns, investment suitability or production reliability."
+  ],
+  "historical_research_reexecuted": 0,
+  "actual_holdout_reopened": 0,
+  "orders_or_automatic_fills_created": 0,
+  "user_ledger_writes": 0,
+  "aws_changes": 0,
+  "deployment_performed": false,
+  "committed_or_pushed": false,
+  "next_stage": "After approval, finish only native/bridge candidate price-target wiring and regression; then EINT-012 manual decision/trade timestamp and duplicate-request consistency. EINT-010 deployment-file approval and AWS deployment remain separate."
+}

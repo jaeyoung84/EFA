@@ -1,0 +1,141 @@
+"""Stage 5C phase B: the single, irreversible run against the locked window.
+
+Consumes 2002-10-14~2016-08-31 under 합의15 §6. Reuses the Stage 5A artifacts
+as-is (§8); the only added input is `distributions_with_payment_date.csv`,
+derived from the hash-locked raw xls without modifying any Stage 5A output.
+
+Requires explicit user authorization before execution. Writes the result JSON
+to the locked-window directory for hashing into the pre-registration record.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+import pandas as pd
+
+sys.path.insert(0, "src")
+
+from korea_quant.index_tsmom_backtest import (  # noqa: E402
+    COMMISSION_BPS,
+    EXECUTION_LOSS_BPS,
+    LOOKBACK_MONTHS,
+    TRANSACTION_TAX_BPS,
+    VERDICT_ROUNDING,
+    build_total_return_index,
+    cd91_daily_growth,
+    compute_metrics,
+    compute_signals,
+    decide_verdict,
+    month_end_trading_days,
+    simulate,
+)
+
+BASE = Path("data/locked_window/index_tsmom_v1")
+RESULT = BASE / "stage5c_result.json"
+WINDOW_START, WINDOW_END = "2002-10-14", "2016-08-31"
+D25_REFERENCE_CAGR = 0.0401  # §10 비교 기준선 (a)
+
+
+def load_inputs() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    raw = pd.read_csv(BASE / "price_merged.csv", parse_dates=["일자"])
+    prices = raw.rename(columns={"일자": "date", "시가": "open", "종가": "close"})[
+        ["date", "open", "close"]
+    ].sort_values("date").reset_index(drop=True)
+
+    observed = (prices["date"].iloc[0].date().isoformat(), prices["date"].iloc[-1].date().isoformat())
+    if observed != (WINDOW_START, WINDOW_END):
+        raise SystemExit(f"잠금구간 경계 불일치: 기대 {(WINDOW_START, WINDOW_END)}, 실제 {observed}")
+
+    distributions = pd.read_csv(
+        BASE / "distributions_with_payment_date.csv",
+        parse_dates=["record_date", "ex_dividend_date", "payment_date"],
+    )
+    cd91 = pd.read_csv(BASE / "cd91_aligned.csv", parse_dates=["date"])
+    if len(cd91) != len(prices):
+        raise SystemExit(f"CD91 정렬 행수 {len(cd91)} != 가격 행수 {len(prices)}")
+    return prices, distributions, cd91
+
+
+def as_dict(metrics) -> dict[str, float]:
+    return {
+        "cagr": metrics.cagr,
+        "cagr_rounded": round(metrics.cagr, VERDICT_ROUNDING),
+        "mdd": metrics.mdd,
+        "mdd_rounded": round(metrics.mdd, VERDICT_ROUNDING),
+        "calmar_diagnostic": metrics.calmar,
+        "monthly_win_rate_diagnostic": metrics.monthly_win_rate,
+    }
+
+
+def main() -> None:
+    if RESULT.exists():
+        raise SystemExit(f"{RESULT} 가 이미 존재합니다 — 잠금구간은 이미 소비되었습니다. 중단.")
+
+    prices, distributions, cd91 = load_inputs()
+    trading_days = pd.DatetimeIndex(prices["date"])
+
+    tr_index = build_total_return_index(prices, distributions)
+    growth = cd91_daily_growth(cd91)
+    signals = compute_signals(tr_index, growth, month_end_trading_days(trading_days))
+
+    trend = simulate(prices, distributions, growth, signals)
+    bench = simulate(prices, distributions, growth, signals, always_hold=True)
+    trend_metrics, bench_metrics = compute_metrics(trend), compute_metrics(bench)
+    verdict = decide_verdict(trend_metrics, bench_metrics)
+
+    payload = {
+        "protocol": "D-36 index-tsmom-v1 Stage 5C",
+        "executed_at_utc": datetime.now(timezone.utc).isoformat(),
+        "window": {"start": WINDOW_START, "end": WINDOW_END, "trading_days": len(prices)},
+        "spec": {
+            "lookback_months": LOOKBACK_MONTHS,
+            "commission_bps": COMMISSION_BPS,
+            "execution_loss_bps": EXECUTION_LOSS_BPS,
+            "transaction_tax_bps": TRANSACTION_TAX_BPS,
+            "verdict_rounding_decimals": VERDICT_ROUNDING,
+            "return_basis": "pre-tax total-return CAGR",
+        },
+        "signals": {
+            "judgments": len(signals),
+            "hold": sum(s.hold for s in signals),
+            "cash": sum(not s.hold for s in signals),
+            "first_judgment": signals[0].judged_on.date().isoformat(),
+            "last_judgment": signals[-1].judged_on.date().isoformat(),
+        },
+        "distributions": {
+            "count": len(distributions),
+            "signal_layer": "배당락일 종가 재투자",
+            "ledger_layer": "실지급일 현금 인식",
+        },
+        "trend": as_dict(trend_metrics),
+        "buy_and_hold": as_dict(bench_metrics),
+        "verdict": verdict,
+        "reference_baselines": {
+            "d25_full_period_deterministic_cagr": D25_REFERENCE_CAGR,
+            "d25_matched_length_window_distribution": (
+                "미산출 — krx_daily.sqlite3가 2016-08-29부터라 2002~2016 다종목 데이터가 없음"
+            ),
+            "d17_order_sensitivity_band": "0.85%~5.48% (진단 참고용, 판정에 미사용)",
+        },
+        "consumption": "이 실행으로 2002-10-14~2016-08-31 구간은 합의15 §6에 따라 consumed 상태다.",
+    }
+
+    RESULT.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    print(f"월말 판정 {len(signals)}회 (보유 {payload['signals']['hold']}, 현금 {payload['signals']['cash']})")
+    for label, m in [("추세", trend_metrics), ("B&H", bench_metrics)]:
+        print(
+            f"  {label:4s} CAGR={m.cagr:9.6%} (반올림 {round(m.cagr, VERDICT_ROUNDING):.4f})  "
+            f"MDD={m.mdd:9.6%} (반올림 {round(m.mdd, VERDICT_ROUNDING):.4f})  "
+            f"Calmar={m.calmar:6.3f}  월간승률={m.monthly_win_rate:6.2%}"
+        )
+    print(f"CAGR {verdict['cagr_direction']} / MDD {verdict['mdd_direction']} → 판정: {verdict['verdict']}")
+    print(f"기록: {RESULT}")
+
+
+if __name__ == "__main__":
+    main()

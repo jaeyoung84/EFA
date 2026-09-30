@@ -1,0 +1,77 @@
+# KQS 추천 읽기 전용 계약 v1
+
+홈페이지는 KQS 엔진의 추천·근거를 **표시만** 한다. 이 계약은 모의 주문, 모의 체결,
+실거래 주문, 엔진 파일·DB 수정 권한을 만들지 않는다.
+
+## 역할 분리
+
+- KQS 엔진: 전략 계산, 후보 선정, 엔진 자체 연구·모의원장
+- KQS 브리지: 엔진의 추천·근거·상태를 읽기 전용 JSON으로 제공
+- 홈페이지: 사용자의 매수·관망·매도 판단을 다음 단계에서 별도 원장으로 기록
+
+엔진의 모의원장과 사용자의 수동 모의원장은 합산하지 않는다. 전자는 전략의 연구 기준,
+후자는 개인 의사결정 학습 데이터다.
+
+## 엔드포인트
+
+`GET /api/v1/recommendations`
+
+브리지는 `127.0.0.1:18100`에만 바인딩하고, 응답 크기를 제한한다. 홈페이지는 만료·dirty
+엔진·해시 불일치·계약 위반 시 추천을 표시해 매수 판단에 쓰지 않는다.
+
+```json
+{
+  "schema_version": "kqs-recommendations/v1",
+  "generated_at": "2026-09-28T08:00:00+00:00",
+  "expires_at": "2026-09-29T08:00:00+00:00",
+  "engine": {
+    "engine_id": "korea-quant-system",
+    "run_id": "2026-09-28-daily-1",
+    "git_sha": "abcdef1",
+    "dirty": false,
+    "data_as_of": "2026-09-26",
+    "dataset_hash": "sha256:..."
+  },
+  "signals": [
+    {
+      "signal_id": "2026-09-26-005930-entry",
+      "action": "entry",
+      "side": "buy",
+      "symbol": "005930",
+      "market": "KOSPI",
+      "name": "삼성전자",
+      "signal_type": "swing",
+      "selection_rank": 1,
+      "selection_outcome": "selected",
+      "execution_session": "next_trading_session",
+      "config_fingerprint": "...",
+      "audit_row_hash": "sha256:...",
+      "reasons": [
+        {"code": "trend", "label": "추세 조건 충족", "evidence": "엔진이 계산한 사실 기반 조건"}
+      ]
+    }
+  ],
+  "integrity": {"payload_sha256": "SHA-256 of the JSON object excluding integrity"}
+}
+```
+
+## 필수 규칙
+
+- 선정된 `entry` 신호는 하루 0~3개이며 동일 종목을 중복 선정하지 않는다.
+- 0개는 정상 결과다. 홈페이지가 빈 슬롯을 채우거나 순위를 바꾸지 않는다.
+- `entry`는 `buy`, `exit`는 `sell` 신호만 사용한다.
+- 각 신호에는 사람이 검토할 수 있는 구조화된 근거를 최소 하나 포함한다. LLM이 근거를
+  만들어 내거나 수익을 예측한 문구를 넣지 않는다.
+- `dirty=true`, 만료된 응답, 데이터 기준일 불명, 해시 불일치는 fail-closed다.
+- v1에서는 `payload_sha256`으로 전송 손상을 검출한다. 브리지 복구 후에는 만료 시각,
+  `run_id`, 요청 경로를 포함한 HMAC 서명을 추가해 재전송 공격도 차단한다.
+
+## 점검 명령
+
+엔진 브리지가 시작된 뒤 홈페이지 저장소에서 실행한다.
+
+```bash
+python scripts/check_kqs_recommendation_contract.py
+```
+
+이 명령이 성공하기 전에는 홈페이지에서 KQS 추천을 매수 판단용으로 활성화하지 않는다.

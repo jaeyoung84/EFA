@@ -1,0 +1,202 @@
+"""Read-only quality checks for a collected KRX SQLite database."""
+
+from __future__ import annotations
+
+import sqlite3
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+
+
+def audit_krx_database(path: str | Path, sample_limit: int = 20) -> dict[str, Any]:
+    """Audit collection coverage and stored bars without modifying the database."""
+
+    database = Path(path).resolve()
+    if not database.is_file():
+        raise FileNotFoundError(f"KRX database does not exist: {database}")
+    if sample_limit < 1:
+        raise ValueError("sample_limit must be positive.")
+    connection = sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True, timeout=30)
+    connection.row_factory = sqlite3.Row
+    try:
+        summary = _summary(connection)
+        incomplete = _rows(
+            connection,
+            """
+            SELECT trade_date, GROUP_CONCAT(market) AS markets,
+                   COUNT(DISTINCT market) AS market_count
+            FROM collection_log GROUP BY trade_date
+            HAVING SUM(market = 'KOSPI') = 0 OR SUM(market = 'KOSDAQ') = 0
+            ORDER BY trade_date
+            """,
+            sample_limit,
+        )
+        count_mismatches = _rows(
+            connection,
+            """
+            SELECT log.trade_date, log.market, log.row_count AS logged_rows,
+                   COUNT(price.symbol) AS actual_rows
+            FROM collection_log AS log
+            LEFT JOIN daily_prices AS price
+              ON price.trade_date = log.trade_date AND price.market = log.market
+            GROUP BY log.trade_date, log.market, log.row_count
+            HAVING log.row_count <> COUNT(price.symbol)
+            ORDER BY log.trade_date, log.market
+            """,
+            sample_limit,
+        )
+        orphan_groups = _rows(
+            connection,
+            """
+            SELECT price.trade_date, price.market, COUNT(*) AS actual_rows
+            FROM daily_prices AS price
+            LEFT JOIN collection_log AS log
+              ON log.trade_date = price.trade_date AND log.market = price.market
+            WHERE log.trade_date IS NULL
+            GROUP BY price.trade_date, price.market ORDER BY price.trade_date, price.market
+            """,
+            sample_limit,
+        )
+        invalid_prices = _rows(
+            connection,
+            """
+            SELECT trade_date, symbol, market, open, high, low, close, volume
+            FROM daily_prices
+            WHERE close <= 0 OR volume < 0
+               OR (open > 0 AND high > 0 AND low > 0 AND (
+                    high < low OR high < open OR high < close OR low > open OR low > close
+               ))
+            ORDER BY trade_date, symbol
+            """,
+            sample_limit,
+        )
+        invalid_symbols = _rows(
+            connection,
+            """
+            SELECT trade_date, symbol, market FROM daily_prices
+            WHERE LENGTH(symbol) <> 6 OR symbol GLOB '*[^0-9A-Z]*'
+            ORDER BY trade_date, symbol
+            """,
+            sample_limit,
+        )
+        duplicates = _rows(
+            connection,
+            """
+            SELECT trade_date, symbol, COUNT(*) AS copies FROM daily_prices
+            GROUP BY trade_date, symbol HAVING COUNT(*) > 1
+            ORDER BY trade_date, symbol
+            """,
+            sample_limit,
+        )
+        long_gaps = _long_gaps(connection, sample_limit)
+        counts = {
+            "incomplete_market_dates": _count_wrapped(
+                connection,
+                """SELECT trade_date FROM collection_log GROUP BY trade_date
+                   HAVING SUM(market = 'KOSPI') = 0 OR SUM(market = 'KOSDAQ') = 0""",
+            ),
+            "row_count_mismatches": _count_wrapped(
+                connection,
+                """SELECT log.trade_date, log.market FROM collection_log AS log
+                   LEFT JOIN daily_prices AS price
+                     ON price.trade_date = log.trade_date AND price.market = log.market
+                   GROUP BY log.trade_date, log.market, log.row_count
+                   HAVING log.row_count <> COUNT(price.symbol)""",
+            ),
+            "orphan_price_groups": _count_wrapped(
+                connection,
+                """SELECT price.trade_date, price.market FROM daily_prices AS price
+                   LEFT JOIN collection_log AS log
+                     ON log.trade_date = price.trade_date AND log.market = price.market
+                   WHERE log.trade_date IS NULL GROUP BY price.trade_date, price.market""",
+            ),
+            "invalid_price_rows": _scalar(
+                connection,
+                """SELECT COUNT(*) FROM daily_prices WHERE close <= 0 OR volume < 0
+                   OR (open > 0 AND high > 0 AND low > 0 AND (
+                     high < low OR high < open OR high < close OR low > open OR low > close))""",
+            ),
+            "invalid_symbol_rows": _scalar(
+                connection,
+                """SELECT COUNT(*) FROM daily_prices
+                   WHERE LENGTH(symbol) <> 6 OR symbol GLOB '*[^0-9A-Z]*'""",
+            ),
+            "duplicate_price_keys": _count_wrapped(
+                connection,
+                """SELECT trade_date, symbol FROM daily_prices
+                   GROUP BY trade_date, symbol HAVING COUNT(*) > 1""",
+            ),
+            "calendar_gaps_over_14_days": len(long_gaps),
+        }
+    finally:
+        connection.close()
+    return {
+        "healthy": not any(counts.values()),
+        "database": str(database),
+        "summary": summary,
+        "issue_counts": counts,
+        "samples": {
+            "incomplete_market_dates": incomplete,
+            "row_count_mismatches": count_mismatches,
+            "orphan_price_groups": orphan_groups,
+            "invalid_price_rows": invalid_prices,
+            "invalid_symbol_rows": invalid_symbols,
+            "duplicate_price_keys": duplicates,
+            "calendar_gaps_over_14_days": long_gaps,
+        },
+    }
+
+
+def _summary(connection: sqlite3.Connection) -> dict[str, Any]:
+    price = connection.execute(
+        """SELECT MIN(trade_date), MAX(trade_date), COUNT(*), COUNT(DISTINCT symbol),
+                  COUNT(DISTINCT trade_date) FROM daily_prices"""
+    ).fetchone()
+    logs = connection.execute(
+        "SELECT COUNT(*), COUNT(DISTINCT trade_date) FROM collection_log"
+    ).fetchone()
+    return {
+        "first_price_date": price[0],
+        "last_price_date": price[1],
+        "price_rows": price[2],
+        "symbols": price[3],
+        "price_dates": price[4],
+        "collection_log_rows": logs[0],
+        "logged_dates": logs[1],
+    }
+
+
+def _rows(
+    connection: sqlite3.Connection, query: str, sample_limit: int
+) -> list[dict[str, Any]]:
+    return [dict(row) for row in connection.execute(f"{query} LIMIT ?", (sample_limit,))]
+
+
+def _scalar(connection: sqlite3.Connection, query: str) -> int:
+    return int(connection.execute(query).fetchone()[0])
+
+
+def _count_wrapped(connection: sqlite3.Connection, query: str) -> int:
+    return _scalar(connection, f"SELECT COUNT(*) FROM ({query})")
+
+
+def _long_gaps(connection: sqlite3.Connection, sample_limit: int) -> list[dict[str, Any]]:
+    frame = pd.read_sql_query(
+        "SELECT DISTINCT trade_date FROM daily_prices ORDER BY trade_date",
+        connection,
+        parse_dates=["trade_date"],
+    )
+    if frame.empty:
+        return []
+    frame["previous_date"] = frame["trade_date"].shift(1)
+    frame["gap_days"] = (frame["trade_date"] - frame["previous_date"]).dt.days
+    gaps = frame[frame["gap_days"] > 14].head(sample_limit)
+    return [
+        {
+            "previous_date": row.previous_date.date().isoformat(),
+            "next_date": row.trade_date.date().isoformat(),
+            "gap_days": int(row.gap_days),
+        }
+        for row in gaps.itertuples()
+    ]

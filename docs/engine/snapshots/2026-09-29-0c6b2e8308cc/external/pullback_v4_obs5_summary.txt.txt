@@ -1,0 +1,75 @@
+실행 시각: 2026-09-15 09:54:30  python=3.14.4  pandas=3.0.5
+v4 sha256(앞16) 실행 전: strategy_validation_v4.py=8e4dc15f3f135f5b, data_loader.py=ff1f239c95de9c24, run.py=4f57bec9d0c9ce55, run_forward.py=4a0b6a38fc03d77e, test_strategy_validation_v4.py=158aefa4704e8714, test_run_forward_v4.py=2cfe9bebf04ce983, PREREGISTRATION_v4.md=ca8b53cb89c583b1
+v3 sha256(앞16) 실행 전: strategy_validation_v3.py=d568623fe1015721, data_loader.py=ff1f239c95de9c24, run.py=92a2dd5fdea95710, run_forward.py=30031c90a2c3191f, test_strategy_validation_v3.py=70ea8cddfce8fba4, test_run_forward_v3.py=5776d1878980a0b5, PREREGISTRATION_v3.md=4b45dafc7119591b
+v2 sha256(앞16) 실행 전: strategy_validation_v2.py=73f6af2f238d2c7d, data_loader.py=ff1f239c95de9c24, run.py=8d466b8c0408eeb1, run_forward.py=3a2a76d17b7d2f2a, test_strategy_validation_v2.py=46beba6225a3ff5e, test_run_forward_v2.py=ecf9358b536aaa92, PREREGISTRATION_v2.md=a13476fafb04389c
+v1 sha256(앞16) 실행 전: strategy_validation_v1.py=3645655dba365d19, data_loader.py=a41869759babd325, run.py=d3b9f3f796f720ad, run_forward.py=69ed9738d4538dc3, test_strategy_validation_v1.py=988f27b000c0b306, test_run_forward_v1.py=ac70de1090b99465, PREREGISTRATION_v1.md=d8c3227af1e5efa1
+t0 sha256(앞16) 실행 전: strategy_validation_v03_final2.py=c1abcea607b33de3, data_loader.py=a41869759babd325, test_strategy_validation.py=5f20244cfc590221, run.py=63a2ef2c4edb500a
+사전등록 문서 sha256(전체): ca8b53cb89c583b10ea1813aeaccc3ac7654f73aa6c80e883cee532fa4200a17
+본 래퍼 sha256(전체): 589dd5056c9b9dff61a2159808adfee9f2d8feb5dcac1fec777fce31189c8f2f
+[해시 잠금] 코드 4파일={'strategy_validation_v4.py': True, 'data_loader.py': True, 'run.py': True, 'run_forward.py': True}  래퍼 자신=True
+[v4 선언] declared_observations=5  regime_exit(CONFIG/FIXED)=True/True  market_sma=50  VALID_EXIT_REASONS=['forced_close', 'holding_limit', 'market_regime', 'stop', 'trailing']  RANK_WEIGHTS={'dist_ema10': 0.4, 'adx': 0.3, 'rsi': 0.3}  → 사전등록 일치=True
+run.py 상수: START=2022-01-01 END=2026-09-08 DB_START=2016-08-29 CAPITAL=100,000,000 MARKET=069500 KOSDAQ_MARKET=229200 UNIVERSE_EXCLUDE=('069500', '229200') DB_PATH=/home/gram/korea-quant-system/data/krx_daily.sqlite3
+[H-16/V2-3] 유니버스 3161 (관측 #1~#4 기준 3161) → 일치; 시장 매핑 3161, 단일 시장 KOSPI=1027 KOSDAQ=2120, 이전 종목=14 (사전 조사 14) → 일치; 구간 형태=[('KOSDAQ', 'KOSPI')]
+[V2-2 벤치마크] KOSPI(069500) 행수=2459 2016-08-29~2026-09-08; KOSDAQ(229200) 행수=2459 2016-08-29~2026-09-08; 날짜축 동일=True
+[V2-4 게이트 일수(창 2022-01-01~2026-09-08)] days=1145  on_KOSPI=668  on_KOSDAQ=595  on_all=503  on_none=385  only_KOSPI=165  only_KOSDAQ=92
+[run.main] 완료  소요 108.6s  반환=OK  STEP 줄 수=5  경고/오류 줄 수=1
+[㉮ 신호] 기본 신호=81470건  눌림목 통과=20605건  F-f(20~80% 권고)=20~80% 안  (기대 81,470/20,605 = 관측 #3: 일치)
+[V2-4 진단(run_full_system)] gate_days: 1145  gate_on_KOSPI: 668  gate_on_KOSDAQ: 595  gate_on_all: 503  gate_on_none: 385  gate_only_KOSPI: 165  gate_only_KOSDAQ: 92  trades_KOSDAQ: 249  trades_KOSPI: 272  market_map_tickers: 3161 / multi_segment: 14
+[V4-4 진단(run_full_system)] market_regime_total: 253  market_regime_KOSDAQ: 142  market_regime_KOSPI: 111  market_regime_hd1: 95  other_exits: 268
+[검증기] validate_equity_frame=True (오류 0건)  validate_trade_frame=True (오류 0건)
+[equity] 행수=1145  기간=2022-01-03~2026-09-08  positions max=5  positions==0 일수=387  cash<0 일수=0
+[trades] 건수=521  종목수=418  entry 2022-01-04~2026-09-01  exit 2022-01-05~2026-09-02
+[trades] exit_reason 분포: {'market_regime': 253, 'stop': 104, 'holding_limit': 101, 'trailing': 62, 'forced_close': 1}
+[trades] holding_days min=1 max=15 mean=7.19  ==1 건수=95  stop&==1 건수(F-9c 경로)=0  >holding_limit(15) 건수=0
+[trades] forced_close=1  (기간종료형 exit_date==마지막날: 0, 루프내형(상장폐지 등): 1)
+[trades] 승/패 건수: 187/334  r_multiple<-2 건수=2
+[trades] 연도별 건수: {2022: 90, 2023: 102, 2024: 134, 2025: 109, 2026: 86}
+[trades] 시장별 건수(V2-4, 진입일 기준): {'KOSDAQ': 249, 'KOSPI': 272}
+[trades] market_regime 청산(V4-4, 청산일 기준 시장별): {'market_regime_total': 253, 'market_regime_KOSDAQ': 142, 'market_regime_KOSPI': 111, 'market_regime_hd1': 95, 'other_exits': 268}  holding_days 분포(market_regime 만): {1: 95, 2: 48, 3: 33, 4: 11, 5: 6, 6: 11, 7: 9, 8: 7, 9: 2, 10: 2, 11: 6, 12: 9, 13: 4, 14: 10}  승/패(market_regime 만): 99/154  연도별(market_regime, 청산일): {2022: 65, 2023: 36, 2024: 89, 2025: 25, 2026: 38}  진단 == 출력 일치=True
+[fold_report] 폴드 수=10  컬럼=['기간', 'PF', 'MDD_폴드내부', '거래_수', '판정']  판정 분포={'진단 전용 [힌트]': 10}
+[full_validation 플래그] 원시_거래_수=521  실효_표본_수=159  [강제] 검정력_상태=검정력 부족 — n_eff 159 / 필요 808  최대_낙폭_지속_거래일=423  미회복_종료=True  손절_거래_수=104  R1_보수_하한>1.00=False  R3_MDD≤20%=True  최종_통과=False  [주의] 결과_등급=불통과  관측_횟수=5
+[TrendGoal V1-6] closed=521  windows=10  immediate_reject=False  trend_goal_pass=False  criteria={'trades>=30': True, 'payoff>=2.0': False, 'PF>=1.3': False, 'expectancy>0.0': True, 'window_share>=0.5': True}
+[hash] trades=77ee8e1492dc3ea6  equity=fca541d9f626eebd  (관측 #3(기반 v2): trades=dd6aeef95b64ddd7 equity=4ba5cc00d60d489d; 관측 #4: 5032c4707365fa25/09052e530a8591d4; 관측 #2: b4feeacd358e5e48/135f9916ffee2426; 관측 #1: d6d1778e6a49bda7/013e2d14359ff6cb — 규칙이 다르므로 상이가 정상)
+[사전등록 실패 조건] F-a 거래<30=False  F-b R1 False=True  F-c R3 False=False  F-d TrendGoal 실패=True  F-d' 즉시기각(D-37)=False  F-e holding_limit>50%(진단)=False  F-f 통과율 권고(권고)=False  F-g 시장별 거래 0건(진단)=False  F-i 배선 오류(무효)=False
+[관측 #5 결론] 결과 등급 상한=힌트(①b)  판정 조건 해당=2건 ['F-b R1 False', 'F-d TrendGoal 실패']  → 실패 조건 해당 = 불통과 힌트(규칙 변경 필요 여부는 사용자 결정)
+[대조 #3→#5] [trades] 건수: 상이
+    #3: [trades] 건수=397  종목수=354  entry 2022-01-04~2026-08-28  exit 2022-01-06~2026-09-08
+    #5: [trades] 건수=521  종목수=418  entry 2022-01-04~2026-09-01  exit 2022-01-05~2026-09-02
+[대조 #3→#5] [trades] exit_reason: 상이
+    #3: [trades] exit_reason 분포: {'holding_limit': 159, 'stop': 150, 'trailing': 85, 'forced_close': 3}
+    #5: [trades] exit_reason 분포: {'market_regime': 253, 'stop': 104, 'holding_limit': 101, 'trailing': 62, 'forced_close': 1}
+[대조 #3→#5] [trades] forced_close: 상이
+    #3: [trades] forced_close=3  (기간종료형 exit_date==마지막날: 2, 루프내형(상장폐지 등): 1)
+    #5: [trades] forced_close=1  (기간종료형 exit_date==마지막날: 0, 루프내형(상장폐지 등): 1)
+[대조 #3→#5] [trades] holding_days: 상이
+    #3: [trades] holding_days min=1 max=15 mean=10.97  ==1 건수=3  stop&==1 건수(F-9c 경로)=3  >holding_limit(15) 건수=0
+    #5: [trades] holding_days min=1 max=15 mean=7.19  ==1 건수=95  stop&==1 건수(F-9c 경로)=0  >holding_limit(15) 건수=0
+[대조 #3→#5] [trades] 승/패: 상이
+    #3: [trades] 승/패 건수: 141/256  r_multiple<-2 건수=2
+    #5: [trades] 승/패 건수: 187/334  r_multiple<-2 건수=2
+[대조 #3→#5] [trades] 연도별: 상이
+    #3: [trades] 연도별 건수: {2022: 56, 2023: 98, 2024: 78, 2025: 100, 2026: 65}
+    #5: [trades] 연도별 건수: {2022: 90, 2023: 102, 2024: 134, 2025: 109, 2026: 86}
+[대조 #3→#5] [trades] 시장별: 상이
+    #3: [trades] 시장별 건수(V2-4, 진입일 기준): {'KOSDAQ': 204, 'KOSPI': 193}
+    #5: [trades] 시장별 건수(V2-4, 진입일 기준): {'KOSDAQ': 249, 'KOSPI': 272}
+[대조 #3→#5] [equity] 행수: 상이
+    #3: [equity] 행수=1145  기간=2022-01-03~2026-09-08  positions max=5  positions==0 일수=200  cash<0 일수=0
+    #5: [equity] 행수=1145  기간=2022-01-03~2026-09-08  positions max=5  positions==0 일수=387  cash<0 일수=0
+[대조 #3→#5] [fold_report]: 동일
+[대조 #3→#5] [full_validation 플래그]: 상이
+    #3: [full_validation 플래그] 원시_거래_수=397  실효_표본_수=104  [강제] 검정력_상태=검정력 부족 — n_eff 104 / 필요 808  최대_낙폭_지속_거래일=1143  미회복_종료=True  손절_거래_수=150  R1_보수_하한>1.00=False  R3_MDD≤20%=True  최종_통과=False  [주의] 결과_등급=불통과  관측_횟수=3
+    #5: [full_validation 플래그] 원시_거래_수=521  실효_표본_수=159  [강제] 검정력_상태=검정력 부족 — n_eff 159 / 필요 808  최대_낙폭_지속_거래일=423  미회복_종료=True  손절_거래_수=104  R1_보수_하한>1.00=False  R3_MDD≤20%=True  최종_통과=False  [주의] 결과_등급=불통과  관측_횟수=5
+[대조 #3→#5] [TrendGoal V1-6]: 상이
+    #3: [TrendGoal V1-6] closed=397  windows=10  immediate_reject=True  trend_goal_pass=False  criteria={'trades>=30': True, 'payoff>=2.0': False, 'PF>=1.3': False, 'expectancy>0.0': False, 'window_share>=0.5': False}
+    #5: [TrendGoal V1-6] closed=521  windows=10  immediate_reject=False  trend_goal_pass=False  criteria={'trades>=30': True, 'payoff>=2.0': False, 'PF>=1.3': False, 'expectancy>0.0': True, 'window_share>=0.5': True}
+[대조 #3→#5] [검증기]: 동일
+[대조 #3→#5] [㉮ 신호]: 상이
+    #3: [㉮ 신호] 기본 신호=81470건  눌림목 통과=20605건  F-f(20~80% 권고)=20~80% 안
+    #5: [㉮ 신호] 기본 신호=81470건  눌림목 통과=20605건  F-f(20~80% 권고)=20~80% 안  (기대 81,470/20,605 = 관측 #3: 일치)
+[대조 #3→#5] [V2-4 게이트 일수: 동일
+[대조 #3→#5] [V2-4 진단(run_full_system)]: 상이
+    #3: [V2-4 진단(run_full_system)] gate_days: 1145  gate_on_KOSPI: 668  gate_on_KOSDAQ: 595  gate_on_all: 503  gate_on_none: 385  gate_only_KOSPI: 165  gate_only_KOSDAQ: 92  trades_KOSDAQ: 204  trades_KOSPI: 193  market_map_tickers: 3161 / multi_segment: 14
+    #5: [V2-4 진단(run_full_system)] gate_days: 1145  gate_on_KOSPI: 668  gate_on_KOSDAQ: 595  gate_on_all: 503  gate_on_none: 385  gate_only_KOSPI: 165  gate_only_KOSDAQ: 92  trades_KOSDAQ: 249  trades_KOSPI: 272  market_map_tickers: 3161 / multi_segment: 14
+v4·v3·v2·v1·t0 32파일 무수정: True   DB mtime/size 불변: True
+총 소요: 160.1s

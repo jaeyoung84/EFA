@@ -1,0 +1,88 @@
+"""Tests for the shared acceptance criteria (D-7).
+
+These cover the metric maths itself; the per-harness tests cover how each family
+reads it.
+"""
+
+from __future__ import annotations
+
+import math
+
+import pandas as pd
+import pytest
+
+from korea_quant.strategy_goals import (
+    METRIC_COLUMNS,
+    ExitOptimizationGoal,
+    ReversionGoal,
+    TrendGoal,
+    format_metric,
+    trade_metrics,
+    validate_reversion_goal,
+    validate_trend_goal,
+)
+
+
+def _frame(returns: list[float], **columns) -> pd.DataFrame:
+    return pd.DataFrame({"NetReturnPct": returns, **columns})
+
+
+def test_metrics_read_realised_returns_only_and_still_count_what_they_skipped():
+    # Both harnesses exit only on recovery, so an open position is by
+    # construction one that has not recovered. Folding those into the ratios is
+    # what let a censored sample read as a near-perfect win rate; dropping them
+    # silently would hide how much of the sample the ratios omit.
+    frame = _frame([0.10, -0.05, -0.90], Status=["closed", "closed", "open"])
+    metrics = trade_metrics(frame)
+    assert metrics.closed_trades == 2
+    assert metrics.open_trades == 1
+    assert metrics.win_rate == pytest.approx(0.5)
+    assert metrics.profit_factor == pytest.approx(0.10 / 0.05)
+
+
+def test_a_scope_with_no_losing_trade_reports_infinity_rather_than_zero():
+    metrics = trade_metrics(_frame([0.10, 0.20]))
+    assert metrics.profit_factor == math.inf
+    assert metrics.payoff_ratio == math.inf
+    assert format_metric("Profit Factor", metrics.profit_factor) == "∞"
+    # An infinite ratio must clear a threshold, not trip the comparison.
+    assert TrendGoal(minimum_trades=2, minimum_payoff_ratio=2.0).passes(metrics)
+
+
+def test_a_break_even_trade_counts_as_a_loss_not_a_win():
+    # Zero net of costs is not a win, and treating it as one would inflate the
+    # win rate of any strategy that scratches out of trades.
+    metrics = trade_metrics(_frame([0.0, 0.0, 0.10]))
+    assert metrics.win_rate == pytest.approx(1 / 3)
+
+
+def test_window_share_counts_windows_by_their_summed_return_not_by_trade_count():
+    # A window with nine small wins and one large loss did not make money, and a
+    # goal that counted trades instead of returns would say it did.
+    frame = _frame(
+        [0.01] * 9 + [-0.50] + [0.05] * 10,
+        Window=[1] * 10 + [2] * 10,
+    )
+    metrics = trade_metrics(frame)
+    assert metrics.window_count == 2
+    assert metrics.profitable_window_share == pytest.approx(0.5)
+
+
+def test_unlabelled_trades_leave_the_window_metric_undefined_rather_than_failed():
+    metrics = trade_metrics(_frame([0.10] * 5))
+    assert metrics.window_count == 0
+    assert ExitOptimizationGoal(minimum_trades=5, minimum_win_rate=0.6).passes(metrics)
+
+
+def test_every_metric_column_is_present_in_the_row_a_summary_writes():
+    row = trade_metrics(_frame([0.10, -0.05])).as_row()
+    assert tuple(row) == METRIC_COLUMNS
+
+
+def test_nonsense_thresholds_are_rejected_at_construction_time_not_at_report_time():
+    with pytest.raises(ValueError, match="between zero and one"):
+        validate_reversion_goal(ReversionGoal(minimum_win_rate=1.4))
+    with pytest.raises(ValueError, match="between zero and one"):
+        validate_reversion_goal(ReversionGoal(minimum_profitable_window_share=-0.1))
+    with pytest.raises(ValueError, match="minimum_payoff_ratio"):
+        validate_trend_goal(TrendGoal(minimum_payoff_ratio=0.0))

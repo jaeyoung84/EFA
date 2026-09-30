@@ -1,0 +1,331 @@
+"""Acceptance criteria for every strategy family -- the single source of truth.
+
+The thresholds used to be hardcoded three times (trend_validation,
+reversion_validation, reversion_exit_optimization). Fixing one and missing the
+others silently changed what PASS meant depending on which harness a reader ran,
+so they live here now and each harness imports them.
+
+Why the criteria are shaped this way
+------------------------------------
+The previous goal -- win rate >= 70%, mean net return >= 10%, median > 0 --
+failed on two counts, both measured rather than argued.
+
+1. **It was a category error for the trend family.** Darvas Box and Turtle win
+   35.1% and 34.6% of trades with median returns of -4.97% and -3.82%. That is
+   not a defect; it is what a payoff ratio of 2.73 and 2.27 looks like. No
+   parameter choice moves a structural trend follower to a 70% win rate, so the
+   old goal could only ever print FAIL for this family. Trend acceptance
+   therefore reads payoff ratio, profit factor and expectancy, and does not look
+   at win rate or median at all.
+
+2. **Mean net return per trade rewards capital lock-up.** It has no time
+   denominator, so a rule that ties capital up for 233 sessions to make +6.77%
+   scores better than one making +1.99% in 17.8 -- four times worse by capital
+   efficiency. That is exactly how the broken rsi-obv exit survived review.
+
+Replacing the mean with profit factor was necessary but not sufficient: the
+broken exit's profit factor was 1.600 against the fixed exit's 1.562, so PF
+alone still ranked the broken rule first. What separates them is window
+stability -- the share of out-of-sample windows that closed profitably: 48.5%
+broken versus 71.4% fixed. That is the criterion that actually detects a rule
+whose gains depend on a handful of windows, and it is why every family carries
+it.
+
+Measured basis for the thresholds (out-of-sample, 10y, costed):
+
+| strategy               | win   | median  | PF    | payoff | profitable windows |
+|------------------------|-------|---------|-------|--------|--------------------|
+| bollinger-rsi          | 0.648 | +0.0309 | 1.591 | 0.87   | 0.800              |
+| rsi-obv (current exit) | 0.689 | +0.0369 | 1.562 | 0.71   | 0.714              |
+| rsi-obv (broken exit)  | 0.615 | +0.0893 | 1.600 | 1.00   | 0.485              |
+| darvas-box             | 0.351 | -0.0497 | 1.475 | 2.73   | 0.500              |
+| turtle                 | 0.346 | -0.0382 | 1.201 | 2.27   | 0.500              |
+
+Thresholds sit in the gaps that separate those rows, not on any one of them.
+See DECISIONS.md D-7 for the rejected alternatives and their numbers.
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+
+import pandas as pd
+
+from korea_quant.capital_metrics import (
+    CAPITAL_DECIMAL_COLUMNS,
+    CAPITAL_KRW_COLUMNS,
+    CAPITAL_PERCENT_COLUMNS,
+)
+
+# Metric columns every acceptance summary shares. Keeping one tuple means a new
+# metric appears in every report at once instead of in whichever harness the
+# author happened to be editing.
+METRIC_COLUMNS = (
+    "Closed Trade Count", "Open Trade Count", "Win Rate", "Mean Net Return",
+    "Median Net Return", "Profit Factor", "Payoff Ratio", "Expectancy",
+    "Profitable Window Share", "Window Count",
+)
+
+# Columns rendered as percentages; the ratios stay ratios.
+PERCENT_COLUMNS = (
+    "Win Rate", "Mean Net Return", "Median Net Return", "Expectancy",
+    "Profitable Window Share",
+)
+RATIO_COLUMNS = ("Profit Factor", "Payoff Ratio")
+
+
+@dataclass(frozen=True)
+class TradeMetrics:
+    """Everything an acceptance goal can read, computed once per scope."""
+
+    closed_trades: int
+    open_trades: int
+    win_rate: float
+    mean_net_return: float
+    median_net_return: float
+    profit_factor: float
+    payoff_ratio: float
+    expectancy: float
+    profitable_window_share: float
+    window_count: int
+
+    def as_row(self) -> dict[str, float | int]:
+        return {
+            "Closed Trade Count": self.closed_trades,
+            "Open Trade Count": self.open_trades,
+            "Win Rate": self.win_rate,
+            "Mean Net Return": self.mean_net_return,
+            "Median Net Return": self.median_net_return,
+            "Profit Factor": self.profit_factor,
+            "Payoff Ratio": self.payoff_ratio,
+            "Expectancy": self.expectancy,
+            "Profitable Window Share": self.profitable_window_share,
+            "Window Count": self.window_count,
+        }
+
+
+def trade_metrics(
+    trades: pd.DataFrame,
+    return_column: str = "NetReturnPct",
+    window_column: str = "Window",
+) -> TradeMetrics:
+    """Summarise one scope's trades.
+
+    Only closed trades reach the ratios: an open position carries a
+    mark-to-market number, not a realised one, and counting it as realised is
+    what let a 96%-censored sample read as a 96% win rate. Open positions are
+    still counted so a reader can see how much of the sample the ratios omit.
+
+    Window stability is the share of out-of-sample windows whose closed trades
+    sum to a profit. Rows with no window label contribute nothing; when no row
+    carries one the metric is undefined and ``window_count`` is zero, which the
+    goals below read as "no evidence" rather than "failed".
+    """
+
+    data = trades.copy()
+    data[return_column] = pd.to_numeric(data[return_column], errors="coerce")
+    data = data.dropna(subset=[return_column])
+    # A caller passing plain trade rows with no Status column is treating them
+    # all as closed, which is what it means.
+    closed_mask = (
+        data["Status"].astype(str).str.lower().eq("closed")
+        if "Status" in data
+        else pd.Series(True, index=data.index)
+    )
+    closed_rows = data.loc[closed_mask]
+    closed = closed_rows[return_column]
+    count = len(closed)
+    if not count:
+        return TradeMetrics(0, len(data), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0)
+
+    wins = closed[closed > 0]
+    losses = closed[closed <= 0]
+    gross_profit = float(wins.sum())
+    gross_loss = float(-losses.sum())
+    average_win = float(wins.mean()) if len(wins) else 0.0
+    average_loss = float(-losses.mean()) if len(losses) else 0.0
+    win_rate = len(wins) / count
+    return TradeMetrics(
+        closed_trades=count,
+        open_trades=len(data) - count,
+        win_rate=float(win_rate),
+        mean_net_return=float(closed.mean()),
+        median_net_return=float(closed.median()),
+        # No losing trade means nothing divides the wins. Infinity is the honest
+        # value and compares correctly against any threshold.
+        profit_factor=gross_profit / gross_loss if gross_loss > 0 else math.inf,
+        payoff_ratio=average_win / average_loss if average_loss > 0 else math.inf,
+        expectancy=float(win_rate * average_win - (1 - win_rate) * average_loss),
+        **_window_stability(closed_rows, return_column, window_column),
+    )
+
+
+def _window_stability(
+    closed_rows: pd.DataFrame, return_column: str, window_column: str
+) -> dict[str, float | int]:
+    if window_column not in closed_rows:
+        return {"profitable_window_share": 0.0, "window_count": 0}
+    labelled = closed_rows.dropna(subset=[window_column])
+    if labelled.empty:
+        return {"profitable_window_share": 0.0, "window_count": 0}
+    per_window = labelled.groupby(window_column)[return_column].sum()
+    return {
+        "profitable_window_share": float((per_window > 0).mean()),
+        "window_count": len(per_window),
+    }
+
+
+@dataclass(frozen=True)
+class ReversionGoal:
+    """Mean-reversion acceptance: win often, keep the ratio, stay steady.
+
+    This family's payoff ratio is below one by construction (0.71-0.87) -- it
+    exits at recovery, so wins are capped and losses are not. Win rate therefore
+    has to carry the profit, and 0.60 is the level that clears the breakeven win
+    rate implied by the observed payoff ratios (0.51-0.59) with room to spare.
+    Profit factor replaces the old mean-net-return bar, which measured capital
+    lock-up as if it were skill.
+    """
+
+    minimum_win_rate: float = 0.60
+    minimum_profit_factor: float = 1.30
+    minimum_median_net_return: float = 0.0
+    minimum_profitable_window_share: float = 0.60
+    minimum_swing_trades: int = 100
+    minimum_long_term_trades: int = 30
+
+    def minimum_trades_for(self, strategy: str, swing_strategy: str) -> int:
+        return (
+            self.minimum_swing_trades if strategy == swing_strategy
+            else self.minimum_long_term_trades
+        )
+
+    def passes(self, metrics: TradeMetrics, minimum_trades: int) -> bool:
+        return bool(
+            metrics.closed_trades >= minimum_trades
+            and metrics.win_rate >= self.minimum_win_rate
+            and metrics.profit_factor >= self.minimum_profit_factor
+            and metrics.median_net_return > self.minimum_median_net_return
+            and _window_share_ok(metrics, self.minimum_profitable_window_share)
+        )
+
+
+@dataclass(frozen=True)
+class TrendGoal:
+    """Trend-following acceptance: lose small and often, win big.
+
+    Win rate and median are deliberately absent. A structural trend follower is
+    supposed to be wrong most of the time; judging it on those two measures
+    describes the family rather than its quality. The payoff-ratio floor is an
+    identity guard -- a "trend" strategy whose wins are not multiples of its
+    losses is not doing what this family is for -- while profit factor and
+    expectancy carry the actual profitability test.
+    """
+
+    minimum_payoff_ratio: float = 2.00
+    minimum_profit_factor: float = 1.30
+    minimum_expectancy: float = 0.0
+    minimum_profitable_window_share: float = 0.50
+    minimum_trades: int = 30
+
+    def passes(self, metrics: TradeMetrics) -> bool:
+        return bool(
+            metrics.closed_trades >= self.minimum_trades
+            and metrics.payoff_ratio >= self.minimum_payoff_ratio
+            and metrics.profit_factor >= self.minimum_profit_factor
+            and metrics.expectancy > self.minimum_expectancy
+            and _window_share_ok(metrics, self.minimum_profitable_window_share)
+        )
+
+
+@dataclass(frozen=True)
+class ExitOptimizationGoal:
+    """Acceptance for the walk-forward exit search -- a reversion strategy.
+
+    Same criteria as ``ReversionGoal`` because it evaluates bollinger-rsi; only
+    the trade-count floor differs, since this harness reports one pooled row per
+    market rather than one per strategy.
+    """
+
+    minimum_win_rate: float = 0.60
+    minimum_profit_factor: float = 1.30
+    minimum_median_net_return: float = 0.0
+    minimum_profitable_window_share: float = 0.60
+    minimum_trades: int = 100
+
+    def passes(self, metrics: TradeMetrics) -> bool:
+        return bool(
+            metrics.closed_trades >= self.minimum_trades
+            and metrics.win_rate >= self.minimum_win_rate
+            and metrics.profit_factor >= self.minimum_profit_factor
+            and metrics.median_net_return > self.minimum_median_net_return
+            and _window_share_ok(metrics, self.minimum_profitable_window_share)
+        )
+
+
+def _window_share_ok(metrics: TradeMetrics, minimum_share: float) -> bool:
+    # Unlabelled trades are not evidence of instability, so a scope with no
+    # windows is not failed on a measure that could not be taken. Window Count
+    # is published beside the share so this stays visible in the report.
+    if metrics.window_count == 0:
+        return True
+    return metrics.profitable_window_share >= minimum_share
+
+
+def format_metric(column: str, value: object) -> str:
+    """Render one summary cell for HTML and display frames."""
+
+    # The capital columns land in the same summary frame as the per-trade ones,
+    # so the one formatter every report calls has to render them too. Their
+    # names live in capital_metrics because that is the module that decides what
+    # they mean; only the layout is decided here.
+    if column in PERCENT_COLUMNS or column in CAPITAL_PERCENT_COLUMNS:
+        number = float(value)
+        return "n/a" if math.isnan(number) else f"{number:.2%}"
+    if column in RATIO_COLUMNS:
+        number = float(value)
+        return "∞" if math.isinf(number) else f"{number:.3f}"
+    if column in CAPITAL_DECIMAL_COLUMNS:
+        number = float(value)
+        return "n/a" if math.isnan(number) else f"{number:.2f}"
+    if column in CAPITAL_KRW_COLUMNS:
+        number = float(value)
+        return "n/a" if math.isnan(number) else f"{number:,.0f}"
+    return str(value)
+
+
+def validate_win_rate_goal(minimum_win_rate: float) -> None:
+    if not 0 <= minimum_win_rate <= 1:
+        raise ValueError("minimum_win_rate must be between zero and one.")
+
+
+def validate_shared_goal(
+    minimum_profit_factor: float, minimum_profitable_window_share: float
+) -> None:
+    if minimum_profit_factor <= 0:
+        raise ValueError("minimum_profit_factor must be positive.")
+    if not 0 <= minimum_profitable_window_share <= 1:
+        raise ValueError("minimum_profitable_window_share must be between zero and one.")
+
+
+def validate_reversion_goal(goal: ReversionGoal) -> None:
+    validate_win_rate_goal(goal.minimum_win_rate)
+    validate_shared_goal(goal.minimum_profit_factor, goal.minimum_profitable_window_share)
+    if goal.minimum_swing_trades < 1 or goal.minimum_long_term_trades < 1:
+        raise ValueError("Minimum trade counts must be positive.")
+
+
+def validate_trend_goal(goal: TrendGoal) -> None:
+    validate_shared_goal(goal.minimum_profit_factor, goal.minimum_profitable_window_share)
+    if goal.minimum_payoff_ratio <= 0:
+        raise ValueError("minimum_payoff_ratio must be positive.")
+    if goal.minimum_trades < 1:
+        raise ValueError("minimum_trades must be positive.")
+
+
+def validate_exit_optimization_goal(goal: ExitOptimizationGoal) -> None:
+    validate_win_rate_goal(goal.minimum_win_rate)
+    validate_shared_goal(goal.minimum_profit_factor, goal.minimum_profitable_window_share)
+    if goal.minimum_trades < 1:
+        raise ValueError("minimum_trades must be positive.")

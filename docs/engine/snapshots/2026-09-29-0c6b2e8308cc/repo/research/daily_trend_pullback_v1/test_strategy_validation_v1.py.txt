@@ -1,0 +1,1750 @@
+"""
+test_strategy_validation_v1.py
+변형 v1.0-rc1 단위 테스트 — 기반: T-0 v0.4-rc1 test_strategy_validation.py (sha256 앞16 5f20244cfc590221)
+v1 (2026-09-12) 변경 블록(그 외 T-0 테스트 원문 무변경):
+  - import 대상 strategy_validation_v03_final2 → strategy_validation_v1 (+ RANK_WEIGHTS·_fold_labels·net_return_pct·trend_goal_check)
+  - 픽스처 make_trade / make_trades_with_dates 의 exit_reason "ema_cross" → "trailing" (V1-4: ema_cross 청산 없음)
+  - test_declared_observations_is_one → _is_two (V1-1: 관측 #2)
+  - §21 v1 전용 테스트 추가: V1-3 랭킹 방향, V1-4 청산(ema_cross 부재), V1-6 _fold_labels·net_return_pct·trend_goal_check
+--- 이하 T-0 원문 ---
+T-0 v0.4-rc1 단위 테스트 (F-1~F-9 + H-라운드 반영)
+
+변경 이력:
+  v1.0  초안
+  v1.1  D-11·D-12·D-13
+  v1.2  D-1·D-2·D-7
+  v1.3  E-1·E-2·E-3·E-10
+  v1.4  F-1~F-9 (2026-09-10 11:43 KST)
+        F-1: (ticker, entry_date) 중복 직접 단언
+        F-2: assert 위치 검증 제거 (코드 레벨 보장)
+        F-3: forced_close holding_days 봉거리 검증
+        F-4: equity positions 카운트 검증
+        F-7: E-8 벡터/스칼라 일치 검증
+        F-9: 직접 단언으로 전환
+  v1.5  H-1·H-2·H-4·H-10·H-11·H-12 + H-3·H-5·H-15 + H-13~H-18 (2026-09-11)
+        H-1:  holding_days == 합집합 축 위치차 항등식(세 청산 경로 모두) — G-3의 ">= 1" 근사를 정확 단언으로 대체
+        H-2:  positions==0 인 날 equity == cash
+        H-4:  G-1 커버리지 임계(0.95) 경계값 — 94% raise / 96% 통과
+        H-10: 모든 진입은 직전 합집합일의 full 신호 True + 시장 필터 ON 을 전제
+        H-11: 신호 주입(monkeypatch)으로 stop·holding_limit·정지 보류·상장폐지·기간종료 경로를 결정적으로 실행
+              (기존 테스트는 무작위 신호에 의존해 거래가 없으면 skip 되던 문제 해결)
+        H-12: 보유 중 거래정지 구간의 equity == cash + shares × 정지 직전 종가(E-2 캐시)
+        H-3:  상장폐지·기간종료 경로에서 불변식 위반 RuntimeError 가 나지 않음을 확인
+        H-5·H-15: CONFIG["market_sma_warn_ratio"]·PF_DEP_MIN_MARGIN 일관성
+        H-13~H-18: SQLite 로더 — 임시 DB 픽스처(실DB 스키마)로 유니버스 규칙·PRAGMA 컬럼 선택·
+              trading_value 별칭·하드코딩 휴일 보존·시장 축 정렬·시장 시리즈 부재 RuntimeError·커버리지 축
+
+실행:
+  pytest test_strategy_validation.py -v
+  pytest test_strategy_validation.py -v -k "TestF1" -s
+  pytest test_strategy_validation.py --tb=short
+"""
+
+import sqlite3
+import pytest
+import numpy as np
+import pandas as pd
+from collections import Counter
+
+import strategy_validation_v1 as strat   # H-11: 신호 주입(monkeypatch) 대상 모듈 (v1)
+from strategy_validation_v1 import (
+    RANK_WEIGHTS, _fold_labels, net_return_pct, trend_goal_check,   # V1-3·V1-6
+    CONFIG, FIXED_CONFIG, TRADE_COLUMNS,
+    VALID_EXIT_REASONS, ENTRY_COST, EXIT_COST,
+    ENTRY_COST_BPS, EXIT_COST_BPS,
+    PF_DEP_MIN_MARGIN,                            # H-15
+    attach_costs,
+    compute_pf_cash, compute_pf_r,
+    validate_trade_frame, validate_equity_frame,
+    _wilder_smooth, _compute_indicators,
+    _compute_entry_signals, _entry_signal,
+    _exit_signal, _rank_candidates,
+    _pullback_filter_effectiveness,
+    _attach_warmup,                               # H-10
+    drawdown_stats, effective_sample_size,
+    required_sample_size_mde, block_bootstrap_pf,
+    tail_dependency, gap_loss_analysis,
+    g7_concentration_warning,                     # H-15
+    run_period, _generate_fold_reports,
+    full_validation,
+)
+from data_loader import (                         # H-13~H-18
+    KRX_HOLIDAYS, get_trading_days,
+    clean_ohlcv, clean_ohlcv_with_market_calendar,
+    _sqlite_select_columns, load_universe_symbols,
+    load_ohlcv_from_sqlite, load_market_from_sqlite,
+    check_data_coverage,
+    SQLITE_TABLE, SQLITE_TICKER_COL, SQLITE_DATE_COL, SQLITE_MARKET_TICKER,
+)
+
+
+# ══════════════════════════════════════════════
+# 공통 픽스처
+# ══════════════════════════════════════════════
+
+def make_ohlcv(
+    n: int = 400,
+    start: str = "2025-01-02",
+    close_start: float = 10000.0,
+    trend: float = 0.0003,
+    seed: int = 42
+) -> pd.DataFrame:
+    rng   = np.random.default_rng(seed)
+    dates = pd.bdate_range(start=start, periods=n, freq="B")
+    close = close_start * np.cumprod(1 + trend + rng.normal(0, 0.015, n))
+    # E-9a: 거래량 충분히 높여 min_turnover 확정 통과
+    volume = rng.integers(500_000, 2_000_000, n).astype(int)
+
+    df = pd.DataFrame({
+        "Open":   close * rng.uniform(0.99, 1.01, n),
+        "High":   close * rng.uniform(1.00, 1.03, n),
+        "Low":    close * rng.uniform(0.97, 1.00, n),
+        "Close":  close,
+        "Volume": volume,
+    }, index=dates)
+    df["High"]     = df[["Open","High","Close"]].max(axis=1)
+    df["Low"]      = df[["Open","Low","Close"]].min(axis=1)
+    df["Turnover"] = df["Close"] * df["Volume"]
+    return df
+
+
+def make_trade(
+    ticker: str = "TEST",
+    entry_price: float = 10000.0,
+    exit_price: float  = 10500.0,
+    stop_price: float  = 9500.0,
+    shares: int = 100,
+    holding_days: int = 5,
+    exit_reason: str = "trailing",        # V1-4: ema_cross 청산 없음
+    entry_date: str = "2025-03-01",
+    exit_date: str  = "2025-03-08"
+) -> pd.Series:
+    return pd.Series({
+        "ticker":       ticker,
+        "sector":       "Unknown",
+        "entry_date":   pd.Timestamp(entry_date),
+        "exit_date":    pd.Timestamp(exit_date),
+        "entry_price":  entry_price,
+        "exit_price":   exit_price,
+        "stop_price":   stop_price,
+        "shares":       shares,
+        "entry_cost":   np.nan,
+        "exit_cost":    np.nan,
+        "pnl_net":      np.nan,
+        "r_multiple":   np.nan,
+        "exit_reason":  exit_reason,
+        "holding_days": holding_days,
+        "score":        0.5
+    })
+
+
+def make_trades_with_dates(
+    n_win: int = 6,
+    n_loss: int = 4,
+    eq_index: pd.DatetimeIndex = None
+) -> pd.DataFrame:
+    if eq_index is None:
+        eq_index = pd.bdate_range("2024-01-01", periods=400)
+
+    n_total = n_win + n_loss
+    step    = max(len(eq_index) // (n_total + 1), 1)
+    dates   = [
+        eq_index[min(i * step, len(eq_index) - 1)]
+        for i in range(1, n_total + 1)
+    ]
+
+    rows = []
+    for i in range(n_win):
+        ep = 10000.0
+        rows.append(make_trade(
+            ticker=f"WIN{i:02d}",
+            entry_price=ep, exit_price=ep * 1.08,
+            stop_price=ep * 0.93, shares=100,
+            holding_days=5, exit_reason="trailing",      # V1-4
+            entry_date=str((dates[i] - pd.Timedelta(days=5)).date()),
+            exit_date=str(dates[i].date())
+        ))
+    for i in range(n_loss):
+        j  = n_win + i
+        ep = 10000.0
+        rows.append(make_trade(
+            ticker=f"LOSS{i:02d}",
+            entry_price=ep, exit_price=ep * 0.95,
+            stop_price=ep * 0.93, shares=100,
+            holding_days=3, exit_reason="stop",
+            entry_date=str((dates[j] - pd.Timedelta(days=3)).date()),
+            exit_date=str(dates[j].date())
+        ))
+
+    df = pd.DataFrame(rows, columns=TRADE_COLUMNS).reset_index(drop=True)
+    return attach_costs(df)
+
+
+def make_equity(
+    n: int = 200,
+    start: str = "2025-01-02",
+    initial: float = 100_000_000.0,
+    drift: float = 0.0005,
+    seed: int = 42
+) -> pd.DataFrame:
+    rng   = np.random.default_rng(seed)
+    dates = pd.bdate_range(start=start, periods=n)
+    eq    = initial * np.cumprod(1 + drift + rng.normal(0, 0.008, n))
+    return pd.DataFrame({
+        "equity":    eq,
+        "cash":      eq * 0.3,
+        "positions": rng.integers(0, CONFIG["max_positions"] + 1, n)
+    }, index=dates)
+
+
+def make_system_ohlcv(n: int = 350, seed: int = 0) -> dict:
+    """n=350: SMA50·ADX14 정상 계산 보장"""
+    return {
+        "AAA": make_ohlcv(n, seed=seed,   trend=0.003),
+        "BBB": make_ohlcv(n, seed=seed+1, trend=0.002),
+        "CCC": make_ohlcv(n, seed=seed+2, trend=0.001),
+    }
+
+
+def make_market(n: int = 350) -> pd.DataFrame:
+    return make_ohlcv(n, close_start=2800.0, trend=0.0004, seed=99)
+
+
+def _run_system(n=350, capital=100_000_000):
+    ohlcv     = make_system_ohlcv(n)
+    market_df = make_market(n)
+    start     = list(ohlcv["AAA"].index)[0]
+    end       = list(ohlcv["AAA"].index)[-1]
+    return run_period(
+        ohlcv, market_df, start, end, FIXED_CONFIG,
+        initial_capital=capital,
+        compute_pb_effectiveness=False
+    )
+
+
+# ══════════════════════════════════════════════
+# 1. F-1: del positions[ticker] 검증 (핵심)
+# ══════════════════════════════════════════════
+
+class TestF1DelPositions:
+    """
+    F-1: pending_exits 적용 시 del positions[ticker] 없으면
+         같은 포지션이 매일 재청산 → 현금 증식 → R3 거짓 통과.
+    """
+
+    def test_no_duplicate_entry_date_per_ticker(self):
+        """
+        F-1 직접 단언: (ticker, entry_date) 중복 = 같은 포지션 중복 청산.
+        exit_date가 매일 달라 종전 중복 검사(entry+exit+shares)는 잡지 못함.
+        validate_trade_frame에 추가된 검사가 이를 잡아야 함.
+        """
+        equity, trades, _ = _run_system()
+        if trades.empty:
+            pytest.skip("거래 없음")
+
+        dup = trades.duplicated(subset=["ticker", "entry_date"])
+        assert not dup.any(), \
+            f"(ticker, entry_date) 중복 {dup.sum()}건 — F-1 del positions[ticker] 미적용"
+
+    def test_cash_not_growing_unboundedly(self):
+        """
+        F-1 버그: 중복 청산 → 현금 무한 증식.
+        equity 최대값이 initial_capital × 10 미만이어야 함.
+        """
+        capital = 100_000_000
+        equity, _, _ = _run_system(capital=capital)
+        max_eq = equity["equity"].max()
+        assert max_eq < capital * 10, \
+            f"equity 최대 {max_eq:,.0f} > {capital*10:,.0f} — 현금 증식 의심 (F-1)"
+
+    def test_positions_not_stuck_at_max(self):
+        """
+        F-1 버그: positions가 제거되지 않아 slots=0 고착 → 신규 진입 불가.
+        positions가 항상 max_positions에 있지 않아야 함.
+        """
+        equity, trades, _ = _run_system()
+        if len(equity) < 20:
+            pytest.skip("데이터 부족")
+
+        pos_series = equity["positions"].iloc[:-1]
+        max_pos    = CONFIG["max_positions"]
+        stuck_rate = (pos_series == max_pos).mean()
+        assert stuck_rate < 0.95, \
+            f"positions가 {stuck_rate:.1%} 시간 max 고착 — F-1 del 미적용"
+
+    def test_validate_catches_duplicate_entry_date(self):
+        """validate_trade_frame이 (ticker, entry_date) 중복을 잡아야 함"""
+        df = make_trades_with_dates(2, 0)
+        # 의도적으로 같은 entry_date로 두 번째 행 변조
+        df2 = df.copy()
+        df2.loc[1, "entry_date"] = df2.loc[0, "entry_date"]
+        df2.loc[1, "ticker"]     = df2.loc[0, "ticker"]
+        # exit_date만 다르게 (기존 중복 검사 우회)
+        df2.loc[1, "exit_date"]  = df2.loc[0, "exit_date"] + pd.Timedelta(days=1)
+
+        ok, errs = validate_trade_frame(df2, raise_on_error=False)
+        assert not ok
+        assert any("entry_date" in e or "중복" in e for e in errs)
+
+    def test_exit_proceeds_applied_next_day(self):
+        """
+        E-1·F-1: 청산 대금은 다음 반복 시작 시 반영.
+        청산 결정일 equity에 t+1 시가 정보 없어야 함.
+        """
+        equity, trades, _ = _run_system()
+        if trades.empty or len(equity) < 5:
+            pytest.skip("데이터 부족")
+
+        eq  = equity["equity"].iloc[:-1]
+        pct = eq.pct_change().dropna()
+
+        # 단일일 5% 초과 상승이 10% 이상이면 이상 (중복 청산 = 현금 급증)
+        large_up = (pct > 0.05).mean()
+        assert large_up < 0.10, \
+            f"단일일 +5% 초과 비율 {large_up:.1%} — 청산 현금 선반영 의심"
+
+
+# ══════════════════════════════════════════════
+# 2. F-3: forced_close holding_days 봉거리 검증
+# ══════════════════════════════════════════════
+
+class TestF3HoldingDays:
+    """
+    F-3: forced_close는 당일 종가 체결.
+    봉거리 = exit_date_index - entry_date_index (익일 시가와 달리 -1).
+    정상 청산: holding_days = i - entry_idx ✓ (불변)
+    forced_close: holding_days = i - entry_idx - 1 ✓ (F-3)
+    기간종료: holding_days = last_idx - entry_idx - 1 ✓ (F-3)
+    """
+
+    def test_forced_close_holding_days_gte_1(self):
+        """
+        G-3 수정: all_dates 합집합 축을 외부에서 재현할 수 없으므로
+        봉거리 정확값 대신 >= 1 범위만 확인.
+        (F-3 + E-3 + A-1 보장)
+        """
+        ohlcv     = make_system_ohlcv(350)
+        market_df = make_market(350)
+        start     = list(ohlcv["AAA"].index)[0]
+        end       = list(ohlcv["AAA"].index)[-1]
+
+        _, trades, _ = run_period(
+            ohlcv, market_df, start, end, FIXED_CONFIG,
+            compute_pb_effectiveness=False
+        )
+
+        forced = trades[trades["exit_reason"] == "forced_close"]
+        if forced.empty:
+            pytest.skip("forced_close 거래 없음")
+
+        assert (forced["holding_days"] >= 1).all(), \
+            f"forced_close holding_days < 1:\n{forced[['ticker','holding_days','entry_date','exit_date']]}"
+
+    def test_normal_exit_holding_days_matches_union_index(self):
+        """
+        G-3: 정상 청산은 all_dates 합집합 봉거리와 일치.
+        종목별 df.index 대신 전체 bdate_range 근사치 사용.
+        """
+        ohlcv     = make_system_ohlcv(350)
+        market_df = make_market(350)
+        start     = list(ohlcv["AAA"].index)[0]
+        end       = list(ohlcv["AAA"].index)[-1]
+
+        _, trades, _ = run_period(
+            ohlcv, market_df, start, end, FIXED_CONFIG,
+            compute_pb_effectiveness=False
+        )
+
+        normal = trades[trades["exit_reason"] != "forced_close"]
+        if normal.empty:
+            pytest.skip("정상 청산 없음")
+
+        # holding_days >= 1 및 holding_limit 이하 (정지로 초과 가능)
+        assert (normal["holding_days"] >= 1).all()
+        # exit_date > entry_date (익일 체결)
+        assert (normal["exit_date"] > normal["entry_date"]).all()
+
+    def test_all_holding_days_gte_1(self):
+        """E-3·A-1 보장 하에 모든 경로에서 holding_days >= 1"""
+        _, trades, _ = _run_system()
+        if not trades.empty:
+            assert (trades["holding_days"] >= 1).all(), \
+                f"holding_days < 1:\n{trades[trades['holding_days'] < 1]}"
+
+    def test_holding_limit_gte_15(self):
+        """E-9c: 보유한도 청산은 holding_days >= 15 (정지로 초과 가능)"""
+        _, trades, _ = _run_system()
+        limit = trades[trades["exit_reason"] == "holding_limit"]
+        if not limit.empty:
+            assert (limit["holding_days"] >= CONFIG["holding_limit"]).all()
+
+
+# ══════════════════════════════════════════════
+# 3. F-4: equity positions 카운트
+# ══════════════════════════════════════════════
+
+class TestF4PositionsCount:
+    """
+    F-4: equity["positions"] = len(positions) (오늘 실보유).
+    pending_exits도 오늘 보유 중 → 포함이 맞음.
+    slots 계산은 내일 기준 (max - (len-pending_exits) - pending_entries).
+    """
+
+    def test_positions_within_max(self):
+        """positions는 항상 [0, max_positions] 범위"""
+        equity, _, _ = _run_system()
+        assert (equity["positions"] >= 0).all()
+        assert (equity["positions"] <= CONFIG["max_positions"]).all()
+
+    def test_positions_reflects_actual_holdings(self):
+        """
+        F-4: positions = 실보유 수 (pending_exits 포함).
+        mkt_val과 positions가 일관해야 함.
+        positions > 0이면 mkt_val > cash여야 함 (포지션 평가액 존재).
+        """
+        equity, _, _ = _run_system()
+        eq = equity.iloc[:-1]  # 최종 현금 행 제외
+
+        for idx, row in eq.iterrows():
+            if row["positions"] > 0:
+                # 포지션이 있으면 equity > cash (포지션 시가 포함)
+                # 단, 포지션 가치가 0에 가까울 수 있으므로 완화
+                assert row["equity"] >= row["cash"] - 1, \
+                    f"{idx}: positions={row['positions']}인데 equity({row['equity']:.0f}) < cash({row['cash']:.0f})"
+
+    def test_final_row_positions_zero(self):
+        """A-3: 최종 현금 행은 positions=0"""
+        equity, _, _ = _run_system()
+        assert equity["positions"].iloc[-1] == 0
+
+
+# ══════════════════════════════════════════════
+# 4. F-6: market_df coverage 검사
+# ══════════════════════════════════════════════
+
+class TestF6MarketCoverage:
+
+    def test_date_axis_mismatch_raises(self):
+        """G-1 수정: (a) 날짜 축 불일치 → RuntimeError"""
+        ohlcv     = make_system_ohlcv(350)
+        full_mkt  = make_market(350)
+        start     = list(ohlcv["AAA"].index)[0]
+        end       = list(ohlcv["AAA"].index)[-1]
+
+        # 날짜가 완전히 다른 market_df (D-3 시뮬레이션)
+        wrong_mkt = full_mkt.copy()
+        wrong_mkt.index = wrong_mkt.index + pd.DateOffset(years=10)
+
+        with pytest.raises(RuntimeError, match="날짜 불일치"):
+            run_period(
+                ohlcv, wrong_mkt, start, end, FIXED_CONFIG,
+                compute_pb_effectiveness=False
+            )
+
+    def test_sma_nan_warmup_only_warns(self, capsys):
+        """G-1 수정: (b) SMA NaN = 워밍업 부족 → 경고만, RuntimeError 아님"""
+        ohlcv     = make_system_ohlcv(350)
+        market_df = make_market(350)   # 워밍업 없어 SMA49행 NaN
+        start     = list(ohlcv["AAA"].index)[0]
+        end       = list(ohlcv["AAA"].index)[-1]
+
+        # RuntimeError 없이 실행돼야 함
+        equity, _, _ = run_period(
+            ohlcv, market_df, start, end, FIXED_CONFIG,
+            compute_pb_effectiveness=False
+        )
+        assert isinstance(equity, pd.DataFrame)
+
+    def test_sufficient_coverage_passes(self):
+        """날짜 축이 맞으면 통과"""
+        ohlcv     = make_system_ohlcv(350)
+        market_df = make_market(350)
+        start     = list(ohlcv["AAA"].index)[0]
+        end       = list(ohlcv["AAA"].index)[-1]
+
+        equity, _, _ = run_period(
+            ohlcv, market_df, start, end, FIXED_CONFIG,
+            compute_pb_effectiveness=False
+        )
+        assert isinstance(equity, pd.DataFrame)
+
+
+# ══════════════════════════════════════════════
+# 5. F-7: E-8 벡터/스칼라 일치 (드리프트 방지)
+# ══════════════════════════════════════════════
+
+class TestF7E8SingleSource:
+    """F-7: _compute_entry_signals와 _entry_signal이 동일 로직"""
+
+    def test_full_signal_matches_scalar(self):
+        """풀 신호(눌림목 포함) 벡터 vs 스칼라"""
+        df    = _compute_indicators(make_ohlcv(300))
+        cache = _compute_entry_signals({"T": df}, FIXED_CONFIG)
+        full  = cache["T"]["full"]
+
+        mismatches = 0
+        for date in df.index:
+            row    = df.loc[date]
+            scalar = _entry_signal(row, FIXED_CONFIG, apply_pullback=True)
+            vec    = bool(full.get(date, False))
+            if scalar != vec:
+                mismatches += 1
+
+        assert mismatches == 0, \
+            f"full 신호 벡터/스칼라 불일치 {mismatches}건 — E-8 드리프트"
+
+    def test_base_signal_matches_scalar(self):
+        """기본 신호(눌림목 제외) 벡터 vs 스칼라"""
+        df    = _compute_indicators(make_ohlcv(300))
+        cache = _compute_entry_signals({"T": df}, FIXED_CONFIG)
+        base  = cache["T"]["base"]
+
+        mismatches = 0
+        for date in df.index:
+            row    = df.loc[date]
+            scalar = _entry_signal(row, FIXED_CONFIG, apply_pullback=False)
+            vec    = bool(base.get(date, False))
+            if scalar != vec:
+                mismatches += 1
+
+        assert mismatches == 0, \
+            f"base 신호 벡터/스칼라 불일치 {mismatches}건"
+
+    def test_min_turnover_propagates_to_vector(self):
+        """D-9: config["min_turnover"]가 벡터 계산에도 적용됨"""
+        df = _compute_indicators(make_ohlcv(300))
+        # 거래대금이 모두 threshold 아래인 경우
+        df_low = df.copy()
+        df_low["AVG_TURNOVER20"] = 1000  # 매우 낮음
+
+        cache_std = _compute_entry_signals({"T": df},     FIXED_CONFIG)
+        cache_low = _compute_entry_signals({"T": df_low}, FIXED_CONFIG)
+
+        # 낮은 거래대금에서 신호가 줄어야 함
+        signals_std = cache_std["T"]["full"].sum()
+        signals_low = cache_low["T"]["full"].sum()
+        assert signals_low <= signals_std
+
+
+# ══════════════════════════════════════════════
+# 6. F-7b: 역인덱스 검증
+# ══════════════════════════════════════════════
+
+class TestF7bReverseIndex:
+    """F-7b: date→tickers 역인덱스 정합성"""
+
+    def test_reverse_index_complete(self):
+        """역인덱스의 (ticker, date) 집합이 entry_cache의 full 신호와 일치"""
+        ohlcv    = make_system_ohlcv(350)
+        prepared = {t: _compute_indicators(df) for t, df in ohlcv.items()}
+        cache    = _compute_entry_signals(prepared, FIXED_CONFIG)
+
+        # 역인덱스 직접 구성
+        date_to_tickers = {}
+        for ticker, sig in cache.items():
+            for d in sig["full"].index[sig["full"]]:
+                date_to_tickers.setdefault(d, []).append(ticker)
+
+        # entry_cache의 (ticker, date) 집합
+        expected = set()
+        for ticker, sig in cache.items():
+            for d in sig["full"].index[sig["full"]]:
+                expected.add((ticker, d))
+
+        # 역인덱스에서 재구성한 집합
+        actual = set()
+        for d, tickers in date_to_tickers.items():
+            for ticker in tickers:
+                actual.add((ticker, d))
+
+        assert actual == expected, \
+            f"역인덱스 누락 {len(expected - actual)}건, 초과 {len(actual - expected)}건"
+
+
+# ══════════════════════════════════════════════
+# 7. F-8b: port_val에 pending_exits 포함
+# ══════════════════════════════════════════════
+
+class TestF8bPortVal:
+
+    def test_equity_includes_position_value(self):
+        """
+        G-10 수정: equity >= cash - 1은 항상 참 → 실질 검증으로 교체.
+        포지션 보유 중에는 equity가 cash보다 충분히 커야 함.
+        (포지션 시가가 자산에 반영된다는 F-8b 의미)
+        """
+        equity, _, _ = _run_system()
+        eq = equity.iloc[:-1]
+
+        # 포지션이 있는 날: equity가 cash보다 유의미하게 커야 함
+        pos_days = eq[eq["positions"] > 0]
+        if pos_days.empty:
+            pytest.skip("포지션 보유일 없음")
+
+        # 포지션 1개 × 최소 비중(1%) 이상은 자산에 반영돼야 함
+        ratio = pos_days["equity"] / pos_days["cash"]
+        assert (ratio > 1.0).mean() > 0.80, \
+            f"포지션 보유일 중 equity > cash 비율 {(ratio > 1.0).mean():.1%} < 80% — F-8b 의심"
+
+    def test_positions_count_in_equity(self):
+        """F-4: positions 컬럼이 max_positions 이하"""
+        equity, _, _ = _run_system()
+        assert (equity["positions"] <= CONFIG["max_positions"]).all()
+        assert (equity["positions"] >= 0).all()
+
+
+# ══════════════════════════════════════════════
+# 8. E-1 / D-2 pending 구조 통합 검증
+# ══════════════════════════════════════════════
+
+class TestPendingStructure:
+    """E-1(pending_exits) + D-2(pending_entries) 함께 검증"""
+
+    def test_exit_date_is_next_day_open(self):
+        """
+        E-1: 정상 청산 exit_date = 익일 (next_date).
+        청산 결정일(date)이 아님.
+        """
+        equity, trades, _ = _run_system()
+        if trades.empty:
+            pytest.skip("거래 없음")
+
+        normal = trades[trades["exit_reason"] != "forced_close"]
+        if not normal.empty:
+            assert (normal["exit_date"] > normal["entry_date"]).all(), \
+                "정상 청산에 exit_date <= entry_date — E-1/E-10 위반"
+
+    def test_entry_date_is_next_day(self):
+        """
+        D-2: entry_date = 신호일 다음날 (next_date).
+        """
+        equity, trades, _ = _run_system()
+        if trades.empty:
+            pytest.skip("거래 없음")
+
+        # 모든 거래의 entry_date <= exit_date
+        assert (trades["entry_date"] <= trades["exit_date"]).all()
+
+    def test_no_same_day_roundtrip_non_forced(self):
+        """E-10: forced_close 외 당일 왕복 없음"""
+        equity, trades, _ = _run_system()
+        if trades.empty:
+            pytest.skip("거래 없음")
+
+        non_forced = trades[trades["exit_reason"] != "forced_close"]
+        if not non_forced.empty:
+            assert (non_forced["exit_date"] > non_forced["entry_date"]).all(), \
+                "당일 왕복 발견 (E-3 미적용 또는 E-10 위반)"
+
+
+# ══════════════════════════════════════════════
+# 9. E-2: last_close_cache (거래정지 평가)
+# ══════════════════════════════════════════════
+
+class TestE2LastCloseCache:
+
+    def test_equity_no_gap_on_halt_when_holding(self):
+        """
+        E-2: 보유 종목 거래정지 시 자산곡선에 급락 없어야 함.
+        F-9b 수정: 실제 보유 확인 후 검증.
+        """
+        n   = 350
+        ohlcv = {
+            "AAA": make_ohlcv(n, trend=0.003, seed=1),
+            "HALT": make_ohlcv(n, trend=0.001, seed=2),
+        }
+
+        # HALT 종목 100봉째 삭제 (거래정지 시뮬레이션)
+        halt_idx = ohlcv["HALT"].index[100]
+        ohlcv["HALT"] = ohlcv["HALT"].drop(index=halt_idx)
+
+        market_df = make_market(n)
+        start     = list(ohlcv["AAA"].index)[0]
+        end       = list(ohlcv["AAA"].index)[-1]
+
+        equity, trades, _ = run_period(
+            ohlcv, market_df, start, end, FIXED_CONFIG,
+            compute_pb_effectiveness=False
+        )
+
+        halt_trades = trades[trades["ticker"] == "HALT"]
+        if halt_trades.empty:
+            pytest.skip("HALT 종목 진입 없음 — 시장 조건 미충족")
+
+        # 보유 기간 중 정지일에 자산 급락(-25%) 없어야 함
+        eq  = equity["equity"].iloc[:-1]
+        pct = eq.pct_change().dropna()
+        assert (pct > -0.25).all(), \
+            f"정지일 -25% 초과 급락 — E-2 last_close_cache 미반영"
+
+
+# ══════════════════════════════════════════════
+# 10. E-3: ticker 마지막 봉 진입 차단
+# ══════════════════════════════════════════════
+
+class TestE3LastBarEntry:
+
+    def test_no_same_day_forced_close_non_last_bar(self):
+        """
+        E-3: ticker 마지막 봉 진입 → forced_close 당일 왕복 차단.
+        validate_trade_frame E-10이 이를 잡아야 함.
+        """
+        equity, trades, _ = _run_system()
+        if trades.empty:
+            pytest.skip("거래 없음")
+
+        # E-10 검증기가 통과했으므로 당일 왕복 없음
+        ok, errs = validate_trade_frame(trades, raise_on_error=False)
+        assert ok, f"TradeFrame 검증 실패: {errs}"
+
+
+# ══════════════════════════════════════════════
+# 11. D-1: holding_days 수식 (F-9c)
+# ══════════════════════════════════════════════
+
+class TestD1HoldingDays:
+
+    def test_stop_fires_on_day_one_gap_scenario(self):
+        """
+        F-9c: `if holding_days < 1: continue` 삭제 확인.
+        진입 익일 갭다운에서 손절(holding_days=1)이 가능해야 함.
+        """
+        n     = 350
+        dates = pd.bdate_range("2025-01-02", periods=n)
+        rng   = np.random.default_rng(7)
+        close = 10000.0 * np.cumprod(1 + 0.002 + rng.normal(0, 0.01, n))
+        vol   = np.full(n, 1_000_000)
+
+        df = pd.DataFrame({
+            "Open":    close * 0.99,
+            "High":    close * 1.02,
+            "Low":     close * 0.98,
+            "Close":   close,
+            "Volume":  vol,
+            "Turnover": close * vol
+        }, index=dates)
+        df["High"] = df[["Open","High","Close"]].max(axis=1)
+        df["Low"]  = df[["Open","Low","Close"]].min(axis=1)
+
+        # 201봉부터 대형 갭다운 (stop_price 돌파)
+        for j in range(200, 210):
+            df.iloc[j, df.columns.get_loc("Open")]  = close[j] * 0.80
+            df.iloc[j, df.columns.get_loc("Close")] = close[j] * 0.82
+            df.iloc[j, df.columns.get_loc("Low")]   = close[j] * 0.79
+            df.iloc[j, df.columns.get_loc("High")]  = close[j] * 0.83
+
+        ohlcv     = {"GAPPER": df}
+        market_df = make_market(n)
+        start     = dates[0]
+        end       = dates[-1]
+
+        # RuntimeError 없이 실행 완료
+        equity, trades, _ = run_period(
+            ohlcv, market_df, start, end, FIXED_CONFIG,
+            compute_pb_effectiveness=False
+        )
+        assert isinstance(trades, pd.DataFrame)
+        if not trades.empty:
+            assert (trades["holding_days"] >= 1).all()
+            # 갭 구간에서 holding_days=1, stop 거래가 생성될 수 있음
+            stop_day1 = trades[
+                (trades["exit_reason"] == "stop")
+                & (trades["holding_days"] == 1)
+            ]
+            # 생성됐다면 검증기를 통과해야 함
+            if not stop_day1.empty:
+                ok, _ = validate_trade_frame(stop_day1.reset_index(drop=True), raise_on_error=False)
+                assert ok
+
+
+# ══════════════════════════════════════════════
+# 12. D-7: 폴드 슬라이싱 (F-9d)
+# ══════════════════════════════════════════════
+
+class TestD7FoldReports:
+
+    def test_last_fold_excludes_final_row(self):
+        """마지막 폴드만 iloc[:-1] 적용"""
+        equity = make_equity(400, start="2024-01-01")
+        eq_idx = equity.index
+        trades = make_trades_with_dates(10, 5, eq_idx)
+        trades["exit_date"] = pd.to_datetime(
+            [eq_idx[i % (len(eq_idx) - 10)] for i in range(len(trades))]
+        )
+
+        start   = eq_idx[0]
+        end     = eq_idx[-1]
+        reports = _generate_fold_reports(equity, trades, start, end, test_months=6)
+
+        assert not reports.empty
+        assert "MDD_폴드내부" in reports.columns
+
+    def test_intermediate_folds_preserve_last_row(self):
+        """
+        D-7·F-9d: 중간 폴드 MDD_폴드내부가 NaN 아님.
+        D-7 수정: 중간 폴드는 iloc[:-1] 미적용.
+        """
+        equity = make_equity(400, start="2024-01-01")
+        eq_idx = equity.index
+        trades = make_trades_with_dates(20, 10, eq_idx)
+        trades["exit_date"] = pd.to_datetime(
+            [eq_idx[i * 5 % (len(eq_idx) - 1)] for i in range(len(trades))]
+        )
+
+        start   = eq_idx[0]
+        end     = eq_idx[-1]
+        reports = _generate_fold_reports(equity, trades, start, end, test_months=6)
+
+        assert len(reports) >= 2, "중간 폴드 없음 — 기간 조정 필요"
+
+        mid = reports.iloc[:-1]
+        assert mid["MDD_폴드내부"].notna().all(), \
+            "중간 폴드 MDD_폴드내부 NaN — 중간 폴드에 iloc[:-1] 잘못 적용됨"
+        assert (mid["MDD_폴드내부"] >= 0).all()
+
+
+# ══════════════════════════════════════════════
+# 13. 통합 실행 (run_period 전체)
+# ══════════════════════════════════════════════
+
+class TestRunPeriodIntegration:
+
+    def test_returns_three_tuple(self):
+        eq, tr, pb = _run_system()
+        assert isinstance(eq, pd.DataFrame)
+        assert isinstance(tr, pd.DataFrame)
+        assert isinstance(pb, dict)
+
+    def test_equity_schema(self):
+        eq, _, _ = _run_system()
+        ok, errs = validate_equity_frame(eq, raise_on_error=False)
+        assert ok, f"EquityFrame: {errs}"
+
+    def test_trade_schema(self):
+        _, tr, _ = _run_system()
+        ok, errs = validate_trade_frame(tr, raise_on_error=False)
+        assert ok, f"TradeFrame: {errs}"
+
+    def test_initial_equity(self):
+        capital = 50_000_000
+        ohlcv   = make_system_ohlcv(350)
+        mkt     = make_market(350)
+        start   = list(ohlcv["AAA"].index)[0]
+        end     = list(ohlcv["AAA"].index)[-1]
+        eq, _, _ = run_period(
+            ohlcv, mkt, start, end, FIXED_CONFIG,
+            initial_capital=capital,
+            compute_pb_effectiveness=False
+        )
+        assert eq["equity"].iloc[0] == pytest.approx(capital, rel=0.001)
+
+    def test_holding_days_gte_1(self):
+        _, tr, _ = _run_system()
+        if not tr.empty:
+            assert (tr["holding_days"] >= 1).all()
+
+    def test_no_duplicate_entry_date(self):
+        """F-1 회귀 방지: (ticker, entry_date) 중복 없음"""
+        _, tr, _ = _run_system()
+        if not tr.empty:
+            dup = tr.duplicated(subset=["ticker", "entry_date"])
+            assert not dup.any()
+
+    def test_exit_reasons_valid(self):
+        _, tr, _ = _run_system()
+        if not tr.empty:
+            assert tr["exit_reason"].isin(VALID_EXIT_REASONS).all()
+
+    def test_positions_within_max(self):
+        eq, _, _ = _run_system()
+        assert (eq["positions"] <= CONFIG["max_positions"]).all()
+
+
+# ══════════════════════════════════════════════
+# 14. CONFIG 일관성
+# ══════════════════════════════════════════════
+
+class TestConfigConsistency:
+
+    def test_trailing_atr_in_fixed_config(self):
+        assert "trailing_atr_multiple" in FIXED_CONFIG
+        assert FIXED_CONFIG["trailing_atr_multiple"] == CONFIG["trailing_atr_multiple"]
+
+    def test_min_turnover_in_fixed_config(self):
+        assert "min_turnover" in FIXED_CONFIG
+        assert FIXED_CONFIG["min_turnover"] == CONFIG["min_turnover"]
+
+    def test_max_daily_return_in_fixed_config(self):
+        assert "max_daily_return" in FIXED_CONFIG
+        assert FIXED_CONFIG["max_daily_return"] == CONFIG["max_daily_return"]
+
+    def test_declared_observations_is_two(self):
+        """V1-1: 관측 #1 = T-0(2026-09-11), 관측 #2 = 본 변형 1회 → Bonferroni α/(2·2)"""
+        assert CONFIG["declared_observations"] == 2
+
+    def test_market_min_coverage_in_config(self):
+        """F-6: 새로 추가된 CONFIG 항목"""
+        assert "market_min_coverage" in CONFIG
+        assert CONFIG["market_min_coverage"] == pytest.approx(0.95)
+
+    def test_cost_bps_asymmetric(self):
+        assert ENTRY_COST_BPS == pytest.approx(6.5)
+        assert EXIT_COST_BPS  == pytest.approx(24.5)
+        assert ENTRY_COST < EXIT_COST
+
+    def test_forced_close_in_valid_reasons(self):
+        assert "forced_close" in VALID_EXIT_REASONS
+
+    def test_block_sizes(self):
+        assert set(CONFIG["block_sizes"]) == {30, 60, 120}
+
+    def test_market_sma_warn_ratio_in_config(self):
+        """H-5: SMA 유효일 경고 비율 하드코딩 0.80 → CONFIG 항목"""
+        assert "market_sma_warn_ratio" in CONFIG
+        assert CONFIG["market_sma_warn_ratio"] == pytest.approx(0.80)
+        assert 0.0 < CONFIG["market_sma_warn_ratio"] < 1.0
+
+    def test_pf_dep_min_margin_constant(self):
+        """H-15: 의존도 계산 불가 여유 상수 = 0.05, G7 문구와 동기화"""
+        assert PF_DEP_MIN_MARGIN == pytest.approx(0.05)
+        msg = g7_concentration_warning({"의존도_상위_1pct": np.nan})
+        assert "G7" in msg and f"{PF_DEP_MIN_MARGIN:.2f}" in msg
+
+    def test_tail_dependency_nan_within_margin(self):
+        """H-15: |PF-1| ≤ PF_DEP_MIN_MARGIN 이면 dep NaN, 넘으면 수치"""
+        near_one = pd.DataFrame({"pnl_net": [100.0, -100.0, 50.0, -52.0]})   # PF = 150/152
+        far      = pd.DataFrame({"pnl_net": [200.0, -100.0, 50.0, -25.0]})   # PF = 250/125 = 2
+        assert abs(compute_pf_cash(near_one) - 1) <= PF_DEP_MIN_MARGIN
+        assert np.isnan(tail_dependency(near_one)["의존도_상위_1pct"])
+        assert not np.isnan(tail_dependency(far)["의존도_상위_1pct"])
+
+    def test_fixed_config_unchanged_by_h_round(self):
+        """③ 단일 고정 설정: H-라운드는 전략 파라미터를 바꾸지 않는다"""
+        assert FIXED_CONFIG["max_positions"] == 5
+        assert FIXED_CONFIG["max_weight"] == pytest.approx(0.20)
+        assert FIXED_CONFIG["risk_per_trade"] == pytest.approx(0.005)
+        assert FIXED_CONFIG["atr_multiple"] == pytest.approx(1.5)
+        assert FIXED_CONFIG["holding_limit"] == 15
+        assert FIXED_CONFIG["trailing_atr_multiple"] == pytest.approx(2.0)
+        assert FIXED_CONFIG["min_turnover"] == pytest.approx(5e9)
+        assert FIXED_CONFIG["max_daily_return"] == pytest.approx(0.08)
+        assert CONFIG["market_sma"] == 50
+        assert CONFIG["declared_win_rate"] == pytest.approx(0.40)
+        assert CONFIG["target_pf"] == pytest.approx(1.20)
+
+
+# ══════════════════════════════════════════════
+# 15. E-8 스칼라 / 블록 부트스트랩
+# ══════════════════════════════════════════════
+
+class TestBlockBootstrap:
+
+    def setup_method(self):
+        self.eq_idx = pd.bdate_range("2024-01-01", periods=400)
+        self.trades = make_trades_with_dates(80, 40, self.eq_idx)
+
+    def test_returns_lower_bound(self):
+        r = block_bootstrap_pf(self.trades, self.eq_idx, block_size=30)
+        assert not np.isnan(r.get("PF_하한_보정", np.nan))
+
+    def test_lower_lt_median_lt_upper(self):
+        r = block_bootstrap_pf(self.trades, self.eq_idx, block_size=30)
+        assert r["PF_하한_보정"] <= r["PF_중앙값"] <= r["PF_상한_보정"]
+
+    def test_n_obs_bonferroni(self):
+        r1 = block_bootstrap_pf(self.trades, self.eq_idx, block_size=30, n_obs=1)
+        r3 = block_bootstrap_pf(self.trades, self.eq_idx, block_size=30, n_obs=3)
+        assert r3["PF_하한_보정"] <= r1["PF_하한_보정"]
+
+    def test_default_n_obs_from_config(self):
+        r = block_bootstrap_pf(self.trades, self.eq_idx, block_size=30)
+        expected_q = CONFIG["alpha"] / (2 * CONFIG["declared_observations"])
+        assert r["적용_분위수"] == pytest.approx(expected_q)
+
+
+# ══════════════════════════════════════════════
+# 16. H-라운드 공통 헬퍼 (v1.5)
+# ══════════════════════════════════════════════
+
+def make_monotone_ohlcv(
+    n: int = 300,
+    start: str = "2025-01-02",
+    close_start: float = 10000.0,
+    step: float = 0.001,
+    drop_idx=(),
+) -> pd.DataFrame:
+    """
+    H-11: 결정적 시리즈. Close 가 매 봉 +0.1% 단조 증가, Open=0.999C, High=1.01C, Low=0.99C.
+      - stop:      next_open ≥ Open[i+1] > entry_price > stop_price  → 발동 불가
+      - ema_cross: 단조 증가 → Close > EMA10 항상               → 발동 불가
+      - trailing:  next_open ≈ 0.999999·C_i > C_i − 2·ATR(≈0.04·C_i) → 발동 불가
+      → 정상 청산은 holding_limit(15) 만 가능. 신호는 _inject_signals 로 주입한다.
+    drop_idx: 삭제할 봉의 위치 인덱스(거래정지·상장폐지 시뮬레이션).
+    """
+    dates = pd.bdate_range(start=start, periods=n, freq="B")
+    close = close_start * (1.0 + step) ** np.arange(n)
+    df = pd.DataFrame({
+        "Open":   close * 0.999,
+        "High":   close * 1.01,
+        "Low":    close * 0.99,
+        "Close":  close,
+        "Volume": np.full(n, 1_000_000, dtype=int),
+    }, index=dates)
+    df["Turnover"] = df["Close"] * df["Volume"]
+    drop_idx = list(drop_idx)
+    if drop_idx:
+        df = df.drop(index=dates[drop_idx])
+    return df
+
+
+def make_monotone_market(n: int = 300) -> pd.DataFrame:
+    """단조 증가 시장 시리즈 → SMA50 계산 이후 항상 Close > SMA50 (시장 필터 ON)"""
+    return make_monotone_ohlcv(n, close_start=2800.0)
+
+
+def _inject_signals(monkeypatch, signal_dates: dict):
+    """
+    H-11: run_period 가 모듈 전역으로 조회하는 _compute_entry_signals 를 결정적 가짜로 교체.
+    signal_dates = {ticker: [Timestamp, ...]} 에 있는 날짜만 full/base True.
+    """
+    def fake(prepared, config):
+        out = {}
+        for t, df in prepared.items():
+            s = pd.Series(False, index=df.index, dtype=bool)
+            for d in signal_dates.get(t, []):
+                if d in s.index:
+                    s.loc[d] = True
+            out[t] = {"base": s.copy(), "full": s}
+        return out
+    monkeypatch.setattr(strat, "_compute_entry_signals", fake)
+
+
+def _union_axis(ohlcv: dict, start, end) -> list:
+    """run_period 내부 all_dates(합집합 축) 재현 — _attach_warmup 은 기간 내 봉을 바꾸지 않는다"""
+    return sorted(set(
+        d for df in ohlcv.values() for d in df.index if start <= d <= end
+    ))
+
+
+def _assert_union_identity(trades: pd.DataFrame, axis: list):
+    """
+    H-1: 모든 청산 경로에서 holding_days == pos[exit_date] − pos[entry_date]
+      정상 청산:  i − entry_idx,           exit=all_dates[i+1], entry=all_dates[entry_idx+1]
+      forced_close(루프 내): i − entry_idx − 1, exit=all_dates[i]
+      forced_close(기간종료): last_idx − entry_idx − 1, exit=all_dates[last_idx]
+    """
+    pos = {d: k for k, d in enumerate(axis)}
+    for _, tr in trades.iterrows():
+        assert tr["entry_date"] in pos and tr["exit_date"] in pos, \
+            f"{tr['ticker']}: 진입/청산일이 합집합 축에 없음"
+        expected = pos[tr["exit_date"]] - pos[tr["entry_date"]]
+        assert tr["holding_days"] == expected, (
+            f"{tr['ticker']} {tr['exit_reason']}: holding_days={tr['holding_days']} "
+            f"≠ 축 위치차 {expected} ({tr['entry_date'].date()}→{tr['exit_date'].date()})"
+        )
+
+
+def _run_injected(monkeypatch, ohlcv: dict, signals: dict, n: int = 300):
+    """단조 픽스처 + 주입 신호로 run_period 실행. 반환: equity, trades, axis"""
+    market_df = make_monotone_market(n)
+    axis_src  = pd.bdate_range(start="2025-01-02", periods=n, freq="B")
+    start, end = axis_src[0], axis_src[-1]
+    _inject_signals(monkeypatch, signals)
+    equity, trades, _ = run_period(
+        ohlcv, market_df, start, end, FIXED_CONFIG,
+        compute_pb_effectiveness=False
+    )
+    return equity, trades, _union_axis(ohlcv, start, end)
+
+
+# ══════════════════════════════════════════════
+# 17. H-1·H-2·H-10: 항등식·현금 일치·신호 전제 (실신호)
+# ══════════════════════════════════════════════
+
+class TestH1H2H10RealSignals:
+
+    def _system_with_halt(self):
+        ohlcv = make_system_ohlcv(350)
+        halt  = make_ohlcv(350, seed=7, trend=0.003)
+        ohlcv["HALT"] = halt.drop(index=halt.index[150:156])   # 6봉 정지
+        market_df = make_market(350)
+        start = ohlcv["AAA"].index[0]
+        end   = ohlcv["AAA"].index[-1]
+        return ohlcv, market_df, start, end
+
+    def test_h1_holding_days_union_identity(self):
+        """H-1: G-3의 '>= 1' 근사 대신 합집합 축 위치차와 정확히 일치"""
+        ohlcv, market_df, start, end = self._system_with_halt()
+        _, trades, _ = run_period(
+            ohlcv, market_df, start, end, FIXED_CONFIG,
+            compute_pb_effectiveness=False
+        )
+        if trades.empty:
+            pytest.skip("거래 없음")
+        _assert_union_identity(trades, _union_axis(ohlcv, start, end))
+
+    def test_h2_equity_equals_cash_when_flat(self):
+        """H-2: positions == 0 인 날은 equity == cash (평가 포지션 없음)"""
+        equity, _, _ = _run_system()
+        flat = equity[equity["positions"] == 0]
+        assert not flat.empty                       # A-3 최종 현금 행이 최소 1개 보장
+        diff = (flat["equity"] - flat["cash"]).abs()
+        assert (diff < 1.0).all(), f"positions==0 인데 equity≠cash: max diff {diff.max():.2f}"
+
+    def test_h10_entry_requires_prev_day_full_signal_and_market_on(self):
+        """
+        H-10: 모든 거래의 entry_date 직전 합집합일에 (a) 해당 종목 full 신호 True,
+              (b) 시장 Close > SMA50 이어야 한다 (신호일 t → 체결 t+1).
+        """
+        ohlcv     = make_system_ohlcv(350)
+        market_df = make_market(350)
+        start     = ohlcv["AAA"].index[0]
+        end       = ohlcv["AAA"].index[-1]
+        _, trades, _ = run_period(
+            ohlcv, market_df, start, end, FIXED_CONFIG,
+            compute_pb_effectiveness=False
+        )
+        if trades.empty:
+            pytest.skip("거래 없음")
+
+        axis = _union_axis(ohlcv, start, end)
+        pos  = {d: k for k, d in enumerate(axis)}
+        prepared = {
+            t: _compute_indicators(_attach_warmup(df, start, end))
+            for t, df in ohlcv.items()
+        }
+        cache = _compute_entry_signals(prepared, FIXED_CONFIG)
+        mkt   = _attach_warmup(market_df, start, end).copy()
+        sma_col = f"SMA{CONFIG['market_sma']}"
+        mkt[sma_col] = mkt["Close"].rolling(CONFIG["market_sma"]).mean()
+
+        for _, tr in trades.iterrows():
+            p = pos[tr["entry_date"]]
+            assert p >= 1, f"{tr['ticker']}: 첫 합집합일 진입 불가"
+            sig_day = axis[p - 1]
+            assert bool(cache[tr["ticker"]]["full"].loc[sig_day]), \
+                f"{tr['ticker']}: {sig_day.date()} full 신호 없이 {tr['entry_date'].date()} 진입"
+            assert sig_day in mkt.index and not np.isnan(mkt.loc[sig_day, sma_col])
+            assert mkt.loc[sig_day, "Close"] > mkt.loc[sig_day, sma_col], \
+                f"{tr['ticker']}: {sig_day.date()} 시장 필터 OFF 인데 진입"
+
+
+# ══════════════════════════════════════════════
+# 18. H-4: G-1 커버리지 임계 경계값
+# ══════════════════════════════════════════════
+
+class TestH4CoverageBoundary:
+
+    def _base(self):
+        ohlcv     = make_system_ohlcv(350)
+        market_df = make_market(350)
+        start     = ohlcv["AAA"].index[0]
+        end       = ohlcv["AAA"].index[-1]
+        return ohlcv, market_df, start, end
+
+    def test_coverage_94pct_raises(self):
+        """329/350 = 94.0% < market_min_coverage(0.95) → RuntimeError"""
+        ohlcv, market_df, start, end = self._base()
+        assert CONFIG["market_min_coverage"] == pytest.approx(0.95)
+        with pytest.raises(RuntimeError, match="날짜 불일치"):
+            run_period(
+                ohlcv, market_df.iloc[21:], start, end, FIXED_CONFIG,
+                compute_pb_effectiveness=False
+            )
+
+    def test_coverage_96pct_passes(self):
+        """336/350 = 96.0% ≥ 0.95 → 실행 (SMA 워밍업 경고만 가능)"""
+        ohlcv, market_df, start, end = self._base()
+        equity, _, _ = run_period(
+            ohlcv, market_df.iloc[14:], start, end, FIXED_CONFIG,
+            compute_pb_effectiveness=False
+        )
+        assert isinstance(equity, pd.DataFrame) and len(equity) == 350
+
+
+# ══════════════════════════════════════════════
+# 19. H-11·H-12·H-3: 신호 주입으로 청산 경로 결정적 실행
+# ══════════════════════════════════════════════
+
+class TestH11InjectedExitPaths:
+    """
+    ANCHOR(전 봉 보유)로 합집합 축을 고정하고, 대상 종목의 봉을 삭제해 정지·상장폐지를 만든다.
+    신호일 = axis[95] → 체결 axis[96] (entry_idx=95). 단조 시리즈라 정상 청산은 holding_limit 뿐.
+    """
+    SIG = 95
+
+    def _axis(self, n=300):
+        return pd.bdate_range(start="2025-01-02", periods=n, freq="B")
+
+    def test_holding_limit_exact_15(self, monkeypatch):
+        """기준 경로: 정지 없음 → holding_days == 15, exit = axis[111] 시가"""
+        n, ax = 300, self._axis()
+        ohlcv = {"ANCHOR": make_monotone_ohlcv(n), "T": make_monotone_ohlcv(n)}
+        equity, trades, axis = _run_injected(monkeypatch, ohlcv, {"T": [ax[self.SIG]]})
+
+        assert len(trades) == 1
+        tr = trades.iloc[0]
+        assert tr["ticker"] == "T"
+        assert tr["entry_date"] == ax[self.SIG + 1]
+        assert tr["exit_reason"] == "holding_limit"
+        assert tr["holding_days"] == CONFIG["holding_limit"]
+        assert tr["exit_date"] == ax[self.SIG + 1 + CONFIG["holding_limit"]]
+        assert tr["exit_price"] == pytest.approx(ohlcv["T"].loc[tr["exit_date"], "Open"])
+        _assert_union_identity(trades, axis)
+
+    def test_stop_on_day_one_gap(self, monkeypatch):
+        """H-11: 진입 익일 갭다운 → stop, holding_days == 1 (F-9c: '< 1 continue' 제거 확인)"""
+        n, ax = 300, self._axis()
+        df = make_monotone_ohlcv(n)
+        c96 = df.loc[ax[self.SIG + 1], "Close"]
+        gap = ax[self.SIG + 2]
+        df.loc[gap, ["Open", "High", "Low", "Close"]] = [0.80 * c96, 0.83 * c96, 0.79 * c96, 0.82 * c96]
+        ohlcv = {"ANCHOR": make_monotone_ohlcv(n), "GAPPER": df}
+
+        equity, trades, axis = _run_injected(monkeypatch, ohlcv, {"GAPPER": [ax[self.SIG]]})
+        assert len(trades) == 1
+        tr = trades.iloc[0]
+        assert tr["exit_reason"] == "stop"
+        assert tr["holding_days"] == 1
+        assert tr["exit_date"] == gap
+        assert tr["exit_price"] == pytest.approx(0.80 * c96)
+        assert tr["exit_price"] <= tr["stop_price"]
+        ok, errs = validate_trade_frame(trades, raise_on_error=False)
+        assert ok, errs
+        _assert_union_identity(trades, axis)
+
+    def test_h12_halt_while_holding_uses_last_close(self, monkeypatch):
+        """
+        H-12/E-2: 보유 중 axis[100..104] 정지 → 정지일 equity == cash + shares × Close[99],
+        positions == 1 유지. 정지 후 정상 재개 → holding_limit 15 로 axis[111] 청산.
+        """
+        n, ax = 300, self._axis()
+        halted = range(100, 105)
+        ohlcv = {
+            "ANCHOR": make_monotone_ohlcv(n),
+            "HALTER": make_monotone_ohlcv(n, drop_idx=halted),
+        }
+        equity, trades, axis = _run_injected(monkeypatch, ohlcv, {"HALTER": [ax[self.SIG]]})
+
+        assert len(trades) == 1
+        tr = trades.iloc[0]
+        last_close = ohlcv["HALTER"].loc[ax[99], "Close"]
+        for k in halted:
+            d = ax[k]
+            assert d in equity.index
+            assert equity.loc[d, "positions"] == 1
+            held_val = equity.loc[d, "equity"] - equity.loc[d, "cash"]
+            assert abs(held_val - tr["shares"] * last_close) < 1.0, \
+                f"{d.date()}: 정지일 평가액 {held_val:.0f} ≠ shares×Close[99] {tr['shares']*last_close:.0f}"
+
+        assert tr["exit_reason"] == "holding_limit"
+        assert tr["holding_days"] == 15
+        assert tr["exit_date"] == ax[111]
+        _assert_union_identity(trades, axis)
+
+    def test_halt_defers_holding_limit_beyond_15(self, monkeypatch):
+        """
+        E-2 보류: holding_limit 도달일(i=110)의 next_date(axis[111]) 가 정지 → 청산 보류,
+        재개 후 첫 판단일(i=114) 에 axis[115] 시가 청산 → holding_days 19 > 15 (실데이터의 18 과 같은 기제).
+        """
+        n, ax = 300, self._axis()
+        ohlcv = {
+            "ANCHOR": make_monotone_ohlcv(n),
+            "HALTER": make_monotone_ohlcv(n, drop_idx=range(111, 114)),
+        }
+        equity, trades, axis = _run_injected(monkeypatch, ohlcv, {"HALTER": [ax[self.SIG]]})
+
+        assert len(trades) == 1
+        tr = trades.iloc[0]
+        assert tr["exit_reason"] == "holding_limit"
+        assert tr["exit_date"] == ax[115]
+        assert tr["holding_days"] == 19 > CONFIG["holding_limit"]
+        _assert_union_identity(trades, axis)
+
+    def test_h3_inloop_forced_close_on_delist(self, monkeypatch):
+        """
+        H-3: 종목 마지막 봉(axis[101]) 이 기간 종료 전 → 루프 내 forced_close(당일 종가),
+        holding_days = 101 − 95 − 1 = 5. 기간종료 블록의 불변식 RuntimeError 는 발생하지 않는다.
+        """
+        n, ax = 300, self._axis()
+        ohlcv = {
+            "ANCHOR": make_monotone_ohlcv(n),
+            "DELIST": make_monotone_ohlcv(n, drop_idx=range(102, n)),
+        }
+        equity, trades, axis = _run_injected(monkeypatch, ohlcv, {"DELIST": [ax[self.SIG]]})
+
+        assert len(trades) == 1
+        tr = trades.iloc[0]
+        assert tr["exit_reason"] == "forced_close"
+        assert tr["exit_date"] == ax[101] != axis[-1]
+        assert tr["exit_price"] == pytest.approx(ohlcv["DELIST"].loc[ax[101], "Close"])
+        assert tr["holding_days"] == 5
+        assert equity.loc[ax[101], "positions"] == 0          # 당일 제거 (F-4)
+        ok, errs = validate_trade_frame(trades, raise_on_error=False)
+        assert ok, errs
+        _assert_union_identity(trades, axis)
+
+    def test_h3_period_end_forced_close(self, monkeypatch):
+        """
+        기간종료 경로: 신호 axis[n−12] → 진입 axis[n−11], 루프 종료 시 보유 → last_date 종가 청산,
+        holding_days = (n−1) − (n−12) − 1 = 10.
+        """
+        n, ax = 300, self._axis()
+        ohlcv = {"ANCHOR": make_monotone_ohlcv(n), "TAIL": make_monotone_ohlcv(n)}
+        equity, trades, axis = _run_injected(monkeypatch, ohlcv, {"TAIL": [ax[n - 12]]})
+
+        assert len(trades) == 1
+        tr = trades.iloc[0]
+        assert tr["exit_reason"] == "forced_close"
+        assert tr["entry_date"] == ax[n - 11]
+        assert tr["exit_date"] == ax[n - 1] == axis[-1]
+        assert tr["exit_price"] == pytest.approx(ohlcv["TAIL"].loc[ax[n - 1], "Close"])
+        assert tr["holding_days"] == 10
+        assert equity["positions"].iloc[-1] == 0
+        assert abs(equity["equity"].iloc[-1] - equity["cash"].iloc[-1]) < 1.0
+        _assert_union_identity(trades, axis)
+
+    def test_a1_no_entry_on_last_bar(self, monkeypatch):
+        """A-1: 신호 axis[n−2] → next_date == all_dates[-1] → 진입 차단 (거래 0)"""
+        n, ax = 300, self._axis()
+        ohlcv = {"ANCHOR": make_monotone_ohlcv(n), "LATE": make_monotone_ohlcv(n)}
+        _, trades, _ = _run_injected(monkeypatch, ohlcv, {"LATE": [ax[n - 2]]})
+        assert trades.empty
+
+    def test_e3_no_entry_after_ticker_last_bar(self, monkeypatch):
+        """E-3: 신호일 다음 봉이 종목의 마지막 봉이면 진입 차단"""
+        n, ax = 300, self._axis()
+        ohlcv = {
+            "ANCHOR": make_monotone_ohlcv(n),
+            "DELIST": make_monotone_ohlcv(n, drop_idx=range(97, n)),   # 마지막 봉 = axis[96]
+        }
+        _, trades, _ = _run_injected(monkeypatch, ohlcv, {"DELIST": [ax[self.SIG]]})
+        assert trades.empty
+
+    def test_h5_sma_warn_ratio_from_config(self, monkeypatch, capsys):
+        """H-5: n=200 → SMA50 유효일 151/200 = 75.5% < 0.80 경고; 임계 0.0 이면 경고 없음"""
+        n = 200
+        ohlcv = {"ANCHOR": make_monotone_ohlcv(n)}
+        _run_injected(monkeypatch, ohlcv, {}, n=n)
+        assert "SMA50 유효일" in capsys.readouterr().out
+
+        monkeypatch.setitem(CONFIG, "market_sma_warn_ratio", 0.0)
+        _run_injected(monkeypatch, ohlcv, {}, n=n)
+        assert "SMA50 유효일" not in capsys.readouterr().out
+
+
+# ══════════════════════════════════════════════
+# 20. H-13~H-18: SQLite 로더 (임시 DB 픽스처, 실DB 스키마)
+# ══════════════════════════════════════════════
+
+_FX_START, _FX_END = "2022-05-01", "2022-05-31"
+_FX_HOLIDAY_REAL   = pd.Timestamp("2022-05-05")   # 실제 휴장(어린이날)
+_FX_HOLIDAY_WRONG  = pd.Timestamp("2022-05-09")   # KRX_HOLIDAYS 에 있으나 실거래일 (H-13)
+_FX_SATURDAY       = pd.Timestamp("2022-05-14")
+
+
+def _fx_market_dates() -> pd.DatetimeIndex:
+    bd = pd.bdate_range("2022-05-02", "2022-05-31")          # 22 영업일
+    return bd[bd != _FX_HOLIDAY_REAL]                        # 21 실거래일 (05-09 포함)
+
+
+@pytest.fixture
+def fixture_db(tmp_path):
+    """
+    실DB 스키마 daily_prices(trade_date, symbol, name, market, section, open, high, low, close,
+    volume, trading_value, market_cap, listed_shares, collected_at) 를 그대로 재현.
+      005930 KOSPI  : 실거래일 21 + 05-05(휴장) + 05-14(토) = 23행 (비거래일 행 포함)
+      035720 KOSDAQ : 실거래일 21행
+      069500 KOSPI* : 시장 시리즈 21행 (*실DB 는 market='ETF'; exclude 인자 검증 위해 KOSPI 로 라벨)
+      ABC123 KOSPI  : 영문 혼합 심볼 → GLOB 제외
+      100000 KONEX  : 시장 필터 제외
+    trading_value = close × volume × 3 (Close×Volume 과 다르게 두어 별칭 경로 검증)
+    """
+    path = tmp_path / "krx_fixture.sqlite3"
+    conn = sqlite3.connect(str(path))
+    conn.execute("""
+        CREATE TABLE daily_prices (
+            trade_date TEXT, symbol TEXT, name TEXT, market TEXT, section TEXT,
+            open REAL, high REAL, low REAL, close REAL, volume INTEGER,
+            trading_value REAL, market_cap REAL, listed_shares INTEGER, collected_at TEXT
+        )
+    """)
+    mkt_dates = _fx_market_dates()
+
+    def rows_for(symbol, market, dates):
+        out = []
+        for k, d in enumerate(dates):
+            close  = 10000.0 + 10.0 * k
+            volume = 1000 + k
+            out.append((
+                d.strftime("%Y-%m-%d"), symbol, f"NAME_{symbol}", market, "",
+                close - 5.0, close + 20.0, close - 20.0, close, volume,
+                close * volume * 3.0, 1.0e12, 1_000_000, "2026-09-11T00:00:00",
+            ))
+        return out
+
+    rows  = rows_for("005930", "KOSPI",  mkt_dates.append(pd.DatetimeIndex([_FX_HOLIDAY_REAL, _FX_SATURDAY])).sort_values())
+    rows += rows_for("035720", "KOSDAQ", mkt_dates)
+    rows += rows_for("069500", "KOSPI",  mkt_dates)
+    rows += rows_for("ABC123", "KOSPI",  mkt_dates)
+    rows += rows_for("100000", "KONEX",  mkt_dates)
+    conn.executemany("INSERT INTO daily_prices VALUES (" + ",".join("?" * 14) + ")", rows)
+    conn.commit()
+    conn.close()
+    return str(path)
+
+
+class TestH13H18SqliteLoader:
+
+    def test_h17_defaults_match_real_schema(self):
+        assert (SQLITE_TABLE, SQLITE_TICKER_COL, SQLITE_DATE_COL) == ("daily_prices", "symbol", "trade_date")
+        assert SQLITE_MARKET_TICKER == "069500"
+
+    def test_h16_universe_rule(self, fixture_db):
+        """KOSPI+KOSDAQ ∩ 6자리 숫자 − exclude(시장 종목)"""
+        assert load_universe_symbols(fixture_db) == ["005930", "035720"]
+        assert load_universe_symbols(fixture_db, exclude=()) == ["005930", "035720", "069500"]
+        assert load_universe_symbols(fixture_db, markets=("KOSPI",)) == ["005930"]
+
+    def test_h18_pragma_column_selection(self, fixture_db):
+        """PRAGMA 로 ticker/date + 가격 컬럼만, 테이블 정의 순서"""
+        with sqlite3.connect(fixture_db) as conn:
+            cols = _sqlite_select_columns(conn, "daily_prices", "symbol", "trade_date")
+            assert cols == ["trade_date", "symbol", "open", "high", "low", "close", "volume", "trading_value"]
+            with pytest.raises(RuntimeError, match="없음"):
+                _sqlite_select_columns(conn, "no_such_table", "symbol", "trade_date")
+            with pytest.raises(RuntimeError, match="컬럼"):
+                _sqlite_select_columns(conn, "daily_prices", "ticker", "trade_date")
+
+    def test_h14_turnover_alias_and_standard_columns(self, fixture_db):
+        """trading_value → Turnover (DB 값 그대로, Close×Volume 아님); 표준 6컬럼만"""
+        with pytest.warns(UserWarning):
+            res = load_ohlcv_from_sqlite(fixture_db, tickers=["035720"], start_date=_FX_START, end_date=_FX_END)
+        df = res["035720"]
+        assert list(df.columns) == ["Open", "High", "Low", "Close", "Volume", "Turnover"]
+        assert len(df) == 21
+        assert np.allclose(df["Turnover"], df["Close"] * df["Volume"] * 3.0)
+        assert not np.allclose(df["Turnover"], df["Close"] * df["Volume"])
+
+    def test_h13_hardcoded_holiday_bar_retained(self, fixture_db):
+        """H-13 핵심: 05-09 는 KRX_HOLIDAYS 에 있지만 실거래 봉 → 기본 경로는 보존, drop_non_trading=True 는 삭제"""
+        assert _FX_HOLIDAY_WRONG.strftime("%Y-%m-%d") in KRX_HOLIDAYS
+        with pytest.warns(UserWarning):
+            df = load_ohlcv_from_sqlite(fixture_db, tickers=["035720"], start_date=_FX_START, end_date=_FX_END)["035720"]
+        assert _FX_HOLIDAY_WRONG in df.index
+        dropped = clean_ohlcv(df, ticker="035720", drop_non_trading=True)
+        assert _FX_HOLIDAY_WRONG not in dropped.index
+        assert len(dropped) == 20
+
+    def test_h13_market_axis_alignment(self, fixture_db):
+        """market_df 전달 시 시장 시리즈 날짜축에 정렬 — 휴장일·토요일 행 제거, 05-09 보존"""
+        with pytest.warns(UserWarning):
+            market_df = load_market_from_sqlite(fixture_db, start_date=_FX_START, end_date=_FX_END)
+        assert len(market_df) == 21
+        assert _FX_HOLIDAY_REAL not in market_df.index and _FX_HOLIDAY_WRONG in market_df.index
+
+        with pytest.warns(UserWarning):
+            raw = load_ohlcv_from_sqlite(fixture_db, tickers=["005930"], start_date=_FX_START, end_date=_FX_END)["005930"]
+        assert len(raw) == 23 and _FX_SATURDAY in raw.index and _FX_HOLIDAY_REAL in raw.index
+
+        with pytest.warns(UserWarning):
+            aligned = load_ohlcv_from_sqlite(
+                fixture_db, tickers=["005930"], start_date=_FX_START, end_date=_FX_END, market_df=market_df
+            )["005930"]
+        assert aligned.index.equals(market_df.index)
+        assert _FX_SATURDAY not in aligned.index and _FX_HOLIDAY_REAL not in aligned.index
+        # 동일 결과를 clean_ohlcv_with_market_calendar 직접 호출로도 재현
+        with pytest.warns(UserWarning):
+            manual = clean_ohlcv_with_market_calendar(raw, market_df, ticker="005930")
+        assert manual.index.equals(aligned.index)
+
+    def test_h17_market_missing_raises(self, fixture_db):
+        with pytest.raises(RuntimeError, match="시장 시리즈"):
+            load_market_from_sqlite(fixture_db, index_ticker="999999", start_date=_FX_START, end_date=_FX_END)
+
+    def test_h13_coverage_uses_market_axis(self, fixture_db):
+        """거래일_수 = 시장 시리즈 봉 수(참고 캘린더 아님); 시장 봉 없으면 RuntimeError"""
+        with pytest.warns(UserWarning):
+            market_df = load_market_from_sqlite(fixture_db, start_date=_FX_START, end_date=_FX_END)
+            ohlcv = load_ohlcv_from_sqlite(
+                fixture_db, tickers=["005930", "035720"], start_date=_FX_START, end_date=_FX_END, market_df=market_df
+            )
+        mkt20 = market_df.drop(index=pd.Timestamp("2022-05-16"))
+        report = check_data_coverage(ohlcv, mkt20, _FX_START, _FX_END)
+        assert report["거래일_수"] == 20
+        assert report["거래일_수_참고캘린더"] == len(get_trading_days(_FX_START, _FX_END))
+        assert report["종목_수"] == 2 and report["이슈_종목"] == []
+
+        short = {"005930": ohlcv["005930"].iloc[:10]}          # 10/21 < 90%
+        report2 = check_data_coverage(short, market_df, _FX_START, _FX_END)
+        assert len(report2["이슈_종목"]) == 1
+
+        with pytest.raises(RuntimeError, match="봉 없음"):
+            check_data_coverage(ohlcv, market_df, "2030-01-01", "2030-01-31")
+
+    def test_generic_schema_still_loads(self, tmp_path):
+        """H-18 이 일반 스키마(ticker/date/…/turnover, 거래대금 없음)를 깨지 않는다"""
+        path = tmp_path / "generic.sqlite3"
+        conn = sqlite3.connect(str(path))
+        conn.execute("CREATE TABLE daily (ticker TEXT, date TEXT, open REAL, high REAL, low REAL, close REAL, volume INTEGER, turnover REAL)")
+        conn.execute("CREATE TABLE noturn (ticker TEXT, date TEXT, open REAL, high REAL, low REAL, close REAL, volume INTEGER)")
+        dates = _fx_market_dates()
+        for k, d in enumerate(dates):
+            c = 100.0 + k
+            conn.execute("INSERT INTO daily VALUES (?,?,?,?,?,?,?,?)", ("X1", d.strftime("%Y-%m-%d"), c - 1, c + 2, c - 2, c, 500, c * 500 * 7.0))
+            conn.execute("INSERT INTO noturn VALUES (?,?,?,?,?,?,?)", ("X2", d.strftime("%Y-%m-%d"), c - 1, c + 2, c - 2, c, 500))
+        conn.commit()
+        conn.close()
+
+        with pytest.warns(UserWarning):
+            a = load_ohlcv_from_sqlite(str(path), tickers=["X1"], start_date=_FX_START, end_date=_FX_END,
+                                       table="daily", ticker_col="ticker", date_col="date")["X1"]
+            b = load_ohlcv_from_sqlite(str(path), tickers=["X2"], start_date=_FX_START, end_date=_FX_END,
+                                       table="noturn", ticker_col="ticker", date_col="date")["X2"]
+        assert list(a.columns) == ["Open", "High", "Low", "Close", "Volume", "Turnover"]
+        assert np.allclose(a["Turnover"], a["Close"] * a["Volume"] * 7.0)
+        assert list(b.columns) == ["Open", "High", "Low", "Close", "Volume", "Turnover"]
+        assert np.allclose(b["Turnover"], b["Close"] * b["Volume"])            # _ensure_turnover
+        assert len(a) == len(b) == 21
+
+
+# ══════════════════════════════════════════════
+# 21. v1 전용: V1-3 랭킹 방향 · V1-4 청산 · V1-6 TrendGoal 대조 (2026-09-12)
+# ══════════════════════════════════════════════
+
+def _cand(ticker, dist_ema10, adx, rsi, **extra):
+    """run_period 가 만드는 후보 dict 와 같은 키"""
+    base = {
+        "ticker": ticker, "dist_ema10": dist_ema10, "adx": adx, "rsi": rsi,
+        "return20": 0.0, "dist_sma50": 0.0, "vol_ratio": 1.0,
+        "atr": 100.0, "next_open": 10000.0,
+    }
+    base.update(extra)
+    return base
+
+
+def _goal_trades(n_win, n_loss, win_mult, loss_mult, eq_index):
+    """승·패를 날짜 축에 교대로 배치(폴드마다 섞이도록). 비용 부착 완료 프레임 반환."""
+    n, step = n_win + n_loss, max(len(eq_index) // (n_win + n_loss + 1), 1)
+    kinds, w, l = [], 0, 0
+    while w < n_win or l < n_loss:
+        if w < n_win and (l >= n_loss or w * n_loss <= l * n_win):
+            kinds.append("W"); w += 1
+        else:
+            kinds.append("L"); l += 1
+    rows = []
+    for i, k in enumerate(kinds):
+        d  = eq_index[min((i + 1) * step, len(eq_index) - 1)]
+        ep = 10000.0
+        rows.append(make_trade(
+            ticker=f"{k}{i:02d}",
+            entry_price=ep, exit_price=ep * (win_mult if k == "W" else loss_mult),
+            stop_price=ep * 0.93, shares=100,
+            holding_days=5, exit_reason="trailing" if k == "W" else "stop",
+            entry_date=str((d - pd.Timedelta(days=5)).date()),
+            exit_date=str(d.date()),
+        ))
+    return attach_costs(pd.DataFrame(rows, columns=TRADE_COLUMNS).reset_index(drop=True))
+
+
+class TestV1RankingDirection:
+    """V1-3: 눌림목 방향 랭킹 — 앵커 근접(dist_ema10↓)·추세 강도(adx↑)·과열 회피(rsi↓). C-3 교정."""
+
+    def test_weights_declared(self):
+        assert set(RANK_WEIGHTS) == {"dist_ema10", "adx", "rsi"}
+        assert sum(RANK_WEIGHTS.values()) == pytest.approx(1.0)
+        assert all(w > 0 for w in RANK_WEIGHTS.values())
+
+    def test_closest_to_ema10_ranks_first(self):
+        cands = [_cand("FAR", 0.06, 30, 60), _cand("NEAR", 0.005, 30, 60), _cand("MID", 0.03, 30, 60)]
+        assert list(_rank_candidates(cands)["ticker"]) == ["NEAR", "MID", "FAR"]
+
+    def test_lower_rsi_preferred(self):
+        cands = [_cand("HOT", 0.02, 30, 69), _cand("COOL", 0.02, 30, 51)]
+        assert list(_rank_candidates(cands)["ticker"]) == ["COOL", "HOT"]
+
+    def test_higher_adx_preferred(self):
+        cands = [_cand("WEAK", 0.02, 21, 60), _cand("STRONG", 0.02, 45, 60)]
+        assert list(_rank_candidates(cands)["ticker"]) == ["STRONG", "WEAK"]
+
+    def test_expansion_metrics_do_not_affect_score(self):
+        """v0.4-rc1 랭킹 입력(return20·dist_sma50·vol_ratio)은 v1 점수에 관여하지 않는다"""
+        a = [_cand("A", 0.01, 30, 55), _cand("B", 0.03, 25, 65)]
+        b = [_cand("A", 0.01, 30, 55, return20=0.9,  dist_sma50=0.5,  vol_ratio=9.0),
+             _cand("B", 0.03, 25, 65, return20=-0.5, dist_sma50=-0.2, vol_ratio=0.1)]
+        ra, rb = _rank_candidates(a), _rank_candidates(b)
+        assert list(ra["ticker"]) == list(rb["ticker"])
+        assert np.allclose(ra["score"].to_numpy(), rb["score"].to_numpy())
+
+    def test_v04_top_expansion_is_not_bought_first(self):
+        """v0.4-rc1 이면 1위였을 확장 종목(return20·vol_ratio 최상)이 v1 에서는 앵커 근접 종목에 밀린다"""
+        cands = [_cand("EXPAND", 0.07, 35, 68, return20=0.40, dist_sma50=0.30, vol_ratio=4.0),
+                 _cand("PULL",   0.004, 35, 53, return20=0.05, dist_sma50=0.05, vol_ratio=1.0)]
+        assert _rank_candidates(cands)["ticker"].iloc[0] == "PULL"
+
+    def test_score_formula_matches_declared_weights(self):
+        cands  = [_cand("A", 0.01, 40, 52), _cand("B", 0.02, 30, 60), _cand("C", 0.03, 20, 68)]
+        ranked = _rank_candidates(cands)
+        df     = pd.DataFrame(cands)
+        expected = (
+            RANK_WEIGHTS["dist_ema10"] * (1 - df["dist_ema10"].rank(pct=True))
+            + RANK_WEIGHTS["adx"]      * df["adx"].rank(pct=True)
+            + RANK_WEIGHTS["rsi"]      * (1 - df["rsi"].rank(pct=True))
+        ).sort_values(ascending=False)
+        assert list(ranked["ticker"]) == [df.loc[i, "ticker"] for i in expected.index]
+        assert np.allclose(ranked["score"].to_numpy(), expected.to_numpy())
+
+    def test_empty_and_columns(self):
+        assert _rank_candidates([]).empty
+        ranked = _rank_candidates([_cand("A", 0.01, 30, 55)])
+        for col in ["dist_ema10_rank", "adx_rank", "rsi_rank", "score", "ticker", "atr", "next_open"]:
+            assert col in ranked.columns
+
+    def test_dist_ema10_indicator_present(self):
+        """V1-2: _compute_indicators 가 DIST_EMA10 = Close/EMA10 − 1 을 만든다"""
+        df = _compute_indicators(make_ohlcv(120, seed=3))
+        assert "DIST_EMA10" in df.columns
+        ok = df["EMA10"].notna()
+        assert np.allclose(df.loc[ok, "DIST_EMA10"], df.loc[ok, "Close"] / df.loc[ok, "EMA10"] - 1)
+
+
+class TestV1ExitWithoutEmaCross:
+    """V1-4: Close < EMA10 만으로는 청산하지 않는다 — stop > holding_limit > trailing. C-2 교정."""
+
+    @staticmethod
+    def _row(close=9800.0, ema10=9900.0, atr=100.0):
+        return pd.Series({"Close": close, "EMA10": ema10, "ATR": atr})
+
+    @staticmethod
+    def _pos(stop_price=9000.0, highest_close=10000.0):
+        return {"stop_price": stop_price, "highest_close": highest_close}
+
+    def test_ema_cross_not_valid_exit_reason(self):
+        assert "ema_cross" not in VALID_EXIT_REASONS
+        assert {"stop", "holding_limit", "trailing", "forced_close"} == set(VALID_EXIT_REASONS)
+
+    def test_close_below_ema10_alone_no_exit(self):
+        # Close(9800) < EMA10(9900) 이지만 stop(9000)·limit(15)·trailing(10000−2×100=9800) 미충족
+        hit, reason = _exit_signal(self._row(), self._pos(), 3, 9850.0, FIXED_CONFIG)
+        assert (hit, reason) == (False, "")
+
+    def test_stop_first(self):
+        hit, reason = _exit_signal(self._row(), self._pos(), CONFIG["holding_limit"], 8999.0, FIXED_CONFIG)
+        assert (hit, reason) == (True, "stop")
+
+    def test_holding_limit_before_trailing(self):
+        hit, reason = _exit_signal(self._row(), self._pos(), CONFIG["holding_limit"], 9700.0, FIXED_CONFIG)
+        assert (hit, reason) == (True, "holding_limit")
+
+    def test_trailing_fires(self):
+        hit, reason = _exit_signal(self._row(), self._pos(), 3, 9799.0, FIXED_CONFIG)
+        assert (hit, reason) == (True, "trailing")
+
+    def test_system_run_never_emits_ema_cross(self):
+        _, trades, _ = _run_system()
+        if not trades.empty:
+            assert "ema_cross" not in set(trades["exit_reason"])
+            assert set(trades["exit_reason"]) <= set(VALID_EXIT_REASONS)
+
+
+class TestV1FoldLabels:
+    """V1-6: _fold_labels 는 _generate_fold_reports 의 '기간' 경계와 같다"""
+
+    def test_labels_match_fold_report_periods(self):
+        equity = make_equity(400, start="2024-01-01")
+        idx    = equity.index
+        trades = make_trades_with_dates(20, 10, idx)
+        trades["exit_date"] = pd.to_datetime([idx[i * 5 % (len(idx) - 1)] for i in range(len(trades))])
+        start, end = idx[0], idx[-1]
+        reports = _generate_fold_reports(equity, trades, start, end, test_months=6)
+        labels  = _fold_labels(trades["exit_date"], start, end, test_months=6)
+        assert set(labels.dropna()) <= set(reports["기간"])
+        counts = labels.value_counts()
+        for _, r in reports.iterrows():
+            assert counts.get(r["기간"], 0) == r["거래_수"]
+
+    def test_boundaries_and_outside_range(self):
+        exit_dates = pd.Series(pd.to_datetime(
+            ["2023-12-31", "2024-01-01", "2024-06-30", "2024-07-01", "2024-12-31", "2025-01-01"]
+        ))
+        labels = _fold_labels(exit_dates, "2024-01-01", "2024-12-31", test_months=6)
+        assert pd.isna(labels.iloc[0]) and pd.isna(labels.iloc[-1])
+        assert list(labels.iloc[1:5]) == [
+            "2024-01-01 ~ 2024-06-30", "2024-01-01 ~ 2024-06-30",
+            "2024-07-01 ~ 2024-12-31", "2024-07-01 ~ 2024-12-31",
+        ]
+
+
+class TestV1NetReturnPct:
+    """V1-6: 비용후 퍼센트 수익률 = pnl_net / (entry_price·shares·(1+ENTRY_COST)) × 100"""
+
+    def test_formula_win_and_loss(self):
+        t = attach_costs(pd.DataFrame([
+            make_trade(ticker="W", entry_price=10000.0, exit_price=10500.0, shares=100),
+            make_trade(ticker="L", entry_price=10000.0, exit_price=9500.0,  shares=100, exit_reason="stop"),
+        ], columns=TRADE_COLUMNS))
+        r = net_return_pct(t)
+        cash_in = 10000.0 * 100 * (1 + ENTRY_COST)
+        assert np.allclose(r.to_numpy(), (t["pnl_net"] / cash_in * 100.0).to_numpy())
+        assert 0 < r.iloc[0] < 5.0          # 비용 차감 → 총수익률 5% 미만
+        assert r.iloc[1] < -5.0             # 손실은 비용만큼 더 나쁘다
+
+    def test_attaches_costs_when_missing(self):
+        raw = pd.DataFrame([make_trade()], columns=TRADE_COLUMNS).drop(columns=["pnl_net"])
+        assert net_return_pct(raw).iloc[0] == pytest.approx(
+            net_return_pct(attach_costs(pd.DataFrame([make_trade()], columns=TRADE_COLUMNS))).iloc[0]
+        )
+
+
+class TestV1TrendGoalCheck:
+    """V1-6: 저장소 공식 TrendGoal + D-37 즉시기각선 — 반환은 건수·불리언만"""
+    KEYS     = {"closed_trades", "window_count", "immediate_reject", "trend_goal_pass", "criteria"}
+    CRITERIA = {"trades>=30", "payoff>=2.0", "PF>=1.3", "expectancy>0.0", "window_share>=0.5"}
+
+    def test_empty_trades(self):
+        out = trend_goal_check(pd.DataFrame(columns=TRADE_COLUMNS), "2024-01-01", "2024-12-31")
+        assert set(out) == self.KEYS
+        assert out["closed_trades"] == 0 and out["window_count"] == 0
+        assert out["immediate_reject"] is True and out["trend_goal_pass"] is False
+        assert out["criteria"] == {}
+
+    def test_strong_sample_passes(self):
+        idx = make_equity(400, start="2024-01-01").index
+        out = trend_goal_check(_goal_trades(30, 5, 1.15, 0.95, idx), idx[0], idx[-1])
+        assert set(out) == self.KEYS and set(out["criteria"]) == self.CRITERIA
+        assert out["closed_trades"] == 35 and out["window_count"] >= 2
+        assert out["immediate_reject"] is False
+        assert all(v is True for v in out["criteria"].values())
+        assert out["trend_goal_pass"] is True
+
+    def test_losing_sample_rejected(self):
+        idx = make_equity(400, start="2024-01-01").index
+        out = trend_goal_check(_goal_trades(5, 30, 1.03, 0.95, idx), idx[0], idx[-1])
+        assert out["immediate_reject"] is True and out["trend_goal_pass"] is False
+        assert out["criteria"]["trades>=30"] is True
+        assert out["criteria"]["PF>=1.3"] is False and out["criteria"]["expectancy>0.0"] is False
+
+    def test_too_few_trades_fails_without_reject(self):
+        idx = make_equity(400, start="2024-01-01").index
+        out = trend_goal_check(_goal_trades(20, 5, 1.15, 0.95, idx), idx[0], idx[-1])
+        assert out["closed_trades"] == 25
+        assert out["immediate_reject"] is False
+        assert out["criteria"]["trades>=30"] is False and out["trend_goal_pass"] is False
+
+    def test_dict_exposes_only_counts_and_bools(self):
+        idx = make_equity(400, start="2024-01-01").index
+        out = trend_goal_check(_goal_trades(30, 5, 1.15, 0.95, idx), idx[0], idx[-1])
+        for k, v in out.items():
+            if k == "criteria":
+                assert all(type(x) is bool for x in v.values())
+            else:
+                assert type(v) in (bool, int)
+
+
+# ══════════════════════════════════════════════
+# 실행 진입점
+# ══════════════════════════════════════════════
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(pytest.main([__file__, "-v", "--tb=short", "-s"]))

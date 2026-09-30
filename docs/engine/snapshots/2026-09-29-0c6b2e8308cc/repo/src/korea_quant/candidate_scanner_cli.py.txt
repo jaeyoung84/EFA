@@ -1,0 +1,62 @@
+"""CLI for common-signal candidate ranking; does not place broker orders."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+from korea_quant.candidate_scanner import (
+    CandidateScannerConfig,
+    scan_confluence_candidates,
+    write_candidate_report,
+)
+from korea_quant.krx import KrxDailyStore
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Rank KOSPI/KOSDAQ common-signal research candidates."
+    )
+    parser.add_argument("--krx-db", type=Path, required=True)
+    parser.add_argument("--start", required=True)
+    parser.add_argument("--end", default=None)
+    parser.add_argument("--kospi-benchmark", default="069500")
+    parser.add_argument("--kosdaq-benchmark", default="229200")
+    parser.add_argument("--minimum-trading-value", type=float, default=5_000_000_000)
+    parser.add_argument("--minimum-signal-trading-value", type=float, default=0.0)
+    parser.add_argument("--minimum-relative-strength", type=float, default=None)
+    parser.add_argument("--market-filter-window", type=int, default=None)
+    parser.add_argument("--liquidity-window", type=int, default=20)
+    parser.add_argument("--minimum-signals", type=int, default=2)
+    parser.add_argument("--require-volume", action="store_true")
+    parser.add_argument("--output", type=Path, default=Path("reports/confluence_candidates.html"))
+    parser.add_argument("--csv", type=Path, default=None)
+    args = parser.parse_args()
+
+    store = KrxDailyStore(args.krx_db)
+    history = store.market_history(args.start, args.end, ("KOSPI", "KOSDAQ"))
+    benchmarks = {
+        "KOSPI": store.daily_prices(args.kospi_benchmark, args.start, args.end)["Close"],
+        "KOSDAQ": store.daily_prices(args.kosdaq_benchmark, args.start, args.end)["Close"],
+    }
+    config = CandidateScannerConfig(
+        liquidity_window=args.liquidity_window,
+        minimum_average_trading_value=args.minimum_trading_value,
+        minimum_signal_trading_value=args.minimum_signal_trading_value,
+        minimum_relative_strength=args.minimum_relative_strength,
+        market_filter_window=args.market_filter_window,
+        confluence_minimum_signals=args.minimum_signals,
+        confluence_require_volume=args.require_volume,
+    )
+    try:
+        scan = scan_confluence_candidates(history, benchmarks, config)
+    except ValueError as exc:
+        raise SystemExit(f"Cannot run candidate scanner: {exc}") from exc
+    html, csv = write_candidate_report(
+        scan, args.output, args.csv or args.output.with_suffix(".csv")
+    )
+    print(f"Candidate scanner: {html.resolve()} | {csv.resolve()}")
+
+
+if __name__ == "__main__":
+    main()

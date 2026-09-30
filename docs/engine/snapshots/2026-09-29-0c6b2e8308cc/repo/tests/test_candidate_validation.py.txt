@@ -1,0 +1,89 @@
+import pandas as pd
+
+from korea_quant import candidate_validation
+from korea_quant.candidate_validation import (
+    CandidateValidationConfig,
+    build_ranked_candidate_events,
+    evaluate_ranked_events,
+)
+
+
+def _history(periods=270):
+    dates = pd.bdate_range("2024-01-01", periods=periods)
+    rows = []
+    for symbol, growth in (("A", 2), ("B", 1)):
+        for number, day in enumerate(dates):
+            price = 100 + growth * number
+            rows.append({"Date": day, "Symbol": symbol, "Name": symbol, "Market": "KOSPI",
+                         "Open": price, "High": price + 2, "Low": price - 2, "Close": price,
+                         "Volume": 100, "TradingValue": 6_000_000_000})
+    return pd.DataFrame(rows)
+
+
+def test_build_events_uses_next_open_orders_and_ranks_them(monkeypatch):
+    history = _history()
+    benchmark = pd.Series(range(100, 370), index=pd.bdate_range("2024-01-01", periods=270))
+
+    def fake_signals(prices, *_args):
+        entries = pd.Series(False, index=prices.index)
+        entries.iloc[255] = True
+        return pd.DataFrame({"entries": entries, "confluence_count": 2,
+                             "confluence_trend_count": 1, "confluence_volume_count": 1}, index=prices.index)
+
+    monkeypatch.setattr(candidate_validation, "generate_confluence_signals", fake_signals)
+    events = build_ranked_candidate_events(history, benchmark, CandidateValidationConfig())
+    assert events["execution_date"].nunique() == 1
+    assert events["rank"].tolist() == [1, 2]
+    assert events.iloc[0]["symbol"] == "A"
+
+
+def test_build_events_ignores_execution_session_close_data(monkeypatch):
+    history = _history()
+    dates = pd.bdate_range("2024-01-01", periods=270)
+    execution_date = dates[255]
+    benchmark = pd.Series(range(100, 370), index=dates)
+
+    def fake_signals(prices, *_args):
+        entries = pd.Series(False, index=prices.index)
+        entries.loc[execution_date] = True
+        return pd.DataFrame(
+            {
+                "entries": entries,
+                "confluence_count": 2,
+                "confluence_trend_count": 1,
+                "confluence_volume_count": 1,
+            },
+            index=prices.index,
+        )
+
+    monkeypatch.setattr(candidate_validation, "generate_confluence_signals", fake_signals)
+    config = CandidateValidationConfig(minimum_average_trading_value=6_000_000_000)
+    baseline = build_ranked_candidate_events(history, benchmark, config)
+
+    changed = history.copy()
+    execution_rows = changed["Date"].eq(execution_date)
+    changed.loc[execution_rows, "TradingValue"] = 0
+    changed.loc[execution_rows & changed["Symbol"].eq("A"), ["Close", "High"]] = 1_000_000
+    changed.loc[execution_rows & changed["Symbol"].eq("B"), ["Close", "High"]] = 1
+    perturbed = build_ranked_candidate_events(changed, benchmark, config)
+
+    columns = ["execution_date", "rank", "symbol", "candidate_score"]
+    pd.testing.assert_frame_equal(baseline[columns], perturbed[columns])
+
+
+def test_event_evaluation_includes_round_trip_costs():
+    history = _history()
+    date = pd.bdate_range("2024-01-01", periods=270)[255]
+    events = pd.DataFrame([{"execution_date": date, "symbol": "A", "rank": 1}])
+    free = evaluate_ranked_events(events, history, CandidateValidationConfig(horizons=(5,), fee_rate=0, slippage_rate=0))
+    costly = evaluate_ranked_events(events, history, CandidateValidationConfig(horizons=(5,), fee_rate=0.01, slippage_rate=0.01))
+    assert free.loc[0, "bucket"] == "top_10"
+    assert costly.loc[0, "mean_return"] < free.loc[0, "mean_return"]
+
+
+def test_event_evaluation_returns_empty_summary_for_unfinished_events():
+    history = _history()
+    date = pd.bdate_range("2024-01-01", periods=270)[-1]
+    events = pd.DataFrame([{"execution_date": date, "symbol": "A", "rank": 1}])
+    summary = evaluate_ranked_events(events, history, CandidateValidationConfig(horizons=(5,)))
+    assert summary.empty

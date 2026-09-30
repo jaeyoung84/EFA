@@ -1,0 +1,116 @@
+# EINT-007 / 007A — AWS PC 독립 운영(2026-09-29 배포 완료)
+
+아래 배포 절차는 2026-09-29에 1~8단계까지 실행했고 9단계(병행 관찰)가 진행 중이다(EINT-007A).
+재배포·복구 시에도 같은 순서를 따른다.
+주문·자동 모의체결·실거래·개인 원장 쓰기는 어느 단계에도 없다. 원본 `Ubuntu-26.04`의
+기존 파이프라인(08:20 KST, 자동 모의체결 포함 `daily_picks_cli`)은 건드리지 않는다.
+
+## EINT-010 로컬 보완 — 운영에 아직 적용하지 않음
+
+- 현재 자동배포 workflow는 `/opt/investment-analysis`를 사용하지만 아래 AWS 운영 기록은
+  `/opt/investing-app` 기준이다. 승인 없이 경로 이동·재배포하지 않는다.
+- 로컬 `docker-compose.prod.yml`의 홈페이지 상태 mount는
+  `${KQS_STATE_DIR:-/opt/investing-app/state/kqs}` → `/app/state/kqs`(읽기 전용)이다.
+  `create_host_path: false`로 잘못된 경로에 빈 추천 저장소를 만들지 않는다.
+- 신규 `infra/ops/kqs-deployment-preflight.sh`는 기존 환경파일·추천 DB·읽기 전용 mount와
+  현재 Compose 프로젝트/Mongo·Qdrant·Meilisearch 볼륨의 이름을 **조회만** 한다.
+  비표준 볼륨·프로젝트·경로이면 종료하며, 새 볼륨 생성이나 자동 마이그레이션을 하지 않는다.
+- 사전 검사는 임시 파일·가짜 Docker로만 검증했다. 현재 AWS 프로젝트/볼륨 식별자는 재확인 대상이다.
+  기존 자동배포 workflow 연결은 승인 대기이며 이 문서의 과거 배포 기록을 새 검증으로 간주하지 않는다.
+- [릴리스 준비 점검](RELEASE_READINESS.md), [EINT-010 검증](verification/EINT-010.json).
+
+## EINT-011 로컬 화면 보완 — 운영에 아직 적용하지 않음
+
+상태·후보·패킷 화면의 기본 경로를 유효한 native 게시 읽기로 통일했다.
+추천 0건은 정상 게시이며 누락·만료·손상은 오류다. 게시 유효성만으로
+systemd 타이머/프로세스 건강을 판정하지 않는다. 자동 모의 포지션 대조는 미사용이다.
+
+검토/패킷/일별 큐/후보 성과 이력은 네 `kqs_native_candidate_*` 컬렉션으로 분리한다.
+기존 bridge 컬렉션·개인 수동 원장은 그대로 보존한다. 향후 MongoDB 비공개 백업은
+기존 자료와 네 native 컬렉션을 모두 포함해야 한다. 실제 백업/복원은 이번에 수행하지 않았다.
+
+EINT-011A 사용자 승인 후 `scheduler.py`의 KQS 조회 경로만 보완했다.
+기본 snapshot은 native 후보 큐, 명시적 bridge는 legacy 큐만 시세 수집 대상에 포함한다.
+DCA 코드·주기·작업 등록과 기존 보유/전략/개인 판단 수집 대상은 변경하지 않았다.
+로컬 격리 회귀로 대상 편입을 검증했으며 실제 시세 요청·운영 스케줄은 실행하지 않았다.
+AWS에 코드를 올리거나 서비스를 재시작하지 않았다.
+
+[화면·이력 계약과 한계](NATIVE_VIEWS.md), [EINT-011 당시 검증](verification/EINT-011.json),
+[EINT-011A 승인 후 검증](verification/EINT-011A.json).
+
+## 구성
+
+```text
+[EC2 t3.small, systemd timer]
+08:30/10:30 KST  kqs-daily-pipeline  ─ KRX Open API(인증키) → 시장 DB(/srv/kqs/market)
+                                      → coverage manifest → 품질 run(불변) → 단일 writer 게시
+                                      → 게시 DB·시도 로그·실행 로그(/opt/investing-app/state/kqs)
+11:30 KST        kqs-backup          ─ SQLite 온라인 백업 → 복원 검사 → (설정 시) 비공개 S3 업로드
+매시              kqs-pipeline-status ─ 기대 세션이 게시·유효한지 → 실패 시 kqs-alert(journal/SNS)
+홈페이지 backend ─ /app/state/kqs 를 읽기 전용 mount, 게시 DB만 읽음
+```
+
+| 경로(호스트) | 소유 | 내용 |
+| --- | --- | --- |
+| `/srv/kqs/market/krx_daily.sqlite3` | UID 10001, 0700 dir | 시장 DB(WAL). **디렉터리가 쓰기 가능해야** 읽기 전용 연결도 동작 |
+| `/opt/investing-app/state/kqs/` | UID 10001 | 품질·게시·시도·실행 로그 DB, coverage, status JSON |
+| `/srv/kqs/backups/` | UID 10001, 0700 | 최근 2개 로컬 백업(S3에 30일, 이전 버전 7일) |
+| `/srv/kqs/secrets/krx.env` | root:10001 0640 | `KRX_AUTH_KEY=...`(D-31 형식). Git·이미지·로그에 넣지 않는다 |
+| `/srv/kqs/secrets/ops.env` | root 0600 | `KQS_BACKUP_S3_URI`, `KQS_ALERT_SNS_TOPIC_ARN`(선택) |
+
+## 실데이터 근거(읽기 전용 확인, 2026-09-29)
+
+- 원본 DB: 2016-08-29~2026-09-28, 2,471세션, 1.4GB, WAL. 스키마는 이관 수집기와 동일.
+- 세션마다 KOSPI 약 28~30, KOSDAQ 약 85개가 시가·고가·저가·거래량·거래대금 0, 종가·시총 양수
+  (거래정지·무거래). EINT-005 규칙은 이를 모두 거부했으므로 EINT-007에서 규칙을 수정했다.
+  새 규칙: 2026년 180세션 498,897행 오탐 0건. 2026-09-28 실제 세션 품질 run `ready`.
+- `collection_log` 행 수=저장 행 수(2025~ 908건 전부). 세션 간 변동 최대 KOSPI ±2, KOSDAQ ±3.
+  coverage 밴드는 직전 세션 대비 1%(최소 5)이며 초과 시 공급자 이상으로 차단한다.
+- 원본 수집기는 평일 휴장일에도 호출해 0행을 기록했다. 이관 수집기는 검토된 캘린더 세션만
+  호출하고, 세션인데 0행이면 실패(`collect_failed`)로 남기고 재시도 시각에 다시 시도한다.
+
+## 배포 결과(2026-09-29)
+
+- EC2 `i-0dc146c28dca4089b` t3.small, 공인 IP **3.38.170.158**(중지·시작 시 바뀔 수 있음), 2GB swap
+  (`/swapfile`, swappiness 10). swap 없이 첫 실행이 OOM(exit 137)으로 종료됐다 — 제거하지 않는다.
+- S3 `s3://kqs-state-125022369601/`: `initial/`(초기 DB 사본), `backups/<UTC 시각>/`. ops.env에 업로드 URI.
+- 인증키: SSM `/kqs/krx-auth-key` → `/srv/kqs/secrets/krx.env`. 키 교체 시 파라미터 갱신 후 파일 재생성.
+- 타이머: `systemctl list-timers 'kqs-*'`. 로그: `journalctl -u kqs-daily-pipeline.service`.
+- SNS 경보 미설정: `ops.env`에 `KQS_ALERT_SNS_TOPIC_ARN`을 넣고 역할에 `sns:Publish`를 추가하면 외부 알림.
+
+## 배포 절차
+
+1. **EC2 t3.micro → t3.small** 증설(중지·타입 변경·시작, 공인 IP 변경 가능). 메모리 2GB.
+2. **비공개 S3 버킷**: 퍼블릭 액세스 차단, 버전 관리, SSE, 수명주기(예: 90일). 인스턴스 역할에
+   해당 prefix의 `s3:PutObject`/`GetObject`/`ListBucket`만 추가. (선택) SNS 토픽과 `sns:Publish`.
+3. **KRX 인증키**: SSM Parameter Store SecureString에 저장 → 인스턴스에서 `krx.env`(0640)로 기록.
+   키 값은 명령 기록·로그·티켓에 남기지 않는다.
+4. **초기 시장 DB 1회 이전**(`Ubuntu-26.04`에서):
+   원본 파이프라인이 쓰지 않는 시각에 SQLite 온라인 백업으로 사본 생성 → `PRAGMA integrity_check`
+   → SHA-256 기록 → 비공개 S3 업로드 → EC2에서 내려받아 SHA-256 대조·integrity_check →
+   `/srv/kqs/market/krx_daily.sqlite3`(UID 10001). **원본 DB는 삭제하지 않는다.**
+5. **배포 tarball에 `engine/`을 포함**한다(backend 이미지가 `engine/kqs`를 설치). `.venv`,
+   `build/`, `state/`는 제외한다. backend 재빌드 후 `state/kqs`가 읽기 전용 mount인지 확인.
+6. worker 이미지 빌드: `docker compose -f infra/docker/docker-compose.engine.yml --profile engine build`.
+7. 수동 1회 실행 → 결과·게시 확인 → `kqs-pipeline-status` 확인 → `kqs-backup` 1회 → 업로드/복원 확인.
+8. `infra/systemd/*.service|*.timer`를 `/etc/systemd/system/`에 설치, `infra/ops/*.sh`는 저장소 경로 그대로 사용,
+   `systemctl enable --now kqs-daily-pipeline.timer kqs-backup.timer kqs-health.timer`.
+9. **병행 관찰**: 원본 파이프라인과 며칠간 같은 세션의 품질·추천 결과를 비교한다. 원본 중단·삭제는
+   별도 결정이며, 원시 자료 1,735개의 비공개 백업·복구 검증 전에는 원본을 폐기하지 않는다.
+
+## 종료 코드와 상태
+
+- `kqs-daily-pipeline`: 0 published/already_published, 1 collect_failed/coverage_rejected/
+  quality_rejected/blocked_quality/publish_failed/failed, 3 writer_busy(성공 처리), 2 인자·키 오류.
+- `kqs-pipeline-status`: 0 정상(기대 세션 게시·유효, 또는 공개 기대 후 6시간 유예 이내), 1 경보.
+- 모든 실행은 `pipeline-runs.sqlite3`(불변)와 `pipeline-status.json`(최신)에 남는다.
+
+## 한계
+
+- coverage 기대 종목 수는 KRX 응답 행 수다. 저장 누락은 잡지만 공급자 자체의 소폭 누락은 못 잡는다.
+- 품질 규칙은 행 형식·일관성 검사다. 가격 정정, 수정주가, 조용한 값 변화는 증명하지 않는다.
+- flock 잠금과 SQLite는 단일 호스트 로컬 디스크 전제다(EFS/NFS·다중 인스턴스 불가).
+- 06:00 KST는 시스템 공개 기대 시각이다. KRX API 반영이 늦으면 08:30 실행은 `collect_failed`,
+  10:30 재시도에서 게시된다. 그 사이 홈페이지 추천은 만료(503)일 수 있다.
+- 2026 캘린더만 있다. 2027 캘린더를 검토·등록하기 전에는 2027년 첫 세션부터 실패·경보한다.
+- 경보는 SNS 설정 시에만 외부로 나간다. 미설정이면 journal에만 남는다.

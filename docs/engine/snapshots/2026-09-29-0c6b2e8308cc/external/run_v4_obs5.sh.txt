@@ -1,0 +1,15 @@
+#!/bin/bash
+# 관측 #5 1회 실행 스크립트 — 산출물이 이미 있으면 절대 재실행하지 않음(관측 1회 보호).
+LOG=/home/gram/pullback_v4_obs5.log
+SUM=/home/gram/pullback_v4_obs5_summary.txt
+if [ -e "$LOG" ] || [ -e "$SUM" ]; then
+  echo "ABORT: obs #5 outputs already exist — no re-run" >&2
+  exit 3
+fi
+cd /home/gram || exit 4
+echo "START $(date +%FT%T%z)" > "$LOG"
+/home/gram/korea-quant-system/.venv/bin/python /home/gram/pullback_v4_obs5.py >> "$LOG" 2>&1
+rc=$?
+echo "EXIT=$rc" >> "$LOG"
+echo "END $(date +%FT%T%z)" >> "$LOG"
+exit $rc

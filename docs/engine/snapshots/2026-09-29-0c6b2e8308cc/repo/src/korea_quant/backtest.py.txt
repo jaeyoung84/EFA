@@ -1,0 +1,1005 @@
+"""Backtesting and reproducible HTML/CSV research reports."""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from html import escape
+from pathlib import Path
+from types import SimpleNamespace
+
+import pandas as pd
+
+from korea_quant.strategy import (
+    bollinger_rsi_signals,
+    candle_volume_signals,
+    darvas_box_signals,
+    donchian_atr_signals,
+    ema_resistance_signals,
+    macd_trend_signals,
+    moving_average_signals,
+    rsi_obv_signals,
+    trend_multiplier_signals,
+    trend_pullback_signals,
+    turtle_signals,
+    volatility_squeeze_signals,
+)
+
+
+@dataclass(frozen=True)
+class BacktestConfig:
+    initial_cash: float = 10_000_000
+    fee_rate: float = 0.00015
+    sell_tax_rate: float = 0.0018
+    slippage_rate: float = 0.0005
+    maximum_participation_rate: float = 0.01
+    fast_window: int = 20
+    slow_window: int = 60
+    strategy: str = "sma"
+    bollinger_window: int = 20
+    bollinger_std: float = 2.0
+    rsi_window: int = 14
+    rsi_oversold: float = 30.0
+    rsi_exit: float = 50.0
+    donchian_entry_window: int = 20
+    donchian_exit_window: int = 10
+    atr_window: int = 14
+    atr_multiplier: float = 3.0
+    macd_fast: int = 12
+    macd_slow: int = 26
+    macd_signal: int = 9
+    trend_window: int = 200
+    volume_window: int = 20
+    volume_multiplier: float = 1.5
+    hammer_shadow_ratio: float = 2.0
+    rsi_obv_exit: float = 50.0
+    obv_signal_window: int = 9
+    ema_window: int = 30
+    resistance_threshold: float = 0.005
+    resistance_touches: int = 2
+    strong_body_lookback: int = 20
+    strong_body_multiplier: float = 1.5
+    minimum_close_position: float = 0.75
+    market_filter_window: int = 20  # Fast macro regime filter (was 200)
+    squeeze_band_window: int = 20
+    squeeze_atr_window: int = 14
+    squeeze_lookback: int = 120
+    squeeze_percentile: float = 0.2
+    squeeze_breakout_window: int = 20
+    confluence_minimum_signals: int = 2
+    confluence_require_volume: bool = False
+    require_golden_cross: bool = False
+    golden_fast_window: int = 50
+    golden_slow_window: int = 200
+    hold_until_golden_exit: bool = False
+    split_exit: bool = False
+    pullback_ema_window: int = 20
+    pullback_trend_window: int = 50
+    pullback_lookback: int = 5
+    pullback_breakout_window: int = 3
+    pullback_atr_window: int = 14
+    pullback_atr_multiplier: float = 3.0
+    trend_multiplier_breakout_window: int = 126
+    trend_multiplier_fast_ema_window: int = 50
+    trend_multiplier_slow_ema_window: int = 200
+    trend_multiplier_volume_window: int = 20
+    trend_multiplier_volume_multiplier: float = 1.5
+    trend_multiplier_atr_window: int = 14
+    trend_multiplier_atr_multiplier: float = 4.0
+    price_limit_ratio: float = 0.295
+    filter_halts: bool = True
+    outlier_gap_threshold: float = 0.50
+    outlier_cooldown_sessions: int = 60
+    minimum_average_trading_value: float = 5_000_000_000
+    minimum_signal_trading_value: float = 10_000_000_000
+    liquidity_window: int = 20
+    rs_window: int = 63
+    rs_threshold: float = 0.0
+    darvas_box_window: int = 20
+    turtle_entry_window: int = 20
+    turtle_exit_window: int = 10
+    turtle_atr_window: int = 20
+    turtle_atr_stop_multiplier: float = 2.0
+    turtle_pyramid_atr_fraction: float = 0.5
+    turtle_max_units: int = 4
+
+
+@dataclass(frozen=True)
+class BacktestReport:
+    metrics: dict[str, float]
+    equity: pd.DataFrame
+    monthly_returns: pd.DataFrame
+
+
+class SplitExitPortfolio:
+    """Research wrapper that sums two independently funded exit sleeves."""
+
+    def __init__(self, protective: object, trend_hold: object) -> None:
+        self._value = pd.Series(protective.value()).add(pd.Series(trend_hold.value()), fill_value=0)
+        self.trades = SimpleNamespace(
+            records_readable=pd.concat(
+                [protective.trades.records_readable, trend_hold.trades.records_readable],
+                ignore_index=True,
+            )
+        )
+        self.orders = SimpleNamespace(
+            records_readable=pd.concat(
+                [protective.orders.records_readable, trend_hold.orders.records_readable],
+                ignore_index=True,
+            )
+        )
+
+    def value(self) -> pd.Series:
+        return self._value
+
+
+def summarize_reports(reports: dict[str, BacktestReport]) -> pd.DataFrame:
+    """Return one row per symbol without altering any strategy result."""
+    if not reports:
+        raise ValueError("At least one symbol report is required.")
+    summary = pd.DataFrame.from_dict(
+        {symbol: report.metrics for symbol, report in reports.items()}, orient="index"
+    )
+    summary.index.name = "Symbol"
+    return summary.reset_index()
+
+
+def write_summary_reports(
+    summary: pd.DataFrame,
+    html_output: Path,
+    csv_output: Path,
+    detail_reports: dict[str, Path] | None = None,
+) -> tuple[Path, Path]:
+    """Write the cross-symbol performance table as HTML and CSV."""
+    if summary.empty:
+        raise ValueError("Summary cannot be empty.")
+    html_output.parent.mkdir(parents=True, exist_ok=True)
+    csv_output.parent.mkdir(parents=True, exist_ok=True)
+    summary.to_csv(csv_output, index=False)
+
+    display = summary.copy()
+    percent_columns = {
+        "CAGR",
+        "MDD",
+        "Total Return",
+        "Benchmark Return",
+        "Win Rate",
+        "Fee Rate",
+        "Sell Tax Rate",
+        "Slippage Rate",
+    }
+    for column in percent_columns & set(display.columns):
+        display[column] = display[column].map(lambda value: f"{value:.2%}")
+    if "Sharpe Ratio" in display:
+        display["Sharpe Ratio"] = display["Sharpe Ratio"].map(lambda value: f"{value:.2f}")
+    if "Trade Count" in display:
+        display["Trade Count"] = display["Trade Count"].map(lambda value: f"{int(value):,}")
+    if "Total Fees" in display:
+        display["Total Fees"] = display["Total Fees"].map(lambda value: f"{value:,.0f} KRW")
+
+    headers = "".join(f"<th>{escape(str(column))}</th>" for column in display.columns)
+    rows = []
+    for _, row in display.iterrows():
+        cells = []
+        for column, value in row.items():
+            text = escape(str(value))
+            if column == "Symbol" and detail_reports and str(value) in detail_reports:
+                target = detail_reports[str(value)].relative_to(html_output.parent).as_posix()
+                text = f'<a href="{escape(target)}">{text}</a>'
+            cells.append(f"<td>{text}</td>")
+        rows.append(f"<tr>{''.join(cells)}</tr>")
+    html = f"""<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<title>Multi-symbol Backtest Summary</title><style>body{{font-family:system-ui;margin:32px}}
+table{{border-collapse:collapse;width:100%}}th,td{{padding:10px;border:1px solid #ddd;text-align:right}}
+th:first-child,td:first-child{{text-align:left}}th{{background:#f5f5f5;position:sticky;top:0}}
+.notice{{color:#555}}</style></head><body><h1>Multi-symbol Backtest Summary</h1>
+<p class="notice">All symbols use the same strategy parameters. Fees and slippage are included.</p>
+<table><thead><tr>{headers}</tr></thead><tbody>{"".join(rows)}</tbody></table></body></html>"""
+    html_output.write_text(html, encoding="utf-8")
+    return html_output, csv_output
+
+
+def apply_trade_blocks(
+    entries: pd.Series | pd.DataFrame,
+    exits: pd.Series | pd.DataFrame,
+    cant_buy: pd.Series | pd.DataFrame,
+    cant_sell: pd.Series | pd.DataFrame,
+) -> tuple[pd.Series | pd.DataFrame, pd.Series | pd.DataFrame]:
+    """Cancel blocked entries and delay blocked exits to the next available session."""
+    import numpy as np
+
+    # Cancel blocked entries
+    new_entries = entries & ~cant_buy
+
+    # Delay blocked exits
+    if isinstance(exits, pd.DataFrame):
+        new_exits = pd.DataFrame(index=exits.index, columns=exits.columns)
+        for col in exits.columns:
+            a_x = np.array(exits[col], copy=True)
+            a_c = np.array(cant_sell[col], copy=True)
+            for i in range(len(a_x) - 1):
+                if a_x[i] and a_c[i]:
+                    a_x[i] = False
+                    a_x[i + 1] = True
+            if len(a_x) > 0 and a_x[-1] and a_c[-1]:
+                a_x[-1] = False
+            new_exits[col] = a_x
+    else:
+        a_x = np.array(exits, copy=True)
+        a_c = np.array(cant_sell, copy=True)
+        for i in range(len(a_x) - 1):
+            if a_x[i] and a_c[i]:
+                a_x[i] = False
+                a_x[i + 1] = True
+        if len(a_x) > 0 and a_x[-1] and a_c[-1]:
+            a_x[-1] = False
+        new_exits = pd.Series(a_x, index=exits.index)
+
+    return new_entries, new_exits
+
+
+def apply_outlier_filter(
+    signals: pd.DataFrame,
+    close: pd.Series | pd.DataFrame,
+    threshold: float = 0.50,
+    cooldown: int = 60,
+) -> pd.DataFrame:
+    """Block the next N session opens after a close-based outlier is observed."""
+    if threshold <= 0 or cooldown < 1:
+        return signals
+
+    gap = close / close.shift(1) - 1
+    outlier = (gap >= threshold) | (gap <= -threshold)
+    blocked_observed = outlier.rolling(cooldown, min_periods=1).max().astype(bool)
+    blocked_at_open = blocked_observed.shift(1, fill_value=False)
+
+    filtered = signals.copy()
+    filtered["outlier_observed"] = outlier
+    filtered["outlier_blocked"] = blocked_at_open
+    filtered["entries"] = filtered["entries"].astype(bool) & ~blocked_at_open
+    return filtered
+
+
+def apply_liquidity_filter(
+    signals: pd.DataFrame, prices: pd.DataFrame, config: BacktestConfig
+) -> pd.DataFrame:
+    """Use prior-close liquidity observations to gate next-session entries."""
+    if config.minimum_average_trading_value <= 0 and config.minimum_signal_trading_value <= 0:
+        return signals
+
+    if "TradingValue" in prices.columns:
+        tv = pd.to_numeric(prices["TradingValue"], errors="coerce")
+    else:
+        tv = pd.to_numeric(prices["Close"], errors="coerce") * pd.to_numeric(
+            prices["Volume"], errors="coerce"
+        )
+
+    avg_tv = tv.rolling(config.liquidity_window, min_periods=config.liquidity_window).mean()
+    eligible_observed = (avg_tv >= config.minimum_average_trading_value) & (
+        tv >= config.minimum_signal_trading_value
+    )
+    eligible_at_open = eligible_observed.shift(1, fill_value=False)
+
+    filtered = signals.copy()
+    filtered["average_trading_value"] = avg_tv
+    filtered["signal_trading_value"] = tv
+    filtered["liquidity_observed"] = eligible_observed
+    filtered["liquidity_eligible"] = eligible_at_open
+    filtered["entries"] = filtered["entries"].astype(bool) & eligible_at_open
+    return filtered
+
+
+def apply_rs_filter(
+    signals: pd.DataFrame,
+    close: pd.Series | pd.DataFrame,
+    market_close: pd.Series | None,
+    window: int,
+    threshold: float,
+) -> pd.DataFrame:
+    """Use prior-close relative strength to gate next-session entries."""
+    if market_close is None or window < 1:
+        return signals
+
+    market = pd.to_numeric(market_close, errors="coerce").reindex(signals.index)
+    if isinstance(close, pd.DataFrame):
+        stock_ret = close / close.shift(window) - 1
+        market_ret = pd.DataFrame(
+            {col: market / market.shift(window) - 1 for col in close.columns}, index=close.index
+        )
+    else:
+        stock_ret = (
+            pd.to_numeric(close, errors="coerce")
+            / pd.to_numeric(close, errors="coerce").shift(window)
+            - 1
+        )
+        market_ret = market / market.shift(window) - 1
+
+    rs = stock_ret - market_ret
+    eligible_observed = rs >= threshold
+    eligible_at_open = eligible_observed.shift(1, fill_value=False)
+
+    filtered = signals.copy()
+    filtered["relative_strength"] = rs
+    filtered["relative_strength_observed"] = eligible_observed
+    filtered["relative_strength_entry_allowed"] = eligible_at_open
+    filtered["entries"] = filtered["entries"].astype(bool) & eligible_at_open
+    return filtered
+
+
+def run_baseline(
+    prices: pd.DataFrame, config: BacktestConfig, market_close: pd.Series | None = None
+):
+    """Run a selected long-only strategy using next-session open prices."""
+    raw_signals = generate_signals(prices, config)
+    raw_signals = apply_outlier_filter(
+        raw_signals, prices["Close"], config.outlier_gap_threshold, config.outlier_cooldown_sessions
+    )
+    raw_signals = apply_liquidity_filter(raw_signals, prices, config)
+    raw_signals = apply_rs_filter(
+        raw_signals, prices["Close"], market_close, config.rs_window, config.rs_threshold
+    )
+
+    if config.split_exit and not config.require_golden_cross:
+        raise ValueError("split_exit requires require_golden_cross.")
+    if config.split_exit:
+        protective = apply_golden_cross_filter(
+            raw_signals, prices["Close"], config.golden_fast_window, config.golden_slow_window
+        )
+        trend_hold = apply_golden_cross_filter(
+            raw_signals,
+            prices["Close"],
+            config.golden_fast_window,
+            config.golden_slow_window,
+            exit_on_regime_loss=True,
+        )
+        if market_close is not None:
+            protective = apply_market_trend_filter(
+                protective, market_close, config.market_filter_window
+            )
+            trend_hold = apply_market_trend_filter(
+                trend_hold, market_close, config.market_filter_window
+            )
+        half = BacktestConfig(**{**config.__dict__, "initial_cash": config.initial_cash / 2})
+        portfolio = SplitExitPortfolio(
+            run_signals(prices, protective, half), run_signals(prices, trend_hold, half)
+        )
+        signals = protective.copy()
+        signals["trend_hold_exits"] = trend_hold["exits"]
+        return portfolio, signals
+    signals = raw_signals
+    if config.require_golden_cross:
+        signals = apply_golden_cross_filter(
+            signals,
+            prices["Close"],
+            config.golden_fast_window,
+            config.golden_slow_window,
+            exit_on_regime_loss=config.hold_until_golden_exit,
+        )
+    if market_close is not None:
+        signals = apply_market_trend_filter(signals, market_close, config.market_filter_window)
+    return run_signals(prices, signals, config), signals
+
+
+def apply_golden_cross_filter(
+    signals: pd.DataFrame,
+    close: pd.Series,
+    fast_window: int = 50,
+    slow_window: int = 200,
+    *,
+    exit_on_regime_loss: bool = False,
+) -> pd.DataFrame:
+    """Allow entries only when the security's prior close is in a golden-cross regime.
+
+    This is a regime filter by default, so exit orders remain intact. When
+    ``exit_on_regime_loss`` is enabled, it becomes a trend-holding experiment:
+    positions exit only after the prior close loses the golden-cross regime.
+    The one-session shift prevents a close-based regime from affecting an
+    order until the following session's open.
+    """
+    if fast_window <= 1 or slow_window <= 1 or fast_window >= slow_window:
+        raise ValueError("Golden-cross windows must satisfy 1 < fast < slow.")
+    if not {"entries", "exits"} <= set(signals.columns):
+        raise ValueError("Signals must contain entries and exits columns.")
+    values = pd.to_numeric(close, errors="coerce").reindex(signals.index)
+    if values.isna().any() or (values <= 0).any():
+        raise ValueError("Close must cover signal dates and be positive.")
+    fast = values.rolling(fast_window, min_periods=fast_window).mean()
+    slow = values.rolling(slow_window, min_periods=slow_window).mean()
+    observed = fast > slow
+    allowed = observed.shift(1, fill_value=False)
+    filtered = signals.copy()
+    filtered["golden_fast"] = fast
+    filtered["golden_slow"] = slow
+    filtered["golden_cross_observed"] = observed
+    filtered["golden_entry_allowed"] = allowed
+    filtered["entries"] = filtered["entries"].astype(bool) & allowed
+    if exit_on_regime_loss:
+        filtered["exits"] = (~observed).shift(1, fill_value=False)
+    return filtered
+
+
+def apply_market_trend_filter(
+    signals: pd.DataFrame, market_close: pd.Series, window: int = 200
+) -> pd.DataFrame:
+    """Allow entries only after a prior-session bullish market regime.
+
+    The market condition is calculated from the market close and shifted one
+    session because entries already execute at that day's open. Exit signals
+    remain unchanged so the filter cannot prevent risk reduction.
+    """
+    if window <= 1:
+        raise ValueError("Market filter window must be greater than one.")
+    if not {"entries", "exits"} <= set(signals.columns):
+        raise ValueError("Signals must contain entries and exits columns.")
+    market = pd.to_numeric(market_close, errors="coerce").reindex(signals.index)
+    if market.isna().any() or (market <= 0).any():
+        raise ValueError("Market close must cover the price dates and be positive.")
+    market_sma = market.rolling(window, min_periods=window).mean()
+    bullish_observed = market > market_sma
+    eligible_at_open = bullish_observed.shift(1, fill_value=False)
+    filtered = signals.copy()
+    filtered["market_close"] = market
+    filtered["market_sma"] = market_sma
+    filtered["market_bullish_observed"] = bullish_observed
+    filtered["market_entry_allowed"] = eligible_at_open
+    filtered["entries"] = filtered["entries"].astype(bool) & eligible_at_open
+    return filtered
+
+
+def run_signals(prices: pd.DataFrame, signals: pd.DataFrame, config: BacktestConfig):
+    """Run already-generated next-session signals against a price slice."""
+    os.environ.setdefault("MPLCONFIGDIR", str(Path(".cache/matplotlib").resolve()))
+    import vectorbt as vbt
+
+    required = {"Open", "Close", "Volume"}
+    missing = required - set(prices.columns)
+    if missing:
+        raise ValueError(f"Backtest prices are missing columns: {', '.join(sorted(missing))}")
+    if not {"entries", "exits"} <= set(signals.columns):
+        raise ValueError("Signals must contain entries and exits columns.")
+
+    entries = signals["entries"].astype(bool)
+    exits = signals["exits"].astype(bool)
+
+    if config.filter_halts:
+        cant_buy, cant_sell = build_trade_block_masks(prices, config.price_limit_ratio)
+        entries, exits = apply_trade_blocks(entries, exits, cant_buy, cant_sell)
+
+    # Korea tax model: entries pay fee_rate, exits pay fee_rate + sell_tax_rate
+    # If prices["Open"] is a DataFrame (multi-symbol), create a matching DataFrame.
+    # Otherwise create a Series.
+    if isinstance(prices["Open"], pd.DataFrame):
+        fees = pd.DataFrame(config.fee_rate, index=prices.index, columns=prices["Open"].columns)
+    else:
+        fees = pd.Series(config.fee_rate, index=prices.index)
+
+    if not exits.empty and exits.any(axis=None):
+        fees = fees.mask(exits, config.fee_rate + config.sell_tax_rate)
+
+    max_size = None
+    if config.maximum_participation_rate:
+        if not 0 < config.maximum_participation_rate <= 1:
+            raise ValueError("maximum_participation_rate must be between zero and one.")
+        trading_value = pd.to_numeric(
+            prices.get("TradingValue", prices["Close"] * prices["Volume"]),
+            errors="coerce",
+        )
+        capacity = trading_value.shift(1) * config.maximum_participation_rate
+        capacity_size = (capacity / prices["Open"]).fillna(0)
+        # A zero prior-session trading value (e.g. the session right after a
+        # halt) yields zero capacity. vectorbt requires max_size to be
+        # strictly positive, so drop those entries instead of passing an
+        # invalid zero-size order.
+        entries = entries & (capacity_size > 0)
+        max_size = pd.Series(float("inf"), index=prices.index)
+        max_size = max_size.mask(entries, capacity_size)
+
+    return vbt.Portfolio.from_signals(
+        close=prices["Open"],
+        entries=entries,
+        exits=exits,
+        init_cash=config.initial_cash,
+        fees=fees,
+        slippage=config.slippage_rate,
+        max_size=max_size,
+        allow_partial=True,
+        accumulate=config.strategy == "turtle",
+        freq="1D",
+    )
+
+
+def generate_signals(prices: pd.DataFrame, config: BacktestConfig) -> pd.DataFrame:
+    """Generate signals and indicators for the configured strategy."""
+    if "Close" not in prices:
+        raise ValueError("Strategy prices require a Close column.")
+    if config.strategy == "sma":
+        return moving_average_signals(prices["Close"], config.fast_window, config.slow_window)
+    if config.strategy == "bollinger-rsi":
+        return bollinger_rsi_signals(
+            prices["Close"],
+            window=config.bollinger_window,
+            standard_deviations=config.bollinger_std,
+            rsi_window=config.rsi_window,
+            oversold=config.rsi_oversold,
+            exit_rsi=config.rsi_exit,
+        )
+    if config.strategy == "donchian-atr":
+        return donchian_atr_signals(
+            prices,
+            entry_window=config.donchian_entry_window,
+            exit_window=config.donchian_exit_window,
+            atr_window=config.atr_window,
+            atr_multiplier=config.atr_multiplier,
+        )
+    if config.strategy == "macd-trend":
+        return macd_trend_signals(
+            prices["Close"],
+            fast_span=config.macd_fast,
+            slow_span=config.macd_slow,
+            signal_span=config.macd_signal,
+            trend_window=config.trend_window,
+        )
+    if config.strategy == "candle-volume":
+        return candle_volume_signals(
+            prices,
+            volume_window=config.volume_window,
+            volume_multiplier=config.volume_multiplier,
+            hammer_shadow_ratio=config.hammer_shadow_ratio,
+        )
+    if config.strategy == "rsi-obv":
+        return rsi_obv_signals(
+            prices,
+            rsi_window=config.rsi_window,
+            oversold=config.rsi_oversold,
+            exit_rsi=config.rsi_obv_exit,
+            obv_signal_window=config.obv_signal_window,
+        )
+    if config.strategy == "ema30-resistance":
+        return ema_resistance_signals(
+            prices,
+            ema_window=config.ema_window,
+            resistance_threshold=config.resistance_threshold,
+            minimum_touches=config.resistance_touches,
+            strong_body_lookback=config.strong_body_lookback,
+            strong_body_multiplier=config.strong_body_multiplier,
+            minimum_close_position=config.minimum_close_position,
+        )
+    if config.strategy == "volatility-squeeze":
+        return volatility_squeeze_signals(
+            prices,
+            ema_window=config.ema_window,
+            band_window=config.squeeze_band_window,
+            atr_window=config.squeeze_atr_window,
+            compression_lookback=config.squeeze_lookback,
+            compression_percentile=config.squeeze_percentile,
+            breakout_window=config.squeeze_breakout_window,
+            volume_window=config.volume_window,
+            volume_multiplier=config.volume_multiplier,
+        )
+    if config.strategy == "trend-pullback":
+        return trend_pullback_signals(
+            prices,
+            pullback_ema_window=config.pullback_ema_window,
+            trend_ema_window=config.pullback_trend_window,
+            pullback_lookback=config.pullback_lookback,
+            breakout_window=config.pullback_breakout_window,
+            atr_window=config.pullback_atr_window,
+            atr_multiplier=config.pullback_atr_multiplier,
+        )
+    if config.strategy == "trend-multiplier":
+        return trend_multiplier_signals(prices, config.trend_multiplier_breakout_window, config.trend_multiplier_fast_ema_window, config.trend_multiplier_slow_ema_window, config.trend_multiplier_volume_window, config.trend_multiplier_volume_multiplier, config.trend_multiplier_atr_window, config.trend_multiplier_atr_multiplier)
+    if config.strategy == "darvas-box":
+        return darvas_box_signals(prices, box_window=config.darvas_box_window)
+    if config.strategy == "turtle":
+        return turtle_signals(
+            prices,
+            entry_window=config.turtle_entry_window,
+            exit_window=config.turtle_exit_window,
+            atr_window=config.turtle_atr_window,
+            atr_stop_multiplier=config.turtle_atr_stop_multiplier,
+            pyramid_atr_fraction=config.turtle_pyramid_atr_fraction,
+            max_units=config.turtle_max_units,
+        )
+    if config.strategy == "confluence":
+        from korea_quant.confluence import ConfluenceConfig, generate_confluence_signals
+
+        return generate_confluence_signals(
+            prices,
+            config,
+            ConfluenceConfig(
+                minimum_signals=config.confluence_minimum_signals,
+                require_volume=config.confluence_require_volume,
+            ),
+        )
+    raise ValueError(f"Unknown strategy: {config.strategy}")
+
+
+def build_report(portfolio, benchmark_close: pd.Series, config: BacktestConfig) -> BacktestReport:
+    """Calculate strategy, benchmark, trade, and cost statistics."""
+    strategy = _as_series(portfolio.value(), "Strategy").dropna().astype(float)
+    if len(strategy) < 2 or strategy.iloc[0] <= 0:
+        raise ValueError("At least two positive portfolio values are required for a report.")
+    benchmark = pd.to_numeric(benchmark_close, errors="coerce").reindex(strategy.index).ffill()
+    if benchmark.isna().any() or (benchmark <= 0).any():
+        raise ValueError("Benchmark prices must cover the portfolio period and be positive.")
+    benchmark_equity = (benchmark / benchmark.iloc[0] * strategy.iloc[0]).rename("Benchmark")
+    equity = pd.concat([strategy.rename("Strategy"), benchmark_equity], axis=1)
+
+    monthly = pd.concat(
+        [
+            strategy.resample("ME").last().pct_change().rename("Strategy"),
+            benchmark_equity.resample("ME").last().pct_change().rename("Benchmark"),
+        ],
+        axis=1,
+    )
+    first_month_end = monthly.index[0]
+    monthly.iloc[0] = [
+        values.loc[:first_month_end].iloc[-1] / values.iloc[0] - 1
+        for values in (strategy, benchmark_equity)
+    ]
+
+    trades = _closed_trade_records(portfolio)
+    trade_count = float(len(trades))
+    win_rate = float((trades["PnL"] > 0).mean()) if trade_count else 0.0
+    returns = strategy.pct_change().iloc[1:]
+    periods = len(strategy) - 1
+    volatility = returns.std(ddof=1)
+    sharpe = (
+        0.0 if pd.isna(volatility) or volatility == 0 else returns.mean() / volatility * 252**0.5
+    )
+    metrics = {
+        "CAGR": float((strategy.iloc[-1] / strategy.iloc[0]) ** (252 / periods) - 1),
+        "MDD": float((strategy / strategy.cummax() - 1).min()),
+        "Sharpe Ratio": float(sharpe),
+        "Total Return": float(strategy.iloc[-1] / strategy.iloc[0] - 1),
+        "Benchmark Return": float(benchmark_equity.iloc[-1] / benchmark_equity.iloc[0] - 1),
+        "Trade Count": trade_count,
+        "Win Rate": win_rate,
+        "Fee Rate": float(config.fee_rate),
+        "Total Fees": _total_order_fees(portfolio),
+        "Slippage Rate": float(config.slippage_rate),
+    }
+    return BacktestReport(metrics, equity, monthly)
+
+
+def write_reports(
+    report: BacktestReport,
+    html_output: Path,
+    csv_output: Path,
+    *,
+    prices: pd.DataFrame | None = None,
+    signals: pd.DataFrame | None = None,
+    title: str = "Backtest Report",
+) -> tuple[Path, Path]:
+    """Write an interactive market/backtest HTML page and reproducible tidy CSV."""
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    html_output.parent.mkdir(parents=True, exist_ok=True)
+    csv_output.parent.mkdir(parents=True, exist_ok=True)
+    include_market = prices is not None
+    if include_market:
+        required = {"Open", "High", "Low", "Close", "Volume"}
+        missing = required - set(prices.columns)
+        if missing:
+            raise ValueError(f"Chart prices are missing columns: {', '.join(sorted(missing))}")
+        oscillator = None
+        if signals is not None and {"rsi", "obv"} <= set(signals.columns):
+            oscillator = "rsi-obv"
+        elif signals is not None and "rsi" in signals:
+            oscillator = "rsi"
+        elif signals is not None and "macd" in signals:
+            oscillator = "macd"
+        if oscillator == "rsi-obv":
+            subplot_titles = (
+                "Daily Candles and Signals",
+                "Volume",
+                "RSI",
+                "OBV",
+                "Asset Curve",
+                "Monthly Returns",
+            )
+            row_heights = [0.30, 0.11, 0.12, 0.12, 0.22, 0.13]
+        elif oscillator:
+            subplot_titles = (
+                "Daily Candles and Signals",
+                "Volume",
+                "RSI" if oscillator == "rsi" else "MACD",
+                "Asset Curve",
+                "Monthly Returns",
+            )
+            row_heights = [0.34, 0.12, 0.14, 0.25, 0.15]
+        else:
+            subplot_titles = (
+                "Daily Candles and Signals",
+                "Volume",
+                "Asset Curve",
+                "Monthly Returns",
+            )
+            row_heights = [0.38, 0.14, 0.30, 0.18]
+        figure = make_subplots(
+            rows=len(subplot_titles),
+            cols=1,
+            shared_xaxes=False,
+            vertical_spacing=0.05,
+            row_heights=row_heights,
+            subplot_titles=subplot_titles,
+        )
+        figure.add_trace(
+            go.Candlestick(
+                x=prices.index,
+                open=prices["Open"],
+                high=prices["High"],
+                low=prices["Low"],
+                close=prices["Close"],
+                name="OHLC",
+            ),
+            row=1,
+            col=1,
+        )
+        if signals is not None:
+            price_indicators = (
+                ("fast", "Fast SMA", "#2563eb"),
+                ("slow", "Slow SMA", "#f59e0b"),
+                ("bb_upper", "Bollinger Upper", "#94a3b8"),
+                ("bb_middle", "Bollinger Middle", "#2563eb"),
+                ("bb_lower", "Bollinger Lower", "#94a3b8"),
+                ("donchian_upper", "Donchian Upper", "#16a34a"),
+                ("donchian_lower", "Donchian Lower", "#dc2626"),
+                ("atr_stop", "ATR Trailing Stop", "#7c3aed"),
+                ("trend_sma", "Long-term SMA", "#f59e0b"),
+                ("ema30", "EMA", "#2563eb"),
+                ("breakout_level", "Prior Breakout Level", "#16a34a"),
+                ("resistance", "Structural Resistance", "#dc2626"),
+                ("latest_support", "Latest Structural Low", "#16a34a"),
+                ("structure_stop", "Fixed Structure Stop", "#7c3aed"),
+            )
+            for column, label, color in price_indicators:
+                if column not in signals:
+                    continue
+                figure.add_trace(
+                    go.Scatter(
+                        x=signals.index,
+                        y=signals[column],
+                        name=label,
+                        line={"width": 1.5, "color": color},
+                    ),
+                    row=1,
+                    col=1,
+                )
+            for column, label, symbol, color in (
+                ("entries", "Entry at next open", "triangle-up", "#16a34a"),
+                ("exits", "Exit at next open", "triangle-down", "#dc2626"),
+            ):
+                dates = signals.index[signals[column].astype(bool)]
+                figure.add_trace(
+                    go.Scatter(
+                        x=dates,
+                        y=prices["Open"].reindex(dates),
+                        mode="markers",
+                        name=label,
+                        marker={"symbol": symbol, "size": 11, "color": color},
+                    ),
+                    row=1,
+                    col=1,
+                )
+        volume_colors = [
+            "#dc2626" if close >= open_ else "#2563eb"
+            for open_, close in zip(prices["Open"], prices["Close"], strict=True)
+        ]
+        figure.add_trace(
+            go.Bar(x=prices.index, y=prices["Volume"], name="Volume", marker_color=volume_colors),
+            row=2,
+            col=1,
+        )
+        if signals is not None and "volume_average" in signals:
+            figure.add_trace(
+                go.Scatter(
+                    x=signals.index,
+                    y=signals["volume_average"],
+                    name="Prior Volume Average",
+                    line={"width": 1.5, "color": "#f59e0b"},
+                ),
+                row=2,
+                col=1,
+            )
+        if oscillator in {"rsi", "rsi-obv"}:
+            figure.add_trace(
+                go.Scatter(
+                    x=signals.index,
+                    y=signals["rsi"],
+                    name="RSI",
+                    line={"width": 1.5, "color": "#7c3aed"},
+                ),
+                row=3,
+                col=1,
+            )
+            lower_level, upper_level = signals.attrs.get("rsi_levels", (30, 50))
+            figure.add_hline(y=lower_level, line_dash="dot", line_color="#16a34a", row=3, col=1)
+            figure.add_hline(y=upper_level, line_dash="dot", line_color="#dc2626", row=3, col=1)
+            figure.update_yaxes(title_text="RSI", range=[0, 100], row=3, col=1)
+            if oscillator == "rsi-obv":
+                for column, label, color in (
+                    ("obv", "OBV", "#2563eb"),
+                    ("obv_signal", "OBV Signal", "#f59e0b"),
+                ):
+                    figure.add_trace(
+                        go.Scatter(
+                            x=signals.index,
+                            y=signals[column],
+                            name=label,
+                            line={"width": 1.5, "color": color},
+                        ),
+                        row=4,
+                        col=1,
+                    )
+                figure.update_yaxes(title_text="OBV", row=4, col=1)
+                equity_row, monthly_row = 5, 6
+            else:
+                equity_row, monthly_row = 4, 5
+        elif oscillator == "macd":
+            figure.add_trace(
+                go.Bar(
+                    x=signals.index,
+                    y=signals["macd_histogram"],
+                    name="MACD Histogram",
+                    marker_color="#94a3b8",
+                ),
+                row=3,
+                col=1,
+            )
+            for column, label, color in (
+                ("macd", "MACD", "#2563eb"),
+                ("macd_signal", "MACD Signal", "#dc2626"),
+            ):
+                figure.add_trace(
+                    go.Scatter(
+                        x=signals.index,
+                        y=signals[column],
+                        name=label,
+                        line={"width": 1.5, "color": color},
+                    ),
+                    row=3,
+                    col=1,
+                )
+            figure.update_yaxes(title_text="MACD", row=3, col=1)
+            equity_row, monthly_row = 4, 5
+        else:
+            equity_row, monthly_row = 3, 4
+        figure.update_xaxes(rangeslider_visible=False, row=1, col=1)
+        figure.update_yaxes(title_text="Price (KRW)", row=1, col=1)
+        figure.update_yaxes(title_text="Shares", row=2, col=1)
+    else:
+        figure = make_subplots(rows=2, cols=1, subplot_titles=("Asset Curve", "Monthly Returns"))
+        equity_row, monthly_row = 1, 2
+    for column in report.equity:
+        figure.add_trace(
+            go.Scatter(x=report.equity.index, y=report.equity[column], name=column),
+            row=equity_row,
+            col=1,
+        )
+    for column in report.monthly_returns:
+        figure.add_trace(
+            go.Bar(
+                x=report.monthly_returns.index,
+                y=report.monthly_returns[column] * 100,
+                name=f"{column} monthly",
+            ),
+            row=monthly_row,
+            col=1,
+        )
+    figure.update_yaxes(title_text="Portfolio value", row=equity_row, col=1)
+    figure.update_yaxes(title_text="Return (%)", row=monthly_row, col=1)
+    figure.update_layout(
+        template="plotly_white",
+        barmode="group",
+        height=(1600 if oscillator == "rsi-obv" else 1450 if oscillator else 1250)
+        if include_market
+        else 850,
+        title=title,
+        hovermode="x unified",
+    )
+    cards = "".join(
+        f'<div class="metric"><span>{name}</span><strong>{_format_metric(name, value)}</strong></div>'
+        for name, value in report.metrics.items()
+    )
+    html = f"""<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>{escape(title)}</title>
+<style>body{{font-family:system-ui;margin:32px;max-width:1400px}}.metrics{{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}}.metric{{border:1px solid #ddd;border-radius:8px;padding:14px}}.metric span{{display:block;color:#666}}.metric strong{{font-size:1.25rem}}.notice{{color:#555}}</style></head><body>
+<h1>{escape(title)}</h1><p class="notice">Research evidence only; future returns are not guaranteed. Fees and slippage are included. KRX prices are raw, unadjusted daily bars.</p>
+<div class="metrics">{cards}</div>{figure.to_html(full_html=False, include_plotlyjs=True)}</body></html>"""
+    html_output.write_text(html, encoding="utf-8")
+
+    rows = [
+        {"section": "summary", "date": "", "metric": key, "value": value}
+        for key, value in report.metrics.items()
+    ]
+    for section, frame in (
+        ("monthly_return", report.monthly_returns),
+        ("equity_curve", report.equity),
+    ):
+        for date, values in frame.iterrows():
+            rows.extend(
+                {"section": section, "date": date.date().isoformat(), "metric": key, "value": value}
+                for key, value in values.items()
+            )
+    if prices is not None:
+        for date, values in prices.iterrows():
+            rows.extend(
+                {
+                    "section": "daily_price",
+                    "date": date.date().isoformat(),
+                    "metric": key,
+                    "value": value,
+                }
+                for key, value in values.items()
+            )
+    if signals is not None:
+        for date, values in signals.iterrows():
+            rows.extend(
+                {
+                    "section": "signal",
+                    "date": date.date().isoformat(),
+                    "metric": key,
+                    "value": value,
+                }
+                for key, value in values.items()
+            )
+    pd.DataFrame(rows).to_csv(csv_output, index=False)
+    return html_output, csv_output
+
+
+def _as_series(value, name: str) -> pd.Series:
+    if isinstance(value, pd.DataFrame):
+        if value.shape[1] != 1:
+            raise ValueError("Reports support a single portfolio column.")
+        value = value.iloc[:, 0]
+    result = pd.Series(value, copy=True)
+    result.name = name
+    result.index = pd.to_datetime(result.index)
+    return result.sort_index()
+
+
+def _closed_trade_records(portfolio) -> pd.DataFrame:
+    records = portfolio.trades.records_readable
+    if records.empty:
+        return pd.DataFrame(columns=["PnL"])
+    if "Status" in records.columns:
+        records = records[records["Status"].astype(str).str.lower() == "closed"]
+    return records
+
+
+def _total_order_fees(portfolio) -> float:
+    records = portfolio.orders.records_readable
+    return float(records["Fees"].sum()) if "Fees" in records.columns else 0.0
+
+
+def _format_metric(name: str, value: float) -> str:
+    if name == "Trade Count":
+        return f"{int(value):,}"
+    if name == "Total Fees":
+        return f"{value:,.0f} KRW"
+    if name == "Sharpe Ratio":
+        return f"{value:.2f}"
+    return f"{value:.2%}"
+
+
+def build_trade_block_masks(
+    prices: pd.DataFrame, price_limit_ratio: float
+) -> tuple[pd.Series, pd.Series]:
+    """Return sessions where buys or sells cannot reasonably execute."""
+    required = {"Open", "Close", "Volume"}
+    missing = required - set(prices.columns)
+    if missing:
+        raise ValueError(f"Trade-block prices are missing: {', '.join(sorted(missing))}")
+
+    previous_close = pd.to_numeric(prices["Close"], errors="coerce").shift(1)
+    open_ = pd.to_numeric(prices["Open"], errors="coerce")
+    high = pd.to_numeric(prices.get("High", open_), errors="coerce")
+    low = pd.to_numeric(prices.get("Low", open_), errors="coerce")
+    volume = pd.to_numeric(prices["Volume"], errors="coerce")
+    halted = volume.eq(0) | volume.isna()
+    limit_up = previous_close * (1 + price_limit_ratio)
+    limit_down = previous_close * (1 - price_limit_ratio)
+    locked_limit_up = open_.ge(limit_up) & low.ge(limit_up)
+    locked_limit_down = open_.le(limit_down) & high.le(limit_down)
+    return halted | locked_limit_up, halted | locked_limit_down

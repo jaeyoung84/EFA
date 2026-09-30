@@ -1,0 +1,227 @@
+"""Command-line entry point for the first research workflow."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+from korea_quant.backtest import (
+    BacktestConfig,
+    build_report,
+    run_baseline,
+    summarize_reports,
+    write_reports,
+    write_summary_reports,
+)
+from korea_quant.data import CachedPriceDataSource, FinanceDataReaderSource
+from korea_quant.krx import KrxDailyStore
+from korea_quant.strategy import STRATEGIES
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Backtest a Korean equity SMA strategy.")
+    parser.add_argument("--symbol", default=None, help="Single six-digit KRX symbol")
+    parser.add_argument(
+        "--symbols", nargs="+", default=None,
+        help="Multiple six-digit KRX symbols, separated by spaces",
+    )
+    parser.add_argument("--start", default="2020-01-01", help="Start date (YYYY-MM-DD)")
+    parser.add_argument("--end", default=None, help="Optional end date (YYYY-MM-DD)")
+    parser.add_argument("--fast", type=int, default=20, help="Fast SMA window")
+    parser.add_argument("--slow", type=int, default=60, help="Slow SMA window")
+    parser.add_argument(
+        "--strategy", choices=STRATEGIES, default="sma", help="Daily-bar strategy"
+    )
+    parser.add_argument("--bb-window", type=int, default=20, help="Bollinger window")
+    parser.add_argument("--bb-std", type=float, default=2.0, help="Bollinger standard deviations")
+    parser.add_argument("--rsi-window", type=int, default=14, help="RSI window")
+    parser.add_argument("--rsi-oversold", type=float, default=30.0, help="RSI entry threshold")
+    parser.add_argument("--rsi-exit", type=float, default=50.0, help="RSI exit threshold")
+    parser.add_argument("--donchian-entry", type=int, default=20, help="Breakout channel window")
+    parser.add_argument("--donchian-exit", type=int, default=10, help="Exit channel window")
+    parser.add_argument("--atr-window", type=int, default=14, help="ATR window")
+    parser.add_argument("--atr-multiplier", type=float, default=3.0, help="ATR stop multiplier")
+    parser.add_argument("--macd-fast", type=int, default=12, help="MACD fast EMA span")
+    parser.add_argument("--macd-slow", type=int, default=26, help="MACD slow EMA span")
+    parser.add_argument("--macd-signal", type=int, default=9, help="MACD signal EMA span")
+    parser.add_argument("--trend-window", type=int, default=200, help="Long-term SMA window")
+    parser.add_argument("--volume-window", type=int, default=20, help="Prior volume mean window")
+    parser.add_argument(
+        "--volume-multiplier", type=float, default=1.5, help="Required volume multiple"
+    )
+    parser.add_argument(
+        "--hammer-shadow-ratio", type=float, default=2.0, help="Hammer lower-shadow/body ratio"
+    )
+    parser.add_argument("--rsi-obv-exit", type=float, default=50.0, help="RSI/OBV exit level")
+    parser.add_argument("--obv-signal", type=int, default=9, help="OBV moving-average window")
+    parser.add_argument("--ema-window", type=int, default=30, help="EMA breakout trend window")
+    parser.add_argument(
+        "--resistance-threshold", type=float, default=0.005,
+        help="Structural resistance clustering tolerance",
+    )
+    parser.add_argument(
+        "--resistance-touches", type=int, default=2,
+        help="Minimum confirmed swing-high touches",
+    )
+    parser.add_argument("--strong-body-lookback", type=int, default=20)
+    parser.add_argument("--strong-body-multiplier", type=float, default=1.5)
+    parser.add_argument("--minimum-close-position", type=float, default=0.75)
+    parser.add_argument("--squeeze-band-window", type=int, default=20)
+    parser.add_argument("--squeeze-atr-window", type=int, default=14)
+    parser.add_argument("--squeeze-lookback", type=int, default=120)
+    parser.add_argument("--squeeze-percentile", type=float, default=0.2)
+    parser.add_argument("--squeeze-breakout-window", type=int, default=20)
+    parser.add_argument("--confluence-minimum-signals", type=int, default=2)
+    parser.add_argument("--confluence-require-volume", action="store_true")
+    parser.add_argument("--require-golden-cross", action="store_true")
+    parser.add_argument("--golden-fast-window", type=int, default=50)
+    parser.add_argument("--golden-slow-window", type=int, default=200)
+    parser.add_argument("--hold-until-golden-exit", action="store_true")
+    parser.add_argument("--split-exit", action="store_true")
+    parser.add_argument("--pullback-ema-window", type=int, default=20)
+    parser.add_argument("--pullback-trend-window", type=int, default=50)
+    parser.add_argument("--pullback-lookback", type=int, default=5)
+    parser.add_argument("--pullback-breakout-window", type=int, default=3)
+    parser.add_argument("--pullback-atr-window", type=int, default=14)
+    parser.add_argument("--pullback-atr-multiplier", type=float, default=3.0)
+    parser.add_argument(
+        "--market-filter", default=None,
+        help="Optional KRX ETF/symbol used to allow entries only in a bullish market regime",
+    )
+    parser.add_argument("--market-window", type=int, default=200, help="Market SMA window")
+    parser.add_argument("--fee", type=float, default=0.00015, help="Fee rate per order")
+    parser.add_argument("--slippage", type=float, default=0.0005, help="Slippage per order")
+    parser.add_argument("--cash", type=float, default=10_000_000, help="Initial cash in KRW")
+    parser.add_argument("--report", type=Path, default=None, help="HTML report path")
+    parser.add_argument("--csv", type=Path, default=None, help="CSV report path")
+    parser.add_argument("--benchmark", default=None, help="Optional six-digit KRX benchmark symbol")
+    parser.add_argument(
+        "--krx-db",
+        type=Path,
+        default=None,
+        help="Use a locally collected KRX SQLite database instead of FinanceDataReader",
+    )
+    parser.add_argument(
+        "--search",
+        default=None,
+        help="Search the KRX database by symbol or Korean name, then exit",
+    )
+    parser.add_argument(
+        "--cache-dir",
+        type=Path,
+        default=Path(".cache/market-data"),
+        help="Local market-data cache directory",
+    )
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    if args.symbol and args.symbols:
+        raise SystemExit("Use either --symbol or --symbols, not both.")
+    symbols = list(dict.fromkeys(args.symbols or [args.symbol or "005930"]))
+    if args.krx_db:
+        data_source = KrxDailyStore(args.krx_db)
+        if args.search is not None:
+            results = data_source.securities(args.search)
+            print(results.to_string(index=False) if not results.empty else "No matching securities.")
+            return
+    else:
+        if args.search is not None:
+            raise SystemExit("--search requires --krx-db.")
+        data_source = CachedPriceDataSource(FinanceDataReaderSource(), cache_dir=args.cache_dir)
+    config = BacktestConfig(
+        initial_cash=args.cash,
+        fee_rate=args.fee,
+        slippage_rate=args.slippage,
+        fast_window=args.fast,
+        slow_window=args.slow,
+        strategy=args.strategy,
+        bollinger_window=args.bb_window,
+        bollinger_std=args.bb_std,
+        rsi_window=args.rsi_window,
+        rsi_oversold=args.rsi_oversold,
+        rsi_exit=args.rsi_exit,
+        donchian_entry_window=args.donchian_entry,
+        donchian_exit_window=args.donchian_exit,
+        atr_window=args.atr_window,
+        atr_multiplier=args.atr_multiplier,
+        macd_fast=args.macd_fast,
+        macd_slow=args.macd_slow,
+        macd_signal=args.macd_signal,
+        trend_window=args.trend_window,
+        volume_window=args.volume_window,
+        volume_multiplier=args.volume_multiplier,
+        hammer_shadow_ratio=args.hammer_shadow_ratio,
+        rsi_obv_exit=args.rsi_obv_exit,
+        obv_signal_window=args.obv_signal,
+        ema_window=args.ema_window,
+        resistance_threshold=args.resistance_threshold,
+        resistance_touches=args.resistance_touches,
+        strong_body_lookback=args.strong_body_lookback,
+        strong_body_multiplier=args.strong_body_multiplier,
+        minimum_close_position=args.minimum_close_position,
+        market_filter_window=args.market_window,
+        squeeze_band_window=args.squeeze_band_window,
+        squeeze_atr_window=args.squeeze_atr_window,
+        squeeze_lookback=args.squeeze_lookback,
+        squeeze_percentile=args.squeeze_percentile,
+        squeeze_breakout_window=args.squeeze_breakout_window,
+        confluence_minimum_signals=args.confluence_minimum_signals,
+        confluence_require_volume=args.confluence_require_volume,
+        require_golden_cross=args.require_golden_cross,
+        golden_fast_window=args.golden_fast_window,
+        golden_slow_window=args.golden_slow_window,
+        hold_until_golden_exit=args.hold_until_golden_exit,
+        split_exit=args.split_exit,
+        pullback_ema_window=args.pullback_ema_window,
+        pullback_trend_window=args.pullback_trend_window,
+        pullback_lookback=args.pullback_lookback,
+        pullback_breakout_window=args.pullback_breakout_window,
+        pullback_atr_window=args.pullback_atr_window,
+        pullback_atr_multiplier=args.pullback_atr_multiplier,
+    )
+    common_benchmark = None
+    if args.benchmark:
+        common_benchmark = data_source.daily_prices(args.benchmark, args.start, args.end)["Close"]
+    market_close = None
+    if args.market_filter:
+        market_close = data_source.daily_prices(args.market_filter, args.start, args.end)["Close"]
+
+    output_dir = (args.report.parent if args.report else Path("reports"))
+    reports = {}
+    detail_paths = {}
+    single_symbol = len(symbols) == 1
+    for symbol in symbols:
+        prices = data_source.daily_prices(symbol, args.start, args.end)
+        portfolio, signals = run_baseline(prices, config, market_close=market_close)
+        reports[symbol] = build_report(
+            portfolio, common_benchmark if common_benchmark is not None else prices["Close"], config
+        )
+        name = data_source.security_name(symbol) if isinstance(data_source, KrxDailyStore) else None
+        filter_label = f" | market filter: {args.market_filter}" if args.market_filter else ""
+        title = f"{symbol} {name or ''} — {args.strategy} Daily Chart & Backtest{filter_label}".strip()
+        if single_symbol:
+            detail_html = args.report or output_dir / f"{symbol}.html"
+            detail_csv = args.csv or detail_html.with_suffix(".csv")
+        else:
+            detail_html = output_dir / f"{symbol}.html"
+            detail_csv = output_dir / f"{symbol}.csv"
+        write_reports(
+            reports[symbol], detail_html, detail_csv,
+            prices=prices, signals=signals, title=title,
+        )
+        detail_paths[symbol] = detail_html
+        print(f"{symbol}: {detail_html.resolve()} | {detail_csv.resolve()}")
+
+    summary = summarize_reports(reports)
+    if single_symbol:
+        return
+    summary_html = args.report or output_dir / "summary.html"
+    summary_csv = args.csv or summary_html.with_suffix(".csv")
+    write_summary_reports(summary, summary_html, summary_csv, detail_paths)
+    print(f"Summary: {summary_html.resolve()} | {summary_csv.resolve()}")
+
+
+if __name__ == "__main__":
+    main()

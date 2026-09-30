@@ -1,0 +1,47 @@
+diff --git a/obv_confirm_test.py b/obv_confirm_test.py
+index 0b74153..aab8006 100644
+--- a/obv_confirm_test.py
++++ b/obv_confirm_test.py
+@@ -11,13 +11,24 @@ recomputed independently of rsi-obv's own RSI-cross gating. Exit stays
+ bollinger-rsi's own exit (mid-band / RSI recovery).
+ 
+ Not part of the package -- throwaway analysis script.
++
++CONCLUSION (see DECISIONS.md K-5): rejected. The AND condition collapses
++the trade count from n=1180 to n=6 (KOSPI 3 / KOSDAQ 3) -- bollinger-rsi's
++oversold-trough entry and OBV-rising almost never coincide, so this is not
++a usable filter, just a sample-size collapse. Do not re-run this as a way
++to "confirm" bollinger-rsi entries; the result is not statistically
++meaningful at n=6 either direction.
+ """
+ from pathlib import Path
+ 
+ import pandas as pd
+ 
+ from korea_quant.backtest import BacktestConfig, generate_signals, run_signals
+-from korea_quant.eligibility import entry_eligibility, validate_market_history
++from korea_quant.eligibility import (
++    DEFAULT_MARKET_CAP_TIERS,
++    entry_eligibility,
++    validate_market_history,
++)
+ from korea_quant.krx import KrxDailyStore
+ from korea_quant.strategy import _long_only_events, _rsi
+ 
+@@ -42,7 +53,7 @@ def main() -> None:
+     data = validate_market_history(history)
+     ranked = entry_eligibility(
+         data,
+-        market_cap_tier=100,
++        market_cap_tiers=DEFAULT_MARKET_CAP_TIERS,
+         liquidity_window=20,
+         minimum_average_trading_value=5_000_000_000,
+         minimum_history_sessions=260,
+@@ -105,7 +116,6 @@ def _combined_signals(
+ 
+     middle = close.rolling(bb_settings.bollinger_window, min_periods=bb_settings.bollinger_window).mean()
+     deviation = close.rolling(bb_settings.bollinger_window, min_periods=bb_settings.bollinger_window).std(ddof=0)
+-    upper = middle + bb_settings.bollinger_std * deviation
+     lower = middle - bb_settings.bollinger_std * deviation
+     rsi = _rsi(close, bb_settings.rsi_window)
+ 

@@ -14,28 +14,29 @@ permissions:
   contents: read
   packages: write
 
-# 최신 커밋만 EC2에 배포해 동시에 실행된 이전 배포가 최신 이미지를 덮어쓰지 않게 한다.
 concurrency:
   group: investment-analysis-main
   cancel-in-progress: true
 
 env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/investment-analysis-backend
+  DEPLOY_PATH: /opt/investing-app
 
 jobs:
+  kqs-checks:
+    uses: ./.github/workflows/kqs-runtime.yml
+
   build:
+    needs: kqs-checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: docker/setup-buildx-action@v3
-
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - uses: docker/build-push-action@v6
         with:
           context: .
@@ -49,31 +50,16 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-
-      - name: Detect Markdown document changes
-        id: docs_changed
-        shell: bash
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]] || ! git rev-parse --verify HEAD^ >/dev/null 2>&1; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          elif git diff --name-only HEAD^ HEAD -- docs/ | grep -qE '\.md$'; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Configure SSH
         run: |
           mkdir -p ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           for attempt in 1 2 3 4 5; do
-            if ssh-keyscan -T 10 -H "$SSH_HOST" > "$RUNNER_TEMP/known_hosts" 2>/dev/null && \
-              test -s "$RUNNER_TEMP/known_hosts"; then
+            if ssh-keyscan -T 10 -H "$SSH_HOST" > "$RUNNER_TEMP/known_hosts" 2>/dev/null && test -s "$RUNNER_TEMP/known_hosts"; then
               cat "$RUNNER_TEMP/known_hosts" >> ~/.ssh/known_hosts
               break
             fi
@@ -87,91 +73,60 @@ jobs:
           SSH_KEY: ${{ secrets.SSH_KEY }}
           SSH_HOST: ${{ secrets.SSH_HOST }}
 
-      - name: Write backend .env
+      - name: Verify existing deployment identity before any upload
+        id: preflight
         run: |
-          cat > /tmp/backend.env <<EOF
-          DART_API_KEY=$DART_API_KEY
-          KOSIS_API_KEY=$KOSIS_API_KEY
-          BOK_API_KEY=$BOK_API_KEY
-          AWS_ACCESS_KEY_ID=$LEX_AWS_ACCESS_KEY_ID
-          AWS_SECRET_ACCESS_KEY=$LEX_AWS_SECRET_ACCESS_KEY
-          AWS_REGION=us-east-1
-          LEX_BOT_ID=SE3NCP7NMP
-          LEX_BOT_ALIAS_ID=ZJFW9O3LZM
-          LEX_LOCALE_ID=ko_KR
-          EOF
-        env:
-          DART_API_KEY: ${{ secrets.DART_API_KEY }}
-          KOSIS_API_KEY: ${{ secrets.KOSIS_API_KEY }}
-          BOK_API_KEY: ${{ secrets.BOK_API_KEY }}
-          LEX_AWS_ACCESS_KEY_ID: ${{ secrets.LEX_AWS_ACCESS_KEY_ID }}
-          LEX_AWS_SECRET_ACCESS_KEY: ${{ secrets.LEX_AWS_SECRET_ACCESS_KEY }}
-
-      # Only the compose file + .env travel to the server — the web app
-      # itself is pulled from GHCR, not copied over SSH.
-      - name: Upload compose file + env
-        run: |
-          ssh -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" "mkdir -p $DEPLOY_PATH/app/backend"
-          scp -i ~/.ssh/deploy_key docker-compose.prod.yml "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/docker-compose.prod.yml"
-          scp -i ~/.ssh/deploy_key /tmp/backend.env "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/app/backend/.env"
+          scp -i ~/.ssh/deploy_key infra/ops/kqs-deployment-preflight.sh "$SSH_USER@$SSH_HOST:/tmp/kqs-deployment-preflight.sh"
+          project="$(ssh -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" "sudo bash /tmp/kqs-deployment-preflight.sh $DEPLOY_PATH")"
+          case "$project" in
+            ''|*[!a-z0-9_-]*) echo "Invalid existing Compose project" >&2; exit 1 ;;
+          esac
+          echo "project=$project" >> "$GITHUB_OUTPUT"
         env:
           SSH_USER: ${{ secrets.SSH_USER }}
           SSH_HOST: ${{ secrets.SSH_HOST }}
-          DEPLOY_PATH: /opt/investment-analysis
 
-      - name: Pull image and restart backend
+      - name: Upload compose definition only
         run: |
-          echo "$GHCR_TOKEN" | ssh -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" \
-            "sudo docker login ghcr.io -u $GHCR_ACTOR --password-stdin"
+          scp -i ~/.ssh/deploy_key docker-compose.prod.yml "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/docker-compose.prod.yml"
+        env:
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+
+      - name: Pull only backend image, preserve environment and roll back unhealthy startup
+        run: |
+          echo "$GHCR_TOKEN" | ssh -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" "sudo docker login ghcr.io -u $GHCR_ACTOR --password-stdin"
           ssh -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" "
-            set -e
+            set -euo pipefail
             cd $DEPLOY_PATH
-            # 새 이미지를 받기 전에 실행 중이지 않은 컨테이너·이미지만 정리한다.
-            # MongoDB·Qdrant 볼륨과 실행 중인 서비스는 삭제하지 않는다.
-            sudo docker container prune -f
-            sudo docker image prune -af
+            test -r app/backend/.env
+            previous_image=\$(sudo docker inspect --format '{{.Config.Image}}' investment_backend)
+            export COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME
             export BACKEND_IMAGE=$IMAGE:$GITHUB_SHA
             sudo -E docker compose -f docker-compose.prod.yml pull backend
-            sudo -E docker compose -f docker-compose.prod.yml up -d
-            sudo docker image prune -f
+            sudo -E docker compose -f docker-compose.prod.yml up -d --no-deps backend
+            healthy=false
+            for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+              if curl -fsS http://127.0.0.1:8801/api/health >/dev/null; then healthy=true; break; fi
+              sleep 5
+            done
+            if [ "\$healthy" != true ]; then
+              echo "New backend health check failed; restoring prior image" >&2
+              export BACKEND_IMAGE="\$previous_image"
+              sudo -E docker compose -f docker-compose.prod.yml up -d --no-deps backend
+              exit 1
+            fi
           "
         env:
           SSH_USER: ${{ secrets.SSH_USER }}
           SSH_HOST: ${{ secrets.SSH_HOST }}
-          DEPLOY_PATH: /opt/investment-analysis
+          COMPOSE_PROJECT_NAME: ${{ steps.preflight.outputs.project }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_ACTOR: ${{ github.actor }}
           IMAGE: ${{ env.IMAGE }}
 
-      - name: Reindex RAG documents
-        run: |
-          ssh -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" "
-            set -e
-            cd $DEPLOY_PATH
-            sudo docker compose -f docker-compose.prod.yml exec -T backend \
-              bash /app/scripts/upload_docs_to_qdrant.sh
-          "
-        env:
-          SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          DEPLOY_PATH: /opt/investment-analysis
-
-      - name: Reindex full-text search documents
-        run: |
-          ssh -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" "
-            set -e
-            cd $DEPLOY_PATH
-            sudo docker compose -f docker-compose.prod.yml exec -T backend \
-              python /app/scripts/index_docs_meilisearch.py
-          "
-        env:
-          SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          DEPLOY_PATH: /opt/investment-analysis
-
-      - name: Health check
-        run: |
-          ssh -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" "curl -sf http://localhost:8801/api/health"
+      - name: Confirm deployed backend health
+        run: ssh -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" "curl -fsS http://127.0.0.1:8801/api/health"
         env:
           SSH_USER: ${{ secrets.SSH_USER }}
           SSH_HOST: ${{ secrets.SSH_HOST }}

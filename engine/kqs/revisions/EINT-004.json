@@ -1,0 +1,99 @@
+{
+  "schema": "kqs-runtime-revision/v1",
+  "change_id": "EINT-004",
+  "created_at": "2026-09-29T01:16:07.571522+00:00",
+  "supersedes": "EINT-003",
+  "initial_manifest": {
+    "path": "engine/kqs/migration_manifest.json",
+    "sha256": "989dd536a3aa1bb7e96e55e5ef903b50d259594c98ef2445dbe173d364355580"
+  },
+  "previous_revision": {
+    "path": "engine/kqs/revisions/EINT-003.json",
+    "sha256": "3e6eb55e4fa1d1cbf07654a6f03f4b5d9ebeb6420a8946344c354f970af42d74"
+  },
+  "previous_verification": {
+    "path": "docs/engine/verification/EINT-003.json",
+    "sha256": "9a7628e8d57ecab5977ba6f4214365adb4c57816663374606835c64d9a25955c"
+  },
+  "dependency_lock": {
+    "path": "engine/kqs/requirements.lock",
+    "sha256": "d5677f00d64a3952e04be5d02b509de1ddb808e3877eb8ea1d3b4b56359a38b3"
+  },
+  "package_metadata": {
+    "path": "engine/kqs/pyproject.toml",
+    "sha256": "3689493f8a408ac597581e72a923604c01db9a588afdd1af3f767ca393293779"
+  },
+  "code": {
+    "package_version": "0.3.0",
+    "source_commit": "0c6b2e8308cc783ea5c4a50c18ff213203631ba2",
+    "code_sha256": "bffa465eeeee518ae737ba943e16272fe1e5535f9a6b29c7eca541c9a70a70b1",
+    "component_sha256": {
+      "korea_quant/__init__.py": "960d03eca7c45577aea05e6d71dea5269a209ad02c7f15f584f53d535da6a405",
+      "korea_quant/eligibility.py": "f363ec556a14adfdad06af331f3f94f35beb9de405cb047b83b1677f8da1836d",
+      "korea_quant/reversion_scanner.py": "c9bc74ff52f2c79e4e4197679d4ea967bb9aa91b37fa2cf643cc5538c0bd1d99",
+      "korea_quant/strategy.py": "bdf8506cf1371f9b5aca1f4001649ca509c132651d749a550062a452c3b3c9d8",
+      "kqs_runtime/__init__.py": "2505d8aeb5dd705b4d0dc5a910b7b53852c4767b4cb3e7db8396d2678604ccef",
+      "kqs_runtime/cli.py": "95cf0fb3cae89c60c33110081ac8754a293500eb62c5d6ba346feed9d13ec2d6",
+      "kqs_runtime/inputs.py": "74f8bd2d4e8f2e78d553b1adc8011d22c9b577c789929388c762ab5cab4730c5",
+      "kqs_runtime/provenance.py": "4f1ea0a137fa1341f856ddbf253fe6a765f520cbe5d451434f929dfb815ed41e",
+      "kqs_runtime/recommendations.py": "9f08ae80ccf0c30700a49dbbaf8052840c5a096918685ce2ac67c4e8220681f0",
+      "kqs_runtime/sqlite_reader.py": "ffc0fa4b5d576b41e5235307b90a08f997a16476dc302737aeb9f43112a27cfb",
+      "kqs_publication/__init__.py": "c66278f32a047b596624280f0fafd4e29b5a7a4527792546ffaba488b342016d",
+      "kqs_publication/calendar.py": "a1bac800cc2067695b05e7b3366b0a5dc301e885108ff4ecc6ac85f8fc3b8daa",
+      "kqs_publication/contract.py": "b0668aaffc2ec677d0b21567239f04f4714a73cc7751ea99e0c7c0ec8b0adb6d",
+      "kqs_publication/publisher.py": "b6029705c4c94e750b1a2ad85eac959d861b73fa0490931d9f11351dbc76fc9b",
+      "kqs_publication/store.py": "552d267678f221d7b76770f122013d4e96083347ded5c905b3464bdc360bd0b2",
+      "kqs_publication/calendars/krx_equity_2026.json": "c35228678b6f1059fcd944ec34f20f620207bf5b577d063d0cee52a3f8ab11b9"
+    },
+    "python": "3.14.4",
+    "dependencies": {
+      "pandas": "2.3.3",
+      "numpy": "2.3.5",
+      "python-dateutil": "2.9.0.post0",
+      "pytz": "2026.4",
+      "tzdata": "2026.4",
+      "six": "1.17.0"
+    }
+  },
+  "calendar": {
+    "calendar_id": "krx-equity-2026",
+    "path": "engine/kqs/src/kqs_publication/calendars/krx_equity_2026.json",
+    "sha256": "c35228678b6f1059fcd944ec34f20f620207bf5b577d063d0cee52a3f8ab11b9",
+    "policy": "krx-session-expiry/v1",
+    "data_available_time_kst": "06:00",
+    "coverage": "2026 only; unknown year fails closed",
+    "sources": [
+      "https://global.krx.co.kr/contents/GLB/06/0602/0602010201/GLB0602010201T1.jsp",
+      "https://global.krx.co.kr/contents/GLB/05/0501/0501060000/GLB0501060000T3.jsp"
+    ]
+  },
+  "reused_decisions": [
+    "D-19",
+    "D-24",
+    "D-27",
+    "D-28",
+    "D-30",
+    "D-44"
+  ],
+  "preserved_core_modules": 4,
+  "changes": [
+    "reviewed KRX 2026 equity closure calendar packaged and code-hashed",
+    "calendar-bound latest available data session validation",
+    "next expected data availability expiry ceiling",
+    "native publication/calendar reader fail-closed policy"
+  ],
+  "contract": "kqs-recommendations/v1",
+  "publication_policy": "explicit-session-expiry/v1 + krx-session-expiry/v1",
+  "safety": {
+    "orders_enabled": false,
+    "automatic_fills_enabled": false,
+    "legacy_ledger_compatible": false,
+    "research_runs": 0,
+    "market_collection_runs": 0,
+    "production_publication_performed": false,
+    "deployment_performed": false
+  },
+  "scope": "KRX session/freshness policy only; not a collector, scheduler, worker deployment, full KRX calendar service, or bridge/AWS migration.",
+  "verification": "docs/engine/verification/EINT-004.json",
+  "future_change_rule": "Add a new successor and change CI manifest selection explicitly; never overwrite EINT-001/002/003 manifests or verification records."
+}

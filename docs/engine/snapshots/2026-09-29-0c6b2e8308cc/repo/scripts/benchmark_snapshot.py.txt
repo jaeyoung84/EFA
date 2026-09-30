@@ -1,0 +1,67 @@
+"""벤치마크 종가 스냅샷(D-44): 전향 관측과 같은 창에서 KODEX200(069500)·KODEX코스닥150(229200)의
+일별 종가를 data/benchmark_forward.csv 에 append-only 로 기록한다.
+
+- 판정 규칙이 아니다. D-33 판정(통합 CAGR vs 기준선)과 사전등록 v2/v4 §6 판정은 이 파일을 읽지 않는다.
+  목적은 "그날 DB가 준 벤치마크 값"을 시점 고정으로 남겨, 나중에 DB가 재수집·정정되어도 전향 창의
+  벤치마크 곡선을 재구성할 수 있게 하는 것뿐이다.
+- 시작일 2026-08-28 = D-33 전향 감사 스트림 cutoff. Pullback 전향(FORWARD_START 2026-09-09)은 이 창의 부분집합.
+- DB는 mode=ro 로만 연다. CSV는 (Date, Symbol) 키로 멱등 append -- 기존 행은 절대 고쳐 쓰지 않는다.
+- 출력은 건수·날짜만. 종가·수익률 수치는 화면에 찍지 않는다(수치 열람 보류 규약).
+"""
+
+from __future__ import annotations
+
+import csv
+import sqlite3
+from datetime import datetime, timezone
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+DB = REPO / "data" / "krx_daily.sqlite3"
+OUT = REPO / "data" / "benchmark_forward.csv"
+START = "2026-08-28"
+SYMBOLS = {"069500": "KODEX200", "229200": "KODEX코스닥150"}
+COLUMNS = ["Date", "Symbol", "Name", "Close", "RecordedAtUtc"]
+
+
+def existing_keys() -> set[tuple[str, str]]:
+    if not OUT.exists():
+        return set()
+    with OUT.open(encoding="utf-8-sig", newline="") as fh:
+        return {(row["Date"], row["Symbol"]) for row in csv.DictReader(fh)}
+
+
+def fetch_rows() -> list[tuple[str, str, float]]:
+    con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
+    try:
+        placeholders = ",".join("?" * len(SYMBOLS))
+        return con.execute(
+            "SELECT trade_date, symbol, close FROM daily_prices "
+            f"WHERE symbol IN ({placeholders}) AND trade_date >= ? ORDER BY trade_date, symbol",
+            (*SYMBOLS, START),
+        ).fetchall()
+    finally:
+        con.close()
+
+
+def main() -> None:
+    have = existing_keys()
+    rows = fetch_rows()
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    new = [(d, s, c) for d, s, c in rows if (d, s) not in have]
+    write_header = not OUT.exists()
+    with OUT.open("a", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.writer(fh)
+        if write_header:
+            writer.writerow(COLUMNS)
+        for d, s, c in new:
+            writer.writerow([d, s, SYMBOLS[s], c, stamp])
+    dates = sorted({d for d, _, _ in rows})
+    print(
+        f"벤치마크 스냅샷: DB 행 {len(rows)}건({dates[0] if dates else '-'}~{dates[-1] if dates else '-'}), "
+        f"신규 기록 {len(new)}건, 누적 {len(have) + len(new)}건 -> {OUT.name}"
+    )
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,111 @@
+"""
+run.py — T-0 v0.4-rc1 실행 진입점 (기반 v0.3-final3)
+F-5: 모듈명 strategy_validation_v03_final2로 통일
+F-6: FDR 폴백 제거, 명시적 오류 처리
+v0.4-rc1 (2026-09-11): 실데이터 1회 실행(pullback_realdata_run.py, 2026-09-11)의 R-1~R-5 경로를 기본 경로로 명문화
+  H-17: 시장 시리즈 069500(KODEX 200), 테이블 daily_prices/symbol/trade_date — 로더 기본값
+  H-16: 유니버스 = KOSPI+KOSDAQ ∩ 6자리 숫자 심볼 − {069500} (load_universe_symbols)
+  H-13: 시장 시리즈 → 종목 로딩(market_df 전달로 시장 날짜축 정렬) → 점검 → 실행 순서
+  재현 기준: 2026-09-11 실행의 trades 해시 d6d1778e6a49bda7 / equity 해시 013e2d14359ff6cb
+            (본 진입점이 같은 DB로 같은 해시를 내면 파이프라인 변경이 결과에 무영향임을 확인 = T-1 재현 검증)
+저장소 통합 (D-38, 2026-09-12): research/daily_trend_pullback_t0/ — 연구 보존 전용, 라이브 배선 없음
+  (라이브 전략 id `trend-pullback`/`strategy.trend_pullback_signals`와는 진입 정의가 다른 별개 연구).
+  이 파일만 v0.4-rc1 원본(sha256 앞16 e815b4ef89289bfe)과 다르고, 나머지 3파일은 원본과 바이트 동일.
+  W-2: DB_PATH = 저장소 루트/data/krx_daily.sqlite3 (__file__ 기준, cwd 무관 — D-37 방식)
+       + main() 진입 시 sqlite3 연결을 읽기 전용(file:…?mode=ro)으로 강제.
+       DB가 WAL 모드라 ro 연결도 `-shm` 파일 mtime을 갱신할 수 있음(공유메모리 인덱스, 데이터 쓰기 아님).
+  W-6 의존성: scipy는 pyproject.toml 미선언 — scikit-learn/vectorbt 전이 의존 전제
+       (strategy_validation_v03_final2 `from scipy import stats`). pykrx는 선택(미설치 시 data_loader의
+       해당 경로 미사용). FinanceDataReader는 선언됨.
+  실행:   .venv/bin/python research/daily_trend_pullback_t0/run.py            (실DB 읽기, 약 2분)
+  테스트: .venv/bin/python -m pytest research/daily_trend_pullback_t0 -p no:cacheprovider
+          (pyproject testpaths=["tests"]라 무인자 pytest는 이 테스트를 수집하지 않음)
+"""
+
+import os
+import sqlite3
+import warnings
+from pathlib import Path
+from data_loader import (
+    load_ohlcv_from_sqlite,
+    load_market_from_sqlite,
+    load_universe_symbols,
+    check_data_coverage,
+    SQLITE_MARKET_TICKER,
+)
+# F-5: 파일명과 일치하는 모듈명 사용
+from strategy_validation_v03_final2 import run_full_system
+
+# W-2 (D-38): research/daily_trend_pullback_t0/run.py → parents[2] = 저장소 루트 (D-37 방식, cwd 무관)
+#   v0.4-rc1 원본은 "./data/krx_daily.sqlite3"(cwd 상대, 저장소 KrxDailyStore 기본값과 같은 규약)였음.
+_REPO_ROOT    = Path(__file__).resolve().parents[2]
+DB_PATH       = _REPO_ROOT / "data" / "krx_daily.sqlite3"
+START_DATE    = "2022-01-01"
+END_DATE      = "2026-09-08"
+DB_START      = "2016-08-29"
+CAPITAL       = 100_000_000
+MARKET_TICKER = SQLITE_MARKET_TICKER   # "069500" (H-17)
+
+# W-2 (D-38): 읽기 전용 강제 — 이 프로세스가 여는 sqlite3 연결을 file:…?mode=ro URI로 바꾼다.
+#   pullback_realdata_run.py(2026-09-11)·pullback_v04_repro.py(2026-09-12) 래퍼와 같은 방식(실행 2회로 검증).
+#   data_loader는 str(db_path)로 연결하므로 Path/str 모두 처리하고, 이미 URI(file:)이면 그대로 둔다.
+#   main() 진입 시에만 설치 — import만으로는 부작용 없음. 연구 스크립트 전용(라이브 코드는 이 모듈을 import하지 않음).
+_orig_sqlite_connect = sqlite3.connect
+
+
+def _readonly_sqlite_connect(database, *args, **kwargs):
+    if isinstance(database, (str, os.PathLike)) and not str(database).startswith("file:"):
+        kwargs["uri"] = True
+        return _orig_sqlite_connect(f"file:{os.fspath(database)}?mode=ro", *args, **kwargs)
+    return _orig_sqlite_connect(database, *args, **kwargs)
+
+
+def main():
+    sqlite3.connect = _readonly_sqlite_connect   # W-2: 읽기 전용 강제 (위 주석)
+
+    # F-6: 폴백 없음 — 시장 시리즈 부재 시 명시적 RuntimeError (H-17: 로더가 직접 raise)
+    # FDR 자동 폴백은 D-3(데이터 축 불일치) 재현 → 삭제
+    print("STEP 1. 시장 시리즈 로딩 (날짜축의 단일 출처)")
+    try:
+        market_df = load_market_from_sqlite(
+            DB_PATH,
+            index_ticker=MARKET_TICKER,
+            start_date=DB_START,
+            end_date=END_DATE
+        )
+    except RuntimeError as e:
+        raise RuntimeError(
+            f"시장 시리즈 로드 실패:\n{e}\n\n"
+            f"해결 방법:\n"
+            f"  1. DB 스키마 확인 후 index_ticker/table/ticker_col/date_col 인자 조정\n"
+            f"  2. FDR 사용 시 D-3 데이터 축 불일치 위험 — 별도 승인 필요"
+        ) from e
+
+    print("STEP 2. 유니버스 (H-16)")
+    tickers = load_universe_symbols(DB_PATH, exclude=(MARKET_TICKER,))
+
+    print("STEP 3. SQLite DB 로딩 (H-13: 시장 날짜축 정렬)")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")   # 종목별 비거래일 제거·검증 경고 다량 → 요약만
+        ohlcv = load_ohlcv_from_sqlite(
+            DB_PATH, tickers=tickers,
+            start_date=DB_START, end_date=END_DATE,
+            market_df=market_df
+        )
+
+    print("STEP 4. 데이터 정합성 점검")
+    check_data_coverage(ohlcv, market_df, START_DATE, END_DATE)
+
+    print("STEP 5. 전략 실행")
+    equity, trades, fold_report = run_full_system(
+        ohlcv, market_df,
+        start_date=START_DATE,
+        end_date=END_DATE,
+        initial_capital=CAPITAL
+    )
+
+    return equity, trades, fold_report
+
+
+if __name__ == "__main__":
+    main()

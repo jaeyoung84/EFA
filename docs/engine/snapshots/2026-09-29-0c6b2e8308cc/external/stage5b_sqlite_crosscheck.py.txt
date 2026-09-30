@@ -1,0 +1,68 @@
+"""D-36 Stage 5B: cross-check the 3 overlap days (2016-08-29~2016-08-31) between
+the Stage 5A merged locked-window price file and the independent local
+data/krx_daily.sqlite3 database. Prints ONLY match/mismatch flags, never the
+actual price values.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from pathlib import Path
+
+import pandas as pd
+
+MERGED_PRICE = Path("data/locked_window/index_tsmom_v1/price_merged.csv")
+SQLITE_DB = Path("data/krx_daily.sqlite3")
+SYMBOL = "069500"
+OVERLAP_DATES = ["2016-08-29", "2016-08-30", "2016-08-31"]
+
+# CSV korean columns -> sqlite3 columns for the fields both sources carry
+FIELD_MAP = {
+    "시가": "open",
+    "고가": "high",
+    "저가": "low",
+    "종가": "close",
+    "거래량": "volume",
+}
+
+
+def main() -> None:
+    merged = pd.read_csv(MERGED_PRICE, parse_dates=["일자"])
+    merged["일자"] = merged["일자"].dt.date
+
+    conn = sqlite3.connect(SQLITE_DB)
+    all_match = True
+    print("=== Stage 5B: sqlite3 겹침구간(3일) 대조 결과 ===")
+    for d in OVERLAP_DATES:
+        target = pd.Timestamp(d).date()
+        row_csv = merged[merged["일자"] == target]
+        cur = conn.execute(
+            "SELECT open, high, low, close, volume FROM daily_prices "
+            "WHERE symbol = ? AND trade_date = ?",
+            (SYMBOL, d),
+        )
+        row_db = cur.fetchone()
+
+        if row_csv.empty:
+            print(f"  {d}: CSV 측 데이터 없음 (SKIP)")
+            continue
+        if row_db is None:
+            print(f"  {d}: sqlite3 측 데이터 없음 (SKIP)")
+            continue
+
+        csv_vals = {k: int(row_csv.iloc[0][k]) for k in FIELD_MAP}
+        db_vals = dict(zip(["시가", "고가", "저가", "종가", "거래량"], row_db))
+
+        mismatches = [k for k in FIELD_MAP if csv_vals[k] != db_vals[k]]
+        if mismatches:
+            all_match = False
+            print(f"  {d}: 불일치 필드 = {mismatches}")
+        else:
+            print(f"  {d}: 전 필드(시가/고가/저가/종가/거래량) 일치")
+
+    print()
+    print("결과:", "PASS (전체 일치)" if all_match else "FAIL (불일치 발견)")
+
+
+if __name__ == "__main__":
+    main()

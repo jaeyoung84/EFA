@@ -1,0 +1,116 @@
+"""읽기 전용 자가진단: 일일 파이프라인이 며칠이나 뒤처졌는지 정직하게 보고한다.
+
+휴장일 캘린더를 보유하지 않으므로 "이것이 진짜 결손(장애)인지 정상 휴장인지"는
+이 스크립트가 판정하지 않는다. 경과 일수만 계산해 WARNING으로 표시하며, 최종 판단은
+사람이 한다. DB나 CSV를 쓰지 않는다 -- 읽기만 한다.
+
+보조 모드(D-44, 반복 트리거용; 둘 다 읽기 전용):
+  --db-latest        DB 최신 거래일만 한 줄 출력 (없으면 빈 줄)
+  --already-current  "오늘 이전 마지막 평일 봉이 DB에 있고 감사로그 AsOf == DB 최신" 이면 종료코드 0,
+                     아니면 1. 같은 날의 반복 트리거가 no-op 인지 판단하는 데만 쓴다.
+"""
+
+from __future__ import annotations
+
+import csv
+import sqlite3
+import sys
+from datetime import date, datetime, timedelta
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+# 스케줄러(wsl.exe 경유)의 TZ 가 무엇이든 "오늘"은 KST 기준으로 계산한다.
+KST = ZoneInfo("Asia/Seoul")
+
+REPO = Path(__file__).resolve().parent.parent
+DB = REPO / "data" / "krx_daily.sqlite3"
+AUDIT = REPO / "data" / "bot_candidate_audit.csv"
+
+# 3일 연휴(금~월) + 수집 지연 1일을 정상 범위로 보고, 그보다 크면 경고한다.
+GAP_WARNING_DAYS = 4
+
+
+def latest_db_trade_date() -> str | None:
+    if not DB.exists():
+        return None
+    con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
+    try:
+        row = con.execute(
+            "SELECT MAX(trade_date) FROM collection_log WHERE row_count > 0"
+        ).fetchone()
+    finally:
+        con.close()
+    return row[0] if row and row[0] else None
+
+
+def latest_audit_as_of() -> str | None:
+    if not AUDIT.exists():
+        return None
+    with AUDIT.open(encoding="utf-8-sig", newline="") as fh:
+        reader = csv.DictReader(fh)
+        dates = [row["AsOf"] for row in reader if row.get("AsOf")]
+    return max(dates) if dates else None
+
+
+def previous_weekday(today: date) -> date:
+    """오늘 이전의 마지막 평일(휴장일 캘린더 없음 -- 토·일만 건너뛴다)."""
+    prev = today - timedelta(days=1)
+    while prev.weekday() >= 5:
+        prev -= timedelta(days=1)
+    return prev
+
+
+def already_current(today: date) -> bool:
+    """같은 날 반복 트리거의 no-op 조건. 휴장일이 끼면 False가 되어 반복 실행이 그대로
+    진행되지만, 감사로그 적재는 AuditId 기준 멱등이라 중복 행은 생기지 않는다."""
+    db_latest = latest_db_trade_date()
+    audit_latest = latest_audit_as_of()
+    if not db_latest or not audit_latest:
+        return False
+    return date.fromisoformat(db_latest) >= previous_weekday(today) and audit_latest == db_latest
+
+
+def main() -> None:
+    today = datetime.now(KST).date()
+    if "--db-latest" in sys.argv[1:]:
+        print(latest_db_trade_date() or "")
+        return
+    if "--already-current" in sys.argv[1:]:
+        ok = already_current(today)
+        print(f"already-current={ok} (기준: {previous_weekday(today).isoformat()} 봉 + 감사로그 동기)")
+        sys.exit(0 if ok else 1)
+    db_latest = latest_db_trade_date()
+    audit_latest = latest_audit_as_of()
+
+    db_gap = (today - date.fromisoformat(db_latest)).days if db_latest else None
+    audit_vs_db_gap = (
+        (date.fromisoformat(db_latest) - date.fromisoformat(audit_latest)).days
+        if db_latest and audit_latest
+        else None
+    )
+
+    print(f"오늘: {today.isoformat()}")
+    print(
+        "DB 최신 거래일: "
+        f"{db_latest or '없음'} (오늘과 {db_gap if db_gap is not None else '?'}일 차이)"
+    )
+    print(
+        "감사로그 최신 AsOf: "
+        f"{audit_latest or '없음'} (DB 최신 거래일과 "
+        f"{audit_vs_db_gap if audit_vs_db_gap is not None else '?'}일 차이)"
+    )
+
+    if db_gap is not None and db_gap > GAP_WARNING_DAYS:
+        print(
+            f"WARNING: DB 최신 거래일이 오늘보다 {db_gap}일 앞선 상태 "
+            "-- 휴장일 여부 미확인, 수동 점검 필요"
+        )
+    if audit_vs_db_gap is not None and audit_vs_db_gap > 0:
+        print(
+            f"WARNING: 감사로그가 DB 최신 거래일보다 {audit_vs_db_gap}일 뒤처짐 "
+            "-- daily_picks_cli 미실행 세션이 있었을 가능성 (재구성 불가, 기록만 남김)"
+        )
+
+
+if __name__ == "__main__":
+    main()

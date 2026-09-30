@@ -13,9 +13,18 @@ services:
       - QDRANT_URL=http://qdrant:6333
       - MEILI_URL=http://meilisearch:7700
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-local-development-search-key-change-me}
+      - KQS_RECOMMENDATION_SOURCE=${KQS_RECOMMENDATION_SOURCE:-snapshot}
+      - KQS_SNAPSHOT_DB=/app/state/kqs/recommendations.sqlite3
       - RAG_EMBEDDING_PROVIDER=hash
       - RAG_LLM_API_KEY=
       - RAG_LLM_MODEL=
+    volumes:
+      - type: bind
+        source: ${KQS_STATE_DIR:-/opt/investing-app/state/kqs}
+        target: /app/state/kqs
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
       - mongo
       - qdrant

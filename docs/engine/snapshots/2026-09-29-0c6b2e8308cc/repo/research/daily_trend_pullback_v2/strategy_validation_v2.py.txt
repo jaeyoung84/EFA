@@ -1,0 +1,1742 @@
+"""
+Daily Trend Pullback — Strategy Validation System
+v2.0-rc1 (2026-09-12) — 변형 v2 (기반: 변형 v1.0-rc1, research/daily_trend_pullback_v1/strategy_validation_v1.py
+                         sha256 앞16 3645655dba365d19, 커밋 c6b80f3). 사전등록: 같은 폴더 PREREGISTRATION_v2.md
+결과 등급 상한: 힌트 (검정력 부족 명문화 — ①b 유지, 관측 #3)
+
+v2 변경 블록 (그 외 전 블록 v1.0-rc1 과 바이트 동일 — 블록 diff 원칙):
+  V2-1  CONFIG["declared_observations"] 2 → 3  (관측 #1 = T-0, #2 = v1, #3 = 본 변형 1회; Bonferroni α/(2·3))
+  V2-2  시장별 국면 게이트 (C-5 교정): KOSPI 종목 ← 069500(KODEX 200), KOSDAQ 종목 ← 229200(KODEX 코스닥150).
+        규칙(Close > SMA50, 신호일 t → 체결 t+1)·창(50)은 v1 과 동일 — 벤치마크 매핑만 바뀜(탐색 파라미터 없음).
+        저장소 eligibility.market_regime_entry_allowed 기본 벤치마크 (KOSPI,069500)/(KOSDAQ,229200) 와 의미 일치.
+        run_period(..., benchmarks=None, market_map=None): None 이면 v1 경로(단일 market_df 게이트)와 동일.
+  V2-3  이전 종목(KOSDAQ→KOSPI 등) 규칙: market_map[ticker] = str 또는 [(구간시작일 'YYYY-MM-DD', market), ...] 오름차순.
+        날짜 t 의 시장 = 시작일 ≤ t 인 마지막 구간; 첫 구간 이전 = 첫 구간. 왕복(flip-flop)·누락·미지의 시장은 RuntimeError.
+        벤치마크 프레임마다 G-1 커버리지 하드 실패·H-5 경고를 동일 적용.
+  V2-4  진단(건수만, 판정 미사용): gate_day_counts(benchmarks, start, end) — 시장별 ON 일수·동시 ON/OFF·단독 ON 일수;
+        trades_by_market(trades, market_map) — 진입일 기준 시장별 거래 건수.
+  V2-5  walk_forward_with_validation / run_full_system 에 benchmarks·market_map pass-through + 머리 출력·V2 진단 출력.
+  진입 정의·랭킹(V1-3)·청산(V1-4)·비용·자금관리·R1/R3·부트스트랩·검정력 라벨·TrendGoal 대조(V1-6)는 무변경.
+--- 이하 v1 머리 원문 ---
+Daily Trend Pullback — Strategy Validation System
+v1.0-rc1 (2026-09-12) — 변형 v1 (기반: T-0 v0.4-rc1, research/daily_trend_pullback_t0/strategy_validation_v03_final2.py
+                         sha256 앞16 c1abcea607b33de3). 사전등록: 같은 폴더 PREREGISTRATION_v1.md
+결과 등급 상한: 힌트 (검정력 부족 명문화 — ①b 유지, 관측 #2)
+
+v1 변경 블록 (그 외 전 블록 v0.4-rc1 과 바이트 동일 — 블록 diff 원칙):
+  V1-1  CONFIG["declared_observations"] 1 → 2  (관측 #1 = T-0 2026-09-11 실행, 관측 #2 = 본 변형 1회 실행; Bonferroni α/(2·2))
+  V1-2  _compute_indicators: DIST_EMA10 = Close/EMA10 − 1 추가 (랭킹 입력)
+  V1-3  _rank_candidates: 확장 방향 랭킹(return20·dist_sma50·vol_ratio·rsi 상위) 폐기 →
+        score = 0.40·(1 − dist_ema10_rank) + 0.30·adx_rank + 0.30·(1 − rsi_rank)  (C-3 교정: 앵커 근접·추세 강도·과열 회피)
+  V1-4  _exit_signal: ema_cross(Close < EMA10) 분기 삭제 — stop > holding_limit > trailing 만 (C-2 교정)
+        VALID_EXIT_REASONS 에서 "ema_cross" 제거. 신규 파라미터 없음.
+  V1-5  후보 dict 에 dist_ema10·adx 추가 (return20·dist_sma50·vol_ratio 는 진단용으로 보존, 점수 미사용)
+  V1-6  §15 trend_goal_check(): 저장소 공식 기준 strategy_goals.TrendGoal + D-37 즉시기각선(비용후 평균수익 ≤ 0)
+        NetReturnPct = pnl_net / (entry_price·shares·(1+ENTRY_COST)) × 100 (퍼센트, D-37·paper_trading 규약)
+        Window = _generate_fold_reports 와 동일한 6개월 폴드(exit_date 기준)
+  진입 정의·비용·자금관리·R1/R3·부트스트랩·검정력 라벨은 무변경.
+
+버전 이력:
+  v0.1      초안
+  v0.2      필수 1~10, ㉮㉯㉰
+  v0.3      S-1~S-10 (연속 실행, forced_close)
+  v0.3-f    A-1~C-3
+  v0.3-f2   D-1~D-13 (entry_idx=i, pending_entries)
+  v0.3-f2r  E-1~E-11 (pending_exits 설계, last_close_cache, E-3 등)
+  v0.3-final3  F-1~F-9 (2026-09-10)
+             F-1: del positions[ticker] 추가 — E-1 실제 구현
+             F-2: assert not pending_entries를 clear() 앞으로
+             F-3: forced_close holding_days = 봉거리 (당일종가 -1)
+             F-4: equity["positions"] = len(positions) (오늘 실보유)
+             F-6: run_period 진입부 market_df coverage 검사
+             F-7b: date→tickers 역인덱스 (전 종목 순회 제거)
+             F-8: reserved_cash = 0.0 명시 초기화
+             F-8b: port_val에 pending_exits 포함
+  v0.4-rc1  H-3·H-5·H-15 (2026-09-11) — 전략 파라미터·신호·청산 규칙 무변경(③ 단일 고정 설정 유지)
+             H-3:  기간 종료 시 "보유 종목 봉 없음" 분기는 도달 불가(불변식) — 경고+continue 대신 RuntimeError
+                   (ticker_last_date는 항상 그 종목의 봉일 → 루프 내 forced_close 로 먼저 처리됨)
+             H-5:  SMA 경고 비율 0.80 하드코딩 → CONFIG["market_sma_warn_ratio"]
+             H-15: 의존도(dep) 계산 불가 조건 |PF-1| ≤ 0.05 → 상수 PF_DEP_MIN_MARGIN 로 명명·G7 문구와 동기화
+             (파이프라인 H-13·H-14·H-16·H-17·H-18 은 data_loader.py / run.py)
+
+R2(기대값>0) 삭제 — PF>1 동치
+P1 표적(1.20) / R1 기준(1.00) — ②B 결정으로 의도적 불일치
+"""
+
+import datetime
+import numpy as np
+import pandas as pd
+from collections import Counter
+from scipy import stats
+
+
+# ══════════════════════════════════════════════
+# 1. CONFIG
+# ══════════════════════════════════════════════
+
+CONFIG = {
+    "fee_bps":                    1.5,
+    "tax_bps":                    18.0,
+    "slip_bps":                   5.0,
+    "max_positions":              5,
+    "max_weight":                 0.20,
+    "risk_per_trade":             0.005,
+    "atr_multiple":               1.5,
+    "holding_limit":              15,
+    "trailing_atr_multiple":      2.0,
+    "min_turnover":               5_000_000_000,
+    "max_daily_return":           0.08,
+    "market_sma":                 50,
+    "target_pf":                  1.20,
+    "max_mdd":                    0.20,
+    "declared_win_rate":          0.40,
+    "block_sizes":                [30, 60, 120],
+    "n_bootstrap":                4000,
+    "alpha":                      0.05,
+    "declared_observations":      3,      # V2-1: 관측 #1(T-0) + 관측 #2(v1) + 관측 #3(v2 1회)
+    "db_start":                   "2016-08-29",
+    "warmup_days":                300,
+    "market_min_coverage":        0.95,   # F-6
+    "market_sma_warn_ratio":      0.80,   # H-5: 기간 내 SMA 유효일 비율 경고 임계(진단용, 실행 차단 아님)
+    "pullback_warn_high":         0.80,
+    "pullback_warn_low":          0.20,
+    "pullback_warn_is_advisory":  True,
+    "tail_dep_threshold":         0.50,
+}
+
+# H-15: 의존도(dep = (PF_full − PF_trim)/(PF_full − 1)) 계산 불가 여지 — |PF−1| 이 이 값 이하이면 NaN
+PF_DEP_MIN_MARGIN = 0.05
+
+ENTRY_COST_BPS = CONFIG["fee_bps"] + CONFIG["slip_bps"]
+EXIT_COST_BPS  = CONFIG["fee_bps"] + CONFIG["tax_bps"] + CONFIG["slip_bps"]
+ENTRY_COST     = ENTRY_COST_BPS / 10_000
+EXIT_COST      = EXIT_COST_BPS  / 10_000
+
+FIXED_CONFIG = {
+    "name":                  "기본형",
+    "max_positions":         CONFIG["max_positions"],
+    "max_weight":            CONFIG["max_weight"],
+    "risk_per_trade":        CONFIG["risk_per_trade"],
+    "atr_multiple":          CONFIG["atr_multiple"],
+    "holding_limit":         CONFIG["holding_limit"],
+    "trailing_atr_multiple": CONFIG["trailing_atr_multiple"],
+    "min_turnover":          CONFIG["min_turnover"],
+    "max_daily_return":      CONFIG["max_daily_return"],
+}
+
+TRADE_COLUMNS = [
+    "ticker", "sector",
+    "entry_date", "exit_date",
+    "entry_price", "exit_price", "stop_price",
+    "shares",
+    "entry_cost", "exit_cost", "pnl_net", "r_multiple",
+    "exit_reason", "holding_days", "score",
+]
+
+# V1-4: "ema_cross" 제거 — v1 은 EMA10 하향 이탈로 청산하지 않는다
+VALID_EXIT_REASONS = frozenset([
+    "stop", "holding_limit",
+    "trailing", "forced_close",
+])
+
+
+# ══════════════════════════════════════════════
+# 2. 비용 부착
+# ══════════════════════════════════════════════
+
+def attach_costs(trades: pd.DataFrame) -> pd.DataFrame:
+    t = trades.copy()
+    t["entry_cost"] = t["entry_price"] * ENTRY_COST * t["shares"]
+    t["exit_cost"]  = t["exit_price"]  * EXIT_COST  * t["shares"]
+    t["pnl_net"]    = (
+        t["exit_price"]  * t["shares"]
+        - t["entry_price"] * t["shares"]
+        - t["entry_cost"]  - t["exit_cost"]
+    )
+    risk = (
+        (t["entry_price"] - t["stop_price"]) * t["shares"]
+    ).where(lambda x: x > 0, np.nan)
+    t["r_multiple"] = t["pnl_net"] / risk
+    return t
+
+
+# ══════════════════════════════════════════════
+# 3. PF 계산
+# ══════════════════════════════════════════════
+
+def compute_pf_cash(trades: pd.DataFrame) -> float:
+    if trades.empty:
+        return np.nan
+    t = trades.copy()
+    if "pnl_net" not in t.columns:
+        t = attach_costs(t)
+    profit = t.loc[t["pnl_net"] > 0, "pnl_net"].sum()
+    loss   = t.loc[t["pnl_net"] < 0, "pnl_net"].abs().sum()
+    if loss == 0:
+        return float("inf") if profit > 0 else np.nan
+    return profit / loss
+
+
+def compute_pf_r(trades: pd.DataFrame) -> float:
+    if trades.empty:
+        return np.nan
+    t = trades.copy()
+    if "r_multiple" not in t.columns:
+        t = attach_costs(t)
+    valid  = t["r_multiple"].dropna()
+    wins   = valid[valid > 0]
+    losses = valid[valid < 0].abs()
+    if losses.sum() == 0:
+        return float("inf") if wins.sum() > 0 else np.nan
+    return wins.sum() / losses.sum()
+
+
+# ══════════════════════════════════════════════
+# 4. 스키마 검증기
+# ══════════════════════════════════════════════
+
+def validate_trade_frame(
+    trades: pd.DataFrame,
+    raise_on_error: bool = True
+) -> tuple:
+    errors = []
+
+    def check(cond, msg):
+        if not cond:
+            errors.append(msg)
+            if raise_on_error:
+                raise AssertionError(msg)
+
+    if trades.empty:
+        missing = [c for c in TRADE_COLUMNS if c not in trades.columns]
+        if missing:
+            msg = f"빈 trades — 누락 컬럼: {missing}"
+            errors.append(msg)
+            if raise_on_error:
+                raise AssertionError(msg)
+            return False, errors
+        return True, []
+
+    missing = [c for c in TRADE_COLUMNS if c not in trades.columns]
+    check(not missing, f"누락 컬럼: {missing}")
+    if missing:
+        return False, errors
+
+    check(isinstance(trades.index, pd.RangeIndex),  "인덱스 RangeIndex 아님")
+    check(pd.api.types.is_datetime64_any_dtype(trades["entry_date"]), "entry_date 타입 오류")
+    check(pd.api.types.is_datetime64_any_dtype(trades["exit_date"]),  "exit_date 타입 오류")
+    check((trades["entry_date"] <= trades["exit_date"]).all(), "entry_date > exit_date")
+
+    # E-10: forced_close 외 거래는 exit_date > entry_date
+    non_forced = trades[trades["exit_reason"] != "forced_close"]
+    if not non_forced.empty:
+        check(
+            (non_forced["exit_date"] > non_forced["entry_date"]).all(),
+            "forced_close 외 거래에 exit_date ≤ entry_date — 당일 왕복 의심"
+        )
+
+    check((trades["entry_price"] > 0).all(), "entry_price ≤ 0")
+    check((trades["exit_price"]  > 0).all(), "exit_price ≤ 0")
+    check((trades["stop_price"]  > 0).all(), "stop_price ≤ 0")
+    check((trades["stop_price"]  < trades["entry_price"]).all(), "stop_price ≥ entry_price")
+    check((trades["shares"] > 0).all(), "shares ≤ 0")
+    check(pd.api.types.is_integer_dtype(trades["shares"]), "shares 정수 아님")
+
+    if trades["entry_cost"].notna().any():
+        check((trades["entry_cost"] >= 0).all(), "entry_cost < 0")
+    if trades["exit_cost"].notna().any():
+        check((trades["exit_cost"] >= 0).all(), "exit_cost < 0")
+
+    if trades["pnl_net"].notna().any():
+        expected = (
+            (trades["exit_price"] - trades["entry_price"]) * trades["shares"]
+            - trades["entry_cost"].fillna(0) - trades["exit_cost"].fillna(0)
+        )
+        diff = (trades["pnl_net"] - expected).abs()
+        check((diff <= 1).all(), f"pnl_net 불일치 ₩{diff.max():.0f}")
+
+    invalid = set(trades["exit_reason"].unique()) - VALID_EXIT_REASONS
+    check(not invalid, f"허용되지 않는 exit_reason: {invalid}")
+    check((trades["holding_days"] >= 1).all(), "holding_days < 1")
+    check(trades["exit_date"].notna().all(), "exit_date NaT")
+
+    dup = trades.duplicated(subset=["ticker","entry_date","exit_date","shares"])
+    check(not dup.any(), f"중복 거래 {dup.sum()}건")
+
+    # F-1 회귀 감지: (ticker, entry_date) 중복은 중복 청산 의심
+    dup_entry = trades.duplicated(subset=["ticker","entry_date"])
+    check(not dup_entry.any(),
+          f"(ticker, entry_date) 중복 {dup_entry.sum()}건 — F-1 del 누락 의심")
+
+    if trades["entry_cost"].notna().any():
+        exp_ec = trades["entry_price"] * ENTRY_COST * trades["shares"]
+        diff   = (trades["entry_cost"] - exp_ec).abs()
+        check((diff <= 1).all(), f"entry_cost 비용 불일치 ₩{diff.max():.0f}")
+
+    return len(errors) == 0, errors
+
+
+def validate_equity_frame(
+    equity: pd.DataFrame,
+    raise_on_error: bool = True
+) -> tuple:
+    errors = []
+
+    def check(cond, msg):
+        if not cond:
+            errors.append(msg)
+            if raise_on_error:
+                raise AssertionError(msg)
+
+    for col in ["equity", "cash", "positions"]:
+        check(col in equity.columns, f"누락 컬럼: {col}")
+    if errors:
+        return False, errors
+
+    check(isinstance(equity.index, pd.DatetimeIndex), "인덱스 DatetimeIndex 아님")
+    check(equity.index.is_monotonic_increasing, "인덱스 오름차순 아님")
+    check(equity["equity"].isna().sum() == 0, "equity NaN")
+    check((equity["equity"] > 0).all(), "equity ≤ 0")
+    check((equity["positions"] >= 0).all(), "positions < 0")
+    check(
+        (equity["positions"] <= CONFIG["max_positions"]).all(),
+        f"positions > {CONFIG['max_positions']}"
+    )
+    check((equity["cash"] >= -1).all(), "cash < -1")
+
+    return len(errors) == 0, errors
+
+
+# ══════════════════════════════════════════════
+# 5. 지표 계산
+# ══════════════════════════════════════════════
+
+def _wilder_smooth(series: pd.Series, period: int) -> pd.Series:
+    return series.ewm(
+        alpha=1.0 / period, adjust=False, min_periods=period
+    ).mean()
+
+
+def _compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy().sort_index()
+    c  = df["Close"]
+    h  = df["High"]
+    l  = df["Low"]
+
+    df["EMA5"]  = c.ewm(span=5,  adjust=False).mean()
+    df["EMA10"] = c.ewm(span=10, adjust=False).mean()
+    df["SMA20"] = c.rolling(20).mean()
+    df["SMA50"] = c.rolling(50).mean()
+
+    delta = c.diff()
+    df["RSI"] = 100 - 100 / (
+        1 + _wilder_smooth(delta.clip(lower=0), 14)
+        / _wilder_smooth((-delta).clip(lower=0), 14).replace(0, np.nan)
+    )
+
+    tr = pd.concat([
+        h - l, (h - c.shift()).abs(), (l - c.shift()).abs()
+    ], axis=1).max(axis=1)
+    df["ATR"] = _wilder_smooth(tr, 14)
+
+    ema12 = c.ewm(span=12, adjust=False).mean()
+    ema26 = c.ewm(span=26, adjust=False).mean()
+    macd  = ema12 - ema26
+    df["MACD_HIST"] = macd - macd.ewm(span=9, adjust=False).mean()
+
+    up  = h.diff()
+    dn  = -l.diff()
+    pdm = pd.Series(np.where((up > dn) & (up > 0), up, 0.0), index=df.index)
+    mdm = pd.Series(np.where((dn > up) & (dn > 0), dn, 0.0), index=df.index)
+    pdi = 100 * _wilder_smooth(pdm, 14) / df["ATR"]
+    mdi = 100 * _wilder_smooth(mdm, 14) / df["ATR"]
+    dx  = 100 * (pdi - mdi).abs() / (pdi + mdi).replace(0, np.nan)
+    df["ADX"] = _wilder_smooth(dx, 14)
+
+    if "Turnover" not in df.columns:
+        df["Turnover"] = c * df["Volume"]
+    df["AVG_TURNOVER20"] = df["Turnover"].rolling(20).mean()
+
+    wc = c.resample("W-FRI").last()
+    ws = wc.rolling(20).mean()
+    df["WEEKLY_TREND"] = (
+        (wc > ws).reindex(df.index, method="ffill").shift(1)
+    )
+
+    df["RETURN20"]    = c.pct_change(20)
+    df["DIST_SMA50"]  = c / df["SMA50"] - 1
+    df["VOL_RATIO"]   = df["Volume"] / df["Volume"].rolling(20).mean()
+    df["DAILY_RET"]   = c.pct_change()
+    df["DIST_EMA10"]  = c / df["EMA10"] - 1          # V1-2: 랭킹 입력(앵커 근접도, 진입 시 항상 > 0)
+
+    df["EMA10_TOUCH5"] = (
+        (c < df["EMA10"]).rolling(5, min_periods=1).max().astype(bool)
+    )
+
+    return df
+
+
+# ══════════════════════════════════════════════
+# 6. 진입 신호 — E-5·E-8 단일 소스
+# ══════════════════════════════════════════════
+
+def _compute_entry_signals(
+    prepared: dict,
+    config: dict
+) -> dict:
+    """
+    E-5/E-8 단일 소스. 벡터화.
+    반환: {ticker: {"base": Series[bool], "full": Series[bool]}}
+    """
+    min_turnover     = config.get("min_turnover",    CONFIG["min_turnover"])
+    max_daily_return = config.get("max_daily_return", CONFIG["max_daily_return"])
+    out = {}
+
+    for ticker, df in prepared.items():
+        wt = df["WEEKLY_TREND"].fillna(False).astype(bool)
+
+        base = (
+            wt
+            & (df["EMA5"]  > df["EMA10"])
+            & (df["Close"] > df["EMA10"])
+            & df["RSI"].between(50, 70)
+            & (df["ADX"]            > 20)
+            & (df["MACD_HIST"]      >= 0)
+            & (df["AVG_TURNOVER20"] >= min_turnover)
+            & (df["DAILY_RET"]      < max_daily_return)
+            & df["ATR"].notna()
+            & (df["ATR"] > 0)
+        )
+        full = base & df["EMA10_TOUCH5"].fillna(False).astype(bool)
+
+        out[ticker] = {"base": base, "full": full}
+
+    return out
+
+
+def _entry_signal(
+    row: pd.Series,
+    config: dict,
+    apply_pullback: bool = True
+) -> bool:
+    """E-8: _compute_entry_signals와 동일 로직 — 스칼라 호출용"""
+    wt = row.get("WEEKLY_TREND", np.nan)
+    if pd.isna(wt) or not bool(wt):
+        return False
+
+    min_turnover     = config.get("min_turnover",    CONFIG["min_turnover"])
+    max_daily_return = config.get("max_daily_return", CONFIG["max_daily_return"])
+
+    base = (
+        row["EMA5"]  > row["EMA10"]
+        and row["Close"] > row["EMA10"]
+        and 50 <= row["RSI"] <= 70
+        and row["ADX"]            > 20
+        and row["MACD_HIST"]      >= 0
+        and row["AVG_TURNOVER20"] >= min_turnover
+        and row["DAILY_RET"]      < max_daily_return
+        and not np.isnan(row["ATR"])
+        and row["ATR"] > 0
+    )
+    if not base:
+        return False
+    if apply_pullback:
+        touched = row.get("EMA10_TOUCH5", np.nan)
+        return not pd.isna(touched) and bool(touched)
+    return True
+
+
+def _exit_signal(
+    row: pd.Series,
+    pos: dict,
+    holding_days: int,
+    next_open: float,
+    config: dict
+) -> tuple:
+    # V1-4: ema_cross(Close < EMA10) 분기 삭제 — 우선순위 stop > holding_limit > trailing 은 v0.4-rc1 과 동일
+    stop_hit     = next_open <= pos["stop_price"]
+    limit_hit    = holding_days >= config["holding_limit"]
+    trailing_val = (
+        pos["highest_close"]
+        - config["trailing_atr_multiple"] * row["ATR"]
+    )
+    trailing_hit = next_open <= trailing_val
+
+    if stop_hit:     return True, "stop"
+    if limit_hit:    return True, "holding_limit"
+    if trailing_hit: return True, "trailing"
+    return False, ""
+
+
+RANK_WEIGHTS = {"dist_ema10": 0.40, "adx": 0.30, "rsi": 0.30}   # V1-3 고정 가중치 (사전등록)
+
+
+def _rank_candidates(candidates: list) -> pd.DataFrame:
+    """V1-3: 눌림목 방향 랭킹.
+    v0.4-rc1 은 return20·dist_sma50·vol_ratio·rsi 의 *상위* 를 샀다(80% 가 확장 방향 → C-3: 가장 과열된 종목 선택).
+    v1 은 (a) EMA10 앵커에 가장 가까운 종목(dist_ema10 하위), (b) 추세 강도(ADX 상위),
+    (c) 진입 밴드 50~70 안에서 덜 과열된 종목(RSI 하위) 순으로 산다. 확장 지표는 점수에서 제외.
+    rank(pct=True) 는 v0.4-rc1 과 동일 방식(동률 평균 순위)."""
+    if not candidates:
+        return pd.DataFrame()
+    df = pd.DataFrame(candidates)
+    for col in ["dist_ema10", "adx", "rsi"]:
+        df[f"{col}_rank"] = df[col].rank(pct=True)
+    df["score"] = (
+        RANK_WEIGHTS["dist_ema10"] * (1.0 - df["dist_ema10_rank"])
+        + RANK_WEIGHTS["adx"]      * df["adx_rank"]
+        + RANK_WEIGHTS["rsi"]      * (1.0 - df["rsi_rank"])
+    )
+    return df.sort_values("score", ascending=False).reset_index(drop=True)
+
+
+# ══════════════════════════════════════════════
+# 7. 눌림목 효과 검증
+# ══════════════════════════════════════════════
+
+def _pullback_filter_effectiveness(
+    prepared: dict,
+    all_dates: list,
+    config: dict,
+    entry_cache: dict = None
+) -> dict:
+    if entry_cache is None:
+        entry_cache = _compute_entry_signals(prepared, config)
+
+    date_set   = set(all_dates)
+    total_base = 0
+    total_pb   = 0
+
+    for ticker, sig in entry_cache.items():
+        base_in = sig["base"].loc[sig["base"].index.isin(date_set)]
+        full_in = sig["full"].loc[sig["full"].index.isin(date_set)]
+        total_base += int(base_in.sum())
+        total_pb   += int(full_in.sum())
+
+    rate = total_pb / total_base if total_base > 0 else np.nan
+
+    print(f"\n[㉮ 효과 검증] (신호 기준, 체결 기준 아님)")
+    print(f"  기본 신호:   {total_base}건")
+    print(f"  눌림목 통과: {total_pb}건")
+    if not np.isnan(rate):
+        print(f"  통과율:      {rate:.1%}")
+        if rate > CONFIG["pullback_warn_high"]:
+            print(f"  [㉮ 권고] > 80% — 별도 승인 후 조건 강화")
+        elif rate < CONFIG["pullback_warn_low"]:
+            print(f"  [㉮ 권고] < 20% — 별도 승인 후 조건 완화")
+    else:
+        print(f"  통과율: N/A")
+
+    return {"기본신호_수": total_base, "눌림목_통과_수": total_pb, "통과율": rate}
+
+
+# ══════════════════════════════════════════════
+# 8. run_period() — F-1~F-8 통합
+# ══════════════════════════════════════════════
+
+def _attach_warmup(df, start, end):
+    before = df.loc[df.index < start].tail(CONFIG["warmup_days"])
+    period = df.loc[(df.index >= start) & (df.index <= end)]
+    merged = pd.concat([before, period])
+    return merged.loc[~merged.index.duplicated(keep="last")]
+
+
+# ══════════════════════════════════════════════
+# 12b. V2-2·V2-3·V2-4: 시장별 국면 게이트 + 진단 (2026-09-12)
+# ══════════════════════════════════════════════
+
+GATE_ALL = "__ALL__"   # benchmarks=None(v1 경로)일 때의 단일 게이트 키
+
+
+def _market_of(market_map: dict, ticker: str, date) -> str:
+    """
+    V2-3: 날짜 t 의 종목 시장. market_map[ticker] 는 str 또는 [(구간시작일, market), ...] 오름차순.
+      시장 = 시작일 ≤ t 인 마지막 구간; 첫 구간 시작일 이전이면 첫 구간의 시장.
+    """
+    entry = market_map.get(ticker)
+    if entry is None:
+        raise RuntimeError(f"[V2-3] market_map 에 {ticker} 없음")
+    if isinstance(entry, str):
+        return entry
+    market = entry[0][1]
+    for seg_start, seg_market in entry:
+        if pd.Timestamp(seg_start) <= date:
+            market = seg_market
+        else:
+            break
+    return market
+
+
+def _validate_market_map(tickers, market_map: dict, benchmarks: dict) -> None:
+    """
+    V2-3: run_period 진입 시 1회 검사 — 매핑 누락·미지의 시장·구간 순서·왕복(flip-flop)/중복 → RuntimeError.
+    """
+    if market_map is None:
+        raise RuntimeError("[V2-2] benchmarks 지정 시 market_map 필수")
+    known = set(benchmarks.keys())
+    for t in tickers:
+        entry = market_map.get(t)
+        if entry is None:
+            raise RuntimeError(f"[V2-3] market_map 에 {t} 없음")
+        segs = [(None, entry)] if isinstance(entry, str) else list(entry)
+        if not segs:
+            raise RuntimeError(f"[V2-3] {t}: 빈 구간 목록")
+        seen, prev = [], None
+        for seg_start, m in segs:
+            if m not in known:
+                raise RuntimeError(f"[V2-3] {t}: 시장 {m!r} 에 벤치마크 없음 (benchmarks={sorted(known)})")
+            if seg_start is not None:
+                ts = pd.Timestamp(seg_start)
+                if prev is not None and ts <= prev:
+                    raise RuntimeError(f"[V2-3] {t}: 구간 시작일이 오름차순이 아님 ({seg_start})")
+                prev = ts
+            if m in seen:
+                raise RuntimeError(f"[V2-3] {t}: 시장 왕복(flip-flop)/중복 {[x[1] for x in segs]}")
+            seen.append(m)
+
+
+def _gate_frame(bench_df: pd.DataFrame, period_start, period_end, all_dates, sma_col: str, label: str) -> pd.DataFrame:
+    """
+    V2-2: 벤치마크 1개 → 워밍업 부착 + SMA + G-1(a) 커버리지 하드 실패 + G-1(b)/H-5 경고.
+          v1 의 단일 market_df 처리(run_period 진입부)와 같은 규칙.
+    """
+    gf = _attach_warmup(bench_df, period_start, period_end).copy()
+    gf[sma_col] = gf["Close"].rolling(CONFIG["market_sma"]).mean()
+    in_index = sum(1 for d in all_dates if d in gf.index)
+    if in_index == 0 or in_index / len(all_dates) < CONFIG["market_min_coverage"]:
+        raise RuntimeError(
+            f"[{label}] 벤치마크 날짜 불일치 {in_index}/{len(all_dates)} "
+            f"({in_index/len(all_dates):.1%}) — benchmarks[{label!r}] 소스·범위 확인 필요\n"
+            f"period: {period_start.date()} ~ {period_end.date()}"
+        )
+    sma_valid = sum(
+        1 for d in all_dates
+        if d in gf.index and not np.isnan(gf.loc[d, sma_col])
+    )
+    if in_index > 0 and sma_valid < in_index * CONFIG["market_sma_warn_ratio"]:   # H-5
+        print(
+            f"[경고][{label}] SMA{CONFIG['market_sma']} 유효일 "
+            f"{sma_valid}/{in_index} ({sma_valid/in_index:.1%}) — "
+            f"워밍업 부족, 초기 신호 일부 억제됨 (정상)"
+        )
+    return gf
+
+
+def _gate_ok(gf: pd.DataFrame, date, sma_col: str) -> bool:
+    """V2-2: v1 '시장 필터' 블록과 동일 규칙 — 날짜 없음/SMA NaN 이면 False, 아니면 Close > SMA."""
+    if date not in gf.index:
+        return False
+    row = gf.loc[date]
+    sma = row.get(sma_col, np.nan)
+    if np.isnan(sma):
+        return False
+    return bool(row["Close"] > sma)
+
+
+def gate_day_counts(benchmarks: dict, start_date, end_date) -> dict:
+    """
+    V2-4 진단(건수만, 판정 미사용): [start,end] 안에서 모든 벤치마크에 존재하는 날짜를 축으로
+      days           공통 날짜 수
+      on_<m>         시장 m 게이트 ON 일수 (SMA 는 벤치마크 전체 시리즈로 계산)
+      on_all/on_none 모든 시장 동시 ON / 모두 OFF 일수
+      only_<m>       m 만 ON 인 일수
+    """
+    start, end = pd.Timestamp(start_date), pd.Timestamp(end_date)
+    sma_col = f"SMA{CONFIG['market_sma']}"
+    frames = {}
+    for m, bdf in benchmarks.items():
+        gf = bdf.copy()
+        gf[sma_col] = gf["Close"].rolling(CONFIG["market_sma"]).mean()
+        frames[m] = gf
+    common = None
+    for gf in frames.values():
+        idx = set(d for d in gf.index if start <= d <= end)
+        common = idx if common is None else (common & idx)
+    dates = sorted(common or [])
+    flags = {m: [_gate_ok(gf, d, sma_col) for d in dates] for m, gf in frames.items()}
+    ks = range(len(dates))
+    out = {"days": len(dates)}
+    for m in frames:
+        out[f"on_{m}"] = int(sum(flags[m]))
+    out["on_all"]  = int(sum(all(flags[m][k] for m in frames) for k in ks))
+    out["on_none"] = int(sum(not any(flags[m][k] for m in frames) for k in ks))
+    for m in frames:
+        out[f"only_{m}"] = int(sum(
+            flags[m][k] and not any(flags[o][k] for o in frames if o != m) for k in ks
+        ))
+    return out
+
+
+def trades_by_market(trades: pd.DataFrame, market_map: dict) -> dict:
+    """V2-4 진단(건수만): 진입일 기준 종목 시장별 거래 건수."""
+    if trades is None or trades.empty:
+        return {}
+    c = Counter(
+        _market_of(market_map, str(tr["ticker"]), tr["entry_date"]) for _, tr in trades.iterrows()
+    )
+    return {m: int(n) for m, n in sorted(c.items())}
+
+
+def run_period(
+    ohlcv: dict,
+    market_df: pd.DataFrame,
+    period_start: pd.Timestamp,
+    period_end: pd.Timestamp,
+    config: dict,
+    initial_capital: float = 100_000_000,
+    sector_map: dict = None,
+    compute_pb_effectiveness: bool = True,
+    benchmarks: dict = None,      # V2-2: {"KOSPI": df, "KOSDAQ": df}; None 이면 v1 경로
+    market_map: dict = None       # V2-3: {ticker: market | [(start, market), ...]}
+) -> tuple:
+    """
+    F-1: del positions[ticker] 추가 (E-1 실제 구현)
+    F-2: assert not pending_entries를 clear() 앞으로
+    F-3: forced_close holding_days = 봉거리 (당일종가: i - entry_idx - 1)
+    F-4: equity["positions"] = len(positions)
+    F-6: market_df coverage 검사
+    F-7b: date→tickers 역인덱스
+    F-8: reserved_cash = 0.0 명시
+    F-8b: port_val에 pending_exits 포함
+    """
+    if sector_map is None:
+        sector_map = {}
+
+    prepared = {
+        t: _compute_indicators(_attach_warmup(df, period_start, period_end))
+        for t, df in ohlcv.items()
+    }
+
+    mkt     = _attach_warmup(market_df, period_start, period_end).copy()
+    sma_col = f"SMA{CONFIG['market_sma']}"
+    mkt[sma_col] = mkt["Close"].rolling(CONFIG["market_sma"]).mean()
+
+    all_dates = sorted(set(
+        d for df in prepared.values()
+        for d in df.index
+        if period_start <= d <= period_end
+    ))
+
+    if len(all_dates) < 2:
+        eq_empty = pd.DataFrame(columns=["equity","cash","positions"])
+        eq_empty.index = pd.DatetimeIndex([])
+        return eq_empty, pd.DataFrame(columns=TRADE_COLUMNS), {}
+
+    # G-1: (a) 날짜 축 불일치: 하드 실패 (D-3 위험)
+    in_index = sum(1 for d in all_dates if d in mkt.index)
+    if in_index == 0 or in_index / len(all_dates) < CONFIG["market_min_coverage"]:
+        raise RuntimeError(
+            f"시장지수 날짜 불일치 {in_index}/{len(all_dates)} "
+            f"({in_index/len(all_dates):.1%}) — market_df 소스·범위 확인 필요\n"
+            f"period: {period_start.date()} ~ {period_end.date()}"
+        )
+
+    # G-1: (b) SMA NaN: 워밍업 부족 — 경고만 (정상 경로에서 당연히 발생)
+    sma_valid = sum(
+        1 for d in all_dates
+        if d in mkt.index and not np.isnan(mkt.loc[d, sma_col])
+    )
+    if in_index > 0 and sma_valid < in_index * CONFIG["market_sma_warn_ratio"]:   # H-5
+        print(
+            f"[경고] SMA{CONFIG['market_sma']} 유효일 "
+            f"{sma_valid}/{in_index} ({sma_valid/in_index:.1%}) — "
+            f"워밍업 부족, 초기 신호 일부 억제됨 (정상)"
+        )
+
+    # V2-2: 시장별 게이트 프레임 — benchmarks=None 이면 단일 게이트(mkt) = v1 과 동일 경로
+    if benchmarks is None:
+        gate_frames = {GATE_ALL: mkt}
+    else:
+        _validate_market_map(prepared.keys(), market_map, benchmarks)
+        gate_frames = {
+            m: _gate_frame(bdf, period_start, period_end, all_dates, sma_col, m)
+            for m, bdf in benchmarks.items()
+        }
+
+    # E-5/E-8: 신호 사전 계산 (단일 소스)
+    entry_cache = _compute_entry_signals(prepared, config)
+
+    # F-7b: date → [tickers] 역인덱스 (전 종목 순회 제거)
+    date_to_signal_tickers: dict = {}
+    for ticker, sig in entry_cache.items():
+        for d in sig["full"].index[sig["full"]]:
+            date_to_signal_tickers.setdefault(d, []).append(ticker)
+
+    pb_stats = {}
+    if compute_pb_effectiveness:
+        pb_stats = _pullback_filter_effectiveness(
+            prepared, all_dates, config, entry_cache=entry_cache
+        )
+
+    # S-2/E-3: ticker별 마지막 유효 날짜 캐시
+    ticker_last_date = {
+        t: df.loc[
+            (df.index >= period_start) & (df.index <= period_end)
+        ].index.max()
+        for t, df in prepared.items()
+        if not df.empty
+    }
+
+    cash             = float(initial_capital)
+    positions        = {}
+    pending_entries  = {}   # D-2: {ticker: {"cost":, "pos":}}
+    pending_exits    = {}   # E-1: {ticker: {"proceeds":, "record":}}
+    last_close_cache = {}   # E-2: {ticker: last known close}
+    equity_log       = []
+    trade_log        = []
+
+    for i, date in enumerate(all_dates[:-1]):
+        next_date = all_dates[i + 1]
+
+        # ─── E-1·D-2: 이전 반복 pending 적용 ──────
+        # F-1: del positions[ticker] 필수
+        for ticker, pex in list(pending_exits.items()):
+            cash += pex["proceeds"]
+            trade_log.append(pex["record"])
+            del positions[ticker]          # F-1 핵심
+        pending_exits.clear()
+
+        for ticker, pend in list(pending_entries.items()):
+            cash -= pend["cost"]
+            positions[ticker] = pend["pos"]
+        pending_entries.clear()
+
+        # G-5: 캐시를 pending 적용 직후 갱신
+        # → port_val이 오늘 종가 기준 사이징 (신호와 동일 시점)
+        for t in list(positions.keys()):
+            if date in prepared[t].index:
+                last_close_cache[t] = prepared[t].loc[date, "Close"]
+
+        # 시장 필터 (V2-2: 시장별 게이트; benchmarks=None 이면 단일 게이트 = v1 규칙과 동일)
+        mkt_ok_by = {m: _gate_ok(gf, date, sma_col) for m, gf in gate_frames.items()}
+        mkt_ok = any(mkt_ok_by.values())
+
+        # ─── 청산 판단 ─────────────────────────────
+        for ticker in list(positions.keys()):
+            pos = positions[ticker]
+            df  = prepared.get(ticker)
+            if df is None or date not in df.index:
+                continue
+
+            row = df.loc[date]
+
+            # D-8: highest_close 갱신 먼저
+            pos["highest_close"] = max(pos["highest_close"], row["Close"])
+
+            # D-1: holding_days = i - entry_idx (정상 청산 기준)
+            holding_days = i - pos["entry_idx"]
+
+            ticker_has_future = (
+                ticker_last_date.get(ticker, period_start) > date
+            )
+
+            if not ticker_has_future:
+                # forced_close: 당일 종가 체결
+                # F-3: 봉거리 = i - (entry_idx+1) = i - entry_idx - 1
+                holding_days_fc = i - pos["entry_idx"] - 1   # G-4: max() 제거
+                exit_price      = row["Close"]
+                exit_date_r     = date
+                proceeds        = pos["shares"] * exit_price * (1 - EXIT_COST)
+                cash           += proceeds
+
+                trade_log.append({
+                    "ticker":       ticker,
+                    "sector":       sector_map.get(ticker, "Unknown"),
+                    "entry_date":   pos["entry_date"],
+                    "exit_date":    exit_date_r,
+                    "entry_price":  pos["entry_price"],
+                    "exit_price":   exit_price,
+                    "stop_price":   pos["stop_price"],
+                    "shares":       pos["shares"],
+                    "entry_cost":   np.nan,
+                    "exit_cost":    np.nan,
+                    "pnl_net":      np.nan,
+                    "r_multiple":   np.nan,
+                    "exit_reason":  "forced_close",
+                    "holding_days": holding_days_fc,
+                    "score":        pos["score"]
+                })
+                del positions[ticker]
+                continue
+
+            elif next_date not in df.index:
+                continue   # 거래정지·갭 → 보류
+
+            else:
+                next_open   = df.loc[next_date, "Open"]
+                should_exit, exit_reason = _exit_signal(
+                    row, pos, holding_days, next_open, config
+                )
+
+                if not should_exit:
+                    continue
+
+                # E-1: pending_exits에 추가 (positions 유지 → 오늘 종가 평가 포함)
+                proceeds = pos["shares"] * next_open * (1 - EXIT_COST)
+                pending_exits[ticker] = {
+                    "proceeds": proceeds,
+                    "record": {
+                        "ticker":       ticker,
+                        "sector":       sector_map.get(ticker, "Unknown"),
+                        "entry_date":   pos["entry_date"],
+                        "exit_date":    next_date,
+                        "entry_price":  pos["entry_price"],
+                        "exit_price":   next_open,
+                        "stop_price":   pos["stop_price"],
+                        "shares":       pos["shares"],
+                        "entry_cost":   np.nan,
+                        "exit_cost":    np.nan,
+                        "pnl_net":      np.nan,
+                        "r_multiple":   np.nan,
+                        "exit_reason":  exit_reason,
+                        "holding_days": holding_days,
+                        "score":        pos["score"]
+                    }
+                }
+                # positions[ticker] 제거 안 함 → 종가 평가 포함 유지
+
+        # ─── 신규 진입 ─────────────────────────────
+        # F-8: 명시적 초기화 (pending_entries.clear() 직후라 항상 0이지만 명시)
+        reserved_cash = 0.0
+        for pend in pending_entries.values():
+            reserved_cash += pend["cost"]
+
+        # E-1: 내일 보유 기준 slots = (현재 - 청산예약) - 진입예약
+        slots = (
+            config["max_positions"]
+            - (len(positions) - len(pending_exits))
+            - len(pending_entries)
+        )
+
+        if mkt_ok and slots > 0:
+            candidates = []
+
+            # F-7b: 역인덱스 — 해당 날짜 신호 종목만 순회
+            for ticker in date_to_signal_tickers.get(date, []):
+                if (ticker in positions
+                        or ticker in pending_entries
+                        or ticker in pending_exits):
+                    continue
+                # V2-2: 종목의 시장(날짜 t 기준, V2-3) 게이트가 OFF 면 후보 제외
+                if benchmarks is not None and not mkt_ok_by[_market_of(market_map, ticker, date)]:
+                    continue
+
+                df = prepared.get(ticker)
+                if df is None:
+                    continue
+                if date not in df.index or next_date not in df.index:
+                    continue
+                if next_date == all_dates[-1]:              # A-1
+                    continue
+                if ticker_last_date.get(ticker, period_start) <= next_date:
+                    continue                                  # E-3
+
+                row = df.loc[date]
+                candidates.append({
+                    "ticker":     ticker,
+                    "return20":   row.get("RETURN20", 0),      # 진단용 보존 (v1 점수 미사용)
+                    "dist_sma50": row.get("DIST_SMA50", 0),    # 진단용 보존 (v1 점수 미사용)
+                    "vol_ratio":  row.get("VOL_RATIO", 0),     # 진단용 보존 (v1 점수 미사용)
+                    "rsi":        row.get("RSI", 50),
+                    "dist_ema10": row.get("DIST_EMA10", 0),    # V1-5
+                    "adx":        row.get("ADX", 0),           # V1-5
+                    "atr":        row["ATR"],
+                    "next_open":  df.loc[next_date, "Open"],
+                })
+
+            ranked = _rank_candidates(candidates)
+
+            for _, cand in ranked.iterrows():
+                if slots <= 0:
+                    break
+
+                ticker      = cand["ticker"]
+                entry_price = cand["next_open"]
+                stop_price  = entry_price - config["atr_multiple"] * cand["atr"]
+                # G-9: stop_price 음수 방어 (ATR 과대 시 발생 가능)
+                if stop_price <= 0:
+                    continue
+                rps         = entry_price - stop_price
+
+                if rps <= 0:
+                    continue
+
+                # F-8b: pending_exits 포함 (오늘 보유 중 → 현재 자산에 포함)
+                port_val = (
+                    (cash - reserved_cash)
+                    + sum(
+                        p["shares"] * last_close_cache.get(t, p["entry_price"])
+                        for t, p in positions.items()
+                    )
+                )
+
+                shares = min(
+                    int(port_val * config["risk_per_trade"] / rps),
+                    int(port_val * config["max_weight"]
+                        / (entry_price * (1 + ENTRY_COST)))
+                )
+
+                if shares <= 0:
+                    continue
+
+                cost = shares * entry_price * (1 + ENTRY_COST)
+                if cost > cash - reserved_cash:
+                    continue
+
+                reserved_cash += cost
+
+                # E-7: highest_close = entry_price
+                pending_entries[ticker] = {
+                    "cost": cost,
+                    "pos": {
+                        "shares":        shares,
+                        "entry_price":   entry_price,
+                        "stop_price":    stop_price,
+                        "entry_date":    next_date,
+                        "highest_close": entry_price,
+                        "entry_idx":     i,      # D-1: 신호일 인덱스
+                        "score":         cand.get("score", 0.5)
+                    }
+                }
+                slots -= 1
+
+        # E-1: pending_exits는 positions에 남아 종가 평가 포함 (정상)
+        # E-2: 정지 종목은 last_close_cache 사용
+        mkt_val = cash + sum(
+            p["shares"] * last_close_cache.get(t, p["entry_price"])
+            for t, p in positions.items()
+        )
+
+        equity_log.append({
+            "date":      date,
+            "equity":    mkt_val,
+            "cash":      cash,
+            # F-4: 오늘 실보유 = len(positions) (pending_exits 포함, 오늘 보유 중)
+            "positions": len(positions)
+        })
+
+    # ─── 기간 종료: 마지막 반복 pending 적용 ──────
+    # F-1: del 필수
+    for ticker, pex in list(pending_exits.items()):
+        cash += pex["proceeds"]
+        trade_log.append(pex["record"])
+        del positions[ticker]          # F-1
+    pending_exits.clear()
+
+    # F-2: assert는 clear() 앞에서만 의미 있음 (A-1 보장 검증)
+    # G-11: python -O에서 assert 제거됨 → if raise
+    if pending_entries:
+        raise RuntimeError(
+            f"루프 종료 후 pending_entries 잔여: "
+            f"{list(pending_entries.keys())} — A-1 실패"
+        )
+    pending_entries.clear()
+
+    # 기간 종료 강제청산
+    last_date = all_dates[-1]
+    last_idx  = len(all_dates) - 1
+
+    for ticker, pos in list(positions.items()):
+        df = prepared.get(ticker)
+        if df is None or last_date not in df.index:
+            # H-3: 도달 불가 분기(불변식). 근거 —
+            #   ticker_last_date[t] 는 항상 t 의 봉일이다. 그 날이 last_date 보다 앞이면 그 반복에서
+            #   ticker_has_future=False 로 루프 내 forced_close 가 실행되어 positions 에서 제거되고,
+            #   last_date 와 같으면 여기서 정상 경로(last_date in df.index)를 탄다.
+            #   E-3 은 ticker_last_date 이후의 진입을 막으므로 그 뒤에 새 포지션이 생길 수도 없다.
+            #   따라서 이 분기에 오면 상태 불변식이 깨진 것 → 조용한 누락(G-8 경고)이 아니라 즉시 실패.
+            raise RuntimeError(
+                f"[H-3 불변식 위반] {ticker}: 기간 종료({last_date.date()}) 시 보유 중이나 봉 없음 — "
+                f"ticker_last_date={ticker_last_date.get(ticker)} entry_date={pos['entry_date']}"
+            )
+
+        exit_price   = df.loc[last_date, "Close"]
+        proceeds     = pos["shares"] * exit_price * (1 - EXIT_COST)
+        cash        += proceeds
+
+        # F-3: 당일 종가 체결 → 봉거리 = last_idx - (entry_idx+1)
+        holding_days = last_idx - pos["entry_idx"] - 1   # G-4: max() 제거
+
+        trade_log.append({
+            "ticker":       ticker,
+            "sector":       sector_map.get(ticker, "Unknown"),
+            "entry_date":   pos["entry_date"],
+            "exit_date":    last_date,
+            "entry_price":  pos["entry_price"],
+            "exit_price":   exit_price,
+            "stop_price":   pos["stop_price"],
+            "shares":       pos["shares"],
+            "entry_cost":   np.nan,
+            "exit_cost":    np.nan,
+            "pnl_net":      np.nan,
+            "r_multiple":   np.nan,
+            "exit_reason":  "forced_close",
+            "holding_days": holding_days,
+            "score":        pos["score"]
+        })
+    positions.clear()
+
+    # A-3: 최종 현금 행
+    equity_log.append({
+        "date": last_date, "equity": cash,
+        "cash": cash, "positions": 0
+    })
+
+    equity = pd.DataFrame(equity_log).set_index("date")
+    equity.index = pd.to_datetime(equity.index)
+
+    trades = pd.DataFrame(trade_log, columns=TRADE_COLUMNS).reset_index(drop=True)
+    for col in ["entry_date", "exit_date"]:
+        trades[col] = pd.to_datetime(trades[col])
+
+    if not trades.empty:
+        trades = attach_costs(trades)
+
+    eq_ok, eq_err = validate_equity_frame(equity, raise_on_error=False)
+    tr_ok, tr_err = validate_trade_frame(trades,  raise_on_error=False)
+
+    if not eq_ok:
+        raise RuntimeError("EquityFrame:\n" + "\n".join(eq_err))
+    if not tr_ok:
+        raise RuntimeError("TradeFrame:\n"  + "\n".join(tr_err))
+
+    return equity, trades, pb_stats
+
+
+# ══════════════════════════════════════════════
+# 9. 사후 슬라이싱
+# ══════════════════════════════════════════════
+
+def _generate_fold_reports(
+    equity: pd.DataFrame,
+    trades: pd.DataFrame,
+    start_date: pd.Timestamp,
+    end_date: pd.Timestamp,
+    test_months: int = 6
+) -> pd.DataFrame:
+    """D-7: 마지막 폴드만 iloc[:-1] 적용"""
+    reports = []
+    cursor  = start_date
+
+    while cursor <= end_date:
+        fold_end = min(
+            cursor + pd.DateOffset(months=test_months) - pd.Timedelta(days=1),
+            end_date
+        )
+
+        eq_fold = equity.loc[
+            (equity.index >= cursor) & (equity.index <= fold_end)
+        ]
+        tr_fold = trades.loc[
+            (trades["exit_date"] >= cursor) & (trades["exit_date"] <= fold_end)
+        ]
+
+        if not eq_fold.empty:
+            is_last_fold = (fold_end >= end_date)
+            eq_curve = (
+                eq_fold["equity"].iloc[:-1]
+                if is_last_fold and len(eq_fold) > 1
+                else eq_fold["equity"]
+            )
+            dd_fold = drawdown_stats(eq_curve)
+
+            reports.append({
+                "기간":        f"{cursor.date()} ~ {fold_end.date()}",
+                "PF":          compute_pf_cash(tr_fold),
+                "MDD_폴드내부": dd_fold["MDD"],
+                "거래_수":     len(tr_fold),
+                "판정":        "진단 전용 [힌트]"
+            })
+
+        if fold_end >= end_date:
+            break
+        cursor += pd.DateOffset(months=test_months)
+
+    return pd.DataFrame(reports)
+
+
+# ══════════════════════════════════════════════
+# 10. 통계 함수
+# ══════════════════════════════════════════════
+
+def drawdown_stats(equity_series: pd.Series) -> dict:
+    curve = equity_series.dropna()
+    dd    = curve / curve.cummax() - 1
+    mdd   = abs(dd.min())
+
+    durations = []
+    count     = 0
+    truncated = False
+
+    for v in dd:
+        if v < 0:
+            count += 1
+        else:
+            if count > 0:
+                durations.append(count)
+            count = 0
+
+    if count > 0:
+        durations.append(count)
+        truncated = True
+
+    return {
+        "MDD":                   mdd,
+        "최대_낙폭_지속_거래일": max(durations) if durations else 0,
+        "평균_낙폭_지속_거래일": np.mean(durations) if durations else 0,
+        "낙폭_발생_횟수":        len(durations),
+        "미회복_종료":           truncated
+    }
+
+
+def effective_sample_size(
+    trades: pd.DataFrame,
+    equity_index: pd.DatetimeIndex
+) -> int:
+    pnl = trades["pnl_net"].dropna()
+    n   = len(pnl)
+    if n < 10:
+        return n
+
+    lags    = range(1, min(20, n // 4))
+    acf_sum = 0.0
+    for lag in lags:
+        rho = pnl.autocorr(lag=lag)
+        if pd.isna(rho):
+            break
+        acf_sum += (1 - lag / n) * rho
+
+    n_eff_acf  = int(n / max(1 + 2 * acf_sum, 1))
+    avg_hold   = max(trades["holding_days"].mean(), 1) if not trades.empty else CONFIG["holding_limit"]
+    n_eff_conc = max(int(len(set(equity_index)) / avg_hold), 1)
+
+    return min(n_eff_acf, n_eff_conc)
+
+
+def required_sample_size_mde(
+    target_pf: float = None,
+    declared_win_rate: float = None,
+    alpha: float = 0.05,
+    power: float = 0.80
+) -> dict:
+    if target_pf is None:
+        target_pf = CONFIG["target_pf"]
+    if declared_win_rate is None:
+        declared_win_rate = CONFIG["declared_win_rate"]
+
+    p      = declared_win_rate
+    q      = 1 - p
+    payoff = target_pf * q / p
+    mu_r   = p * payoff - q * 1.0
+
+    if mu_r <= 0:
+        return {"필요_거래_수": None, "이유": "기대값 음수"}
+
+    sigma_r = np.sqrt(p * payoff**2 + q * 1.0**2 - mu_r**2)
+    z_a = stats.norm.ppf(1 - alpha)
+    z_b = stats.norm.ppf(power)
+    n   = ((z_a + z_b) * sigma_r / mu_r) ** 2
+
+    return {
+        "필요_거래_수": int(np.ceil(n)),
+        "MDE_기대값_R": mu_r,
+        "sigma_R":      sigma_r
+    }
+
+
+def block_bootstrap_pf(
+    trades: pd.DataFrame,
+    equity_index: pd.DatetimeIndex,
+    block_size: int,
+    n_obs: int = None,
+    n_bootstrap: int = None,
+    seed: int = 42
+) -> dict:
+    if n_obs is None:
+        n_obs = CONFIG["declared_observations"]
+    if n_bootstrap is None:
+        n_bootstrap = CONFIG["n_bootstrap"]
+
+    rng   = np.random.default_rng(seed)
+    dates = sorted(set(equity_index))
+    n     = len(dates)
+
+    if n < block_size * 2 or trades.empty:
+        return {"PF_하한_보정": np.nan, "이유": "데이터 부족"}
+
+    t = trades.copy()
+    if "pnl_net" not in t.columns:
+        t = attach_costs(t)
+
+    adj_q      = CONFIG["alpha"] / (2 * n_obs)
+    target_pf  = CONFIG["target_pf"]
+    pf_samples = []
+
+    for _ in range(n_bootstrap):
+        sampled_list = []
+        n_blocks     = int(np.ceil(n / block_size))
+        for _ in range(n_blocks):
+            start = rng.integers(0, n - block_size + 1)
+            sampled_list.extend(dates[start: start + block_size])
+
+        sampled_list = sampled_list[:n]
+        cnt    = Counter(sampled_list)
+        w      = t["exit_date"].map(cnt).fillna(0)
+        profit = (t["pnl_net"].clip(lower=0) * w).sum()
+        loss   = ((-t["pnl_net"]).clip(lower=0) * w).sum()
+
+        if loss > 0:
+            pf_samples.append(profit / loss)
+
+    if not pf_samples:
+        return {"PF_하한_보정": np.nan, "이유": "샘플 없음"}
+
+    s = pd.Series(pf_samples)
+    return {
+        "PF_중앙값":             s.quantile(0.50),
+        "PF_하한_보정":          s.quantile(adj_q),
+        "PF_상한_보정":          s.quantile(1 - adj_q),
+        f"PF≥{target_pf}_비율": (s >= target_pf).mean(),
+        "적용_분위수":           adj_q,
+        "block_size":            block_size
+    }
+
+
+def tail_dependency(trades: pd.DataFrame, pct: float = 0.01) -> dict:
+    t = trades.copy()
+    if "pnl_net" not in t.columns:
+        t = attach_costs(t)
+
+    n_ex   = max(1, int(len(t) * pct))
+    top_ix = t[t["pnl_net"] > 0].nlargest(n_ex, "pnl_net").index
+    t_trim = t.drop(index=top_ix)
+
+    pf_full = compute_pf_cash(t)
+    pf_trim = compute_pf_cash(t_trim)
+
+    dep = (
+        (pf_full - pf_trim) / (pf_full - 1)
+        if not np.isinf(pf_full) and abs(pf_full - 1) > PF_DEP_MIN_MARGIN else np.nan   # H-15
+    )
+    lbl = f"상위_{int(pct*100)}pct"
+    return {
+        "PF_전체": pf_full,
+        f"PF_{lbl}_제외": pf_trim,
+        f"의존도_{lbl}": dep
+    }
+
+
+def gap_loss_analysis(trades: pd.DataFrame) -> dict:
+    t = trades.copy()
+    if "pnl_net" not in t.columns:
+        t = attach_costs(t)
+
+    stops = t[t["exit_reason"] == "stop"]
+    if stops.empty:
+        return {"손절_거래_수": 0}
+
+    risk = (
+        (stops["entry_price"] - stops["stop_price"]) * stops["shares"]
+    ).replace(0, np.nan)
+    slip_r     = (stops["stop_price"] - stops["exit_price"]) * stops["shares"] / risk
+    realized_r = 1 + slip_r
+
+    return {
+        "손절_거래_수":       len(stops),
+        "갭_슬리피지_평균_R": slip_r.mean(),
+        "실현손실_평균_R":    realized_r.mean(),
+        "실현손실_95%분위_R": realized_r.quantile(0.95),
+        "실현손실_최대_R":    realized_r.max(),
+        "2R_초과_비율":       (realized_r > 2).mean()
+    }
+
+
+# ══════════════════════════════════════════════
+# 11. G3·G7
+# ══════════════════════════════════════════════
+
+def g3_phase_analysis(
+    equity: pd.DataFrame,
+    trades: pd.DataFrame,
+    market_df: pd.DataFrame
+) -> pd.DataFrame:
+    t = trades.copy()
+    if "pnl_net" not in t.columns:
+        t = attach_costs(t)
+
+    t["exit_month"] = pd.to_datetime(t["exit_date"]).dt.to_period("M")
+    rows = []
+    for month, g in t.groupby("exit_month"):
+        rows.append({
+            "기간": str(month), "유형": "월별",
+            "PF": compute_pf_cash(g), "거래": len(g)
+        })
+
+    mkt = market_df.copy()
+    mkt["SMA50"] = mkt["Close"].rolling(50).mean()
+
+    valid_mkt    = mkt[mkt["SMA50"].notna()]
+    bull_dates   = set(valid_mkt.index[valid_mkt["Close"] >  valid_mkt["SMA50"]])
+    bear_dates   = set(valid_mkt.index[valid_mkt["Close"] <= valid_mkt["SMA50"]])
+    all_mkt_d    = set(mkt.index)
+    warmup_dates = {d for d in t["exit_date"]
+                    if d in all_mkt_d and d not in bull_dates and d not in bear_dates}
+    missing_dates = {d for d in t["exit_date"] if d not in all_mkt_d}
+
+    bull_tr = t[t["exit_date"].isin(bull_dates)]
+    bear_tr = t[t["exit_date"].isin(bear_dates)]
+    warm_tr = t[t["exit_date"].isin(warmup_dates)]
+    miss_tr = t[t["exit_date"].isin(missing_dates)]
+
+    rows += [
+        {"기간": "강세장(종가>50SMA)",  "유형": "국면",
+         "PF": compute_pf_cash(bull_tr), "거래": len(bull_tr)},
+        {"기간": "약세장(종가≤50SMA)", "유형": "국면",
+         "PF": compute_pf_cash(bear_tr), "거래": len(bear_tr)},
+        {"기간": "워밍업(SMA50미계산)", "유형": "국면",
+         "PF": compute_pf_cash(warm_tr), "거래": len(warm_tr)},
+        {"기간": "시장지수결측",        "유형": "국면",
+         "PF": compute_pf_cash(miss_tr), "거래": len(miss_tr)},
+    ]
+    return pd.DataFrame(rows)
+
+
+def g7_concentration_warning(tail1_result: dict) -> str:
+    dep = tail1_result.get("의존도_상위_1pct", np.nan)
+    thr = CONFIG["tail_dep_threshold"]
+    if pd.isna(dep):
+        return f"G7: 의존도 계산 불가 (|PF-1| ≤ {PF_DEP_MIN_MARGIN:.2f} 또는 PF=inf)"   # H-15
+    if dep > thr:
+        return f"[G7 경고] 상위 1% 의존도 {dep:.1%} > {thr:.0%} — 수익이 극소수 거래에 집중"
+    return f"G7: 의존도 {dep:.1%} (기준 이내)"
+
+
+# ══════════════════════════════════════════════
+# 12. full_validation()
+# ══════════════════════════════════════════════
+
+def full_validation(
+    equity: pd.DataFrame,
+    trades: pd.DataFrame,
+    market_df: pd.DataFrame = None
+) -> dict:
+    n_obs = CONFIG["declared_observations"]
+
+    if trades.empty:
+        return {"최종_통과": False, "이유": "trades 없음"}
+
+    if "pnl_net" not in trades.columns:
+        trades = attach_costs(trades)
+
+    curve_for_dd = (
+        equity["equity"].iloc[:-1].dropna()
+        if len(equity) > 1 else equity["equity"].dropna()
+    )
+
+    pf_cash = compute_pf_cash(trades)
+    pf_r    = compute_pf_r(trades)
+    n_eff   = effective_sample_size(trades, equity.index)
+    n_req   = required_sample_size_mde()
+
+    p1_ok       = n_req["필요_거래_수"] is not None and n_eff >= n_req["필요_거래_수"]
+    power_label = (
+        f"검정력 부족 — n_eff {n_eff} / 필요 {n_req.get('필요_거래_수')}"
+        if not p1_ok else "충족"
+    )
+
+    print("\n===== BLOCK SIZE 민감도 =====")
+    bs_all = {}
+    for bs in CONFIG["block_sizes"]:
+        bs_all[bs] = block_bootstrap_pf(
+            trades, equity.index, block_size=bs, n_obs=n_obs
+        )
+        lower = bs_all[bs].get("PF_하한_보정", np.nan)
+        med   = bs_all[bs].get("PF_중앙값",   np.nan)
+        print(
+            f"  block={bs:3d} | 하한={lower:.4f} | 중앙={med:.4f}"
+            if not np.isnan(lower) else f"  block={bs:3d} | 데이터 부족"
+        )
+
+    valid_lowers       = [r["PF_하한_보정"] for r in bs_all.values()
+                          if not np.isnan(r.get("PF_하한_보정", np.nan))]
+    conservative_lower = min(valid_lowers) if valid_lowers else np.nan
+    r1_ok = not np.isnan(conservative_lower) and conservative_lower > 1.00
+
+    dd    = drawdown_stats(curve_for_dd)
+    r3_ok = dd["MDD"] <= CONFIG["max_mdd"]
+
+    avg_exp = (
+        equity["positions"].mean() / CONFIG["max_positions"]
+        if "positions" in equity.columns and equity["positions"].mean() > 0
+        else None
+    )
+
+    tail1 = tail_dependency(trades, pct=0.01)
+    tail5 = tail_dependency(trades, pct=0.05)
+    g8    = gap_loss_analysis(trades)
+
+    t49 = trades.copy()
+    c49 = 0.00245
+    t49["pnl_net"] = (
+        (t49["exit_price"] - t49["entry_price"]) * t49["shares"]
+        - t49["entry_price"] * c49 * t49["shares"]
+        - t49["exit_price"]  * c49 * t49["shares"]
+    )
+    pf_49 = compute_pf_cash(t49)
+
+    if market_df is not None:
+        g3 = g3_phase_analysis(equity, trades, market_df)
+        print("\n[G3 국면별 PF]")
+        print(g3.to_string(index=False))
+
+    g7_msg = g7_concentration_warning(tail1)
+    print(f"\n{g7_msg}")
+
+    all_pass     = r1_ok and r3_ok
+    result_grade = "힌트" if all_pass else "불통과"
+
+    return {
+        "─ 정의 ─":                "진입 6.5bp / 청산 24.5bp / MDD 양수 / 거래일",
+        "─ PF ─":                  "─",
+        "PF_cash":                 pf_cash,
+        "PF_R (진단)":             pf_r,
+        "PF_cash_49bp (민감도)":   pf_49,
+        "PF_부트스트랩_보수_하한": conservative_lower,
+        "─ 표본 ─":                "─",
+        "원시_거래_수":             len(trades),
+        "실효_표본_수":             n_eff,
+        "[강제] 검정력_상태":      power_label,
+        "─ 리스크 ─":              "─",
+        "MDD":                     dd["MDD"],
+        "최대_낙폭_지속_거래일":   dd["최대_낙폭_지속_거래일"],
+        "미회복_종료":             dd["미회복_종료"],
+        "평균_노출도":             avg_exp,
+        "─ 의존도 ─":              "─",
+        "상위1%_제외_PF":          tail1.get("PF_상위_1pct_제외"),
+        "상위1%_의존도":           tail1.get("의존도_상위_1pct"),
+        "상위5%_제외_PF":          tail5.get("PF_상위_5pct_제외"),
+        "─ G8 갭손실 ─":           "─",
+        "손절_거래_수":            g8.get("손절_거래_수"),
+        "실현손실_95%분위_R":      g8.get("실현손실_95%분위_R"),
+        "2R_초과_비율":            g8.get("2R_초과_비율"),
+        "─ 판정 ─":                "─",
+        "[강제] 검정력_라벨":      power_label,
+        "R1_보수_하한>1.00":       r1_ok,
+        "R3_MDD≤20%":              r3_ok,
+        "최종_통과":               all_pass,
+        "[주의] 결과_등급":        result_grade,
+        "관측_횟수":               n_obs
+    }
+
+
+# ══════════════════════════════════════════════
+# 13. walk_forward_with_validation()
+# ══════════════════════════════════════════════
+
+def walk_forward_with_validation(
+    ohlcv: dict,
+    market_df: pd.DataFrame,
+    fixed_config: dict = None,
+    start_date: str = "2022-01-01",
+    end_date:   str = "2026-09-08",
+    test_months: int = 6,
+    initial_capital: float = 100_000_000,
+    sector_map: dict = None,
+    benchmarks: dict = None,      # V2-5
+    market_map: dict = None       # V2-5
+) -> tuple:
+    if fixed_config is None:
+        fixed_config = FIXED_CONFIG
+
+    run_start = max(pd.Timestamp(start_date), pd.Timestamp(CONFIG["db_start"]))
+    run_end   = pd.Timestamp(end_date)
+
+    print(f"\n[연속 실행] {run_start.date()} ~ {run_end.date()}")
+
+    equity, trades, pb_stats = run_period(
+        ohlcv, market_df,
+        run_start, run_end,
+        fixed_config, initial_capital, sector_map,
+        compute_pb_effectiveness=True,
+        benchmarks=benchmarks, market_map=market_map   # V2-5
+    )
+
+    if equity.empty:
+        print("[경고] 전체 구간 거래 없음")
+        return equity, trades, pd.DataFrame(), pb_stats
+
+    tr_ok, tr_err = validate_trade_frame(trades, raise_on_error=False)
+    if not tr_ok:
+        print("[경고] trades 검증:\n" + "\n".join(tr_err))
+
+    fold_report = _generate_fold_reports(
+        equity, trades, run_start, run_end, test_months
+    )
+
+    return equity, trades, fold_report, pb_stats
+
+
+# ══════════════════════════════════════════════
+# 14. 통합 실행 진입점
+# ══════════════════════════════════════════════
+
+def run_full_system(
+    ohlcv: dict,
+    market_df: pd.DataFrame,
+    start_date: str = "2022-01-01",
+    end_date:   str = "2026-09-08",
+    initial_capital: float = 100_000_000,
+    sector_map: dict = None,
+    benchmarks: dict = None,      # V2-5
+    market_map: dict = None       # V2-5
+):
+    ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    print("=" * 62)
+    print("DAILY TREND PULLBACK — VARIANT v2.0-rc1 (기반 v1.0-rc1) — 관측 #3")
+    print(f"실행: {ts} KST")
+    print(f"결과 등급 상한: 힌트 / n_obs={CONFIG['declared_observations']}")
+    print(f"F-1: del positions 적용 / F-3: forced_close -1 / F-6: coverage 검사 / H-3: 기간종료 불변식")
+    print("V1-3: 눌림목 방향 랭킹(dist_ema10↓·adx↑·rsi↓) / V1-4: ema_cross 청산 삭제 / V1-6: TrendGoal 대조")
+    print(f"V2-2: 시장별 국면 게이트 {sorted(benchmarks) if benchmarks is not None else '없음(v1 단일 게이트)'} / V2-3: 이전 종목 구간 매핑")
+    print("=" * 62)
+
+    equity, trades, fold_report, pb_stats = walk_forward_with_validation(
+        ohlcv, market_df,
+        fixed_config    = FIXED_CONFIG,
+        start_date      = start_date,
+        end_date        = end_date,
+        initial_capital = initial_capital,
+        sector_map      = sector_map,
+        benchmarks      = benchmarks,     # V2-5
+        market_map      = market_map      # V2-5
+    )
+
+    if equity.empty:
+        return None, None, None
+
+    print("\n===== FOLD DIAGNOSTIC (진단 전용) =====")
+    print(fold_report.to_string(index=False))
+
+    # V2-4: 시장별 게이트 진단 (건수만, 판정 미사용)
+    if benchmarks is not None:
+        print("\n===== V2 MARKET GATE DIAGNOSTIC (건수만, 판정 미사용) =====")
+        for k, v in gate_day_counts(benchmarks, start_date, end_date).items():
+            print(f"  gate_{k}: {v}")
+        for k, v in trades_by_market(trades, market_map).items():
+            print(f"  trades_{k}: {v}")
+        n_multi = sum(1 for v in market_map.values() if not isinstance(v, str))
+        print(f"  market_map_tickers: {len(market_map)} / multi_segment: {n_multi}")
+
+    print("\n===== COMBINED FINAL VALIDATION (1회 판정) =====")
+    final = full_validation(equity, trades, market_df)
+
+    for k, v in final.items():
+        if "─" in str(k):
+            print(f"\n{k}")
+        elif isinstance(v, float) and np.isinf(v):
+            print(f"  {k}: ∞ (손실 없음)")
+        elif isinstance(v, float):
+            print(f"  {k}: {v:.4f}")
+        else:
+            print(f"  {k}: {v}")
+
+    # V1-6: 저장소 공식 기준 대조 (등급에 영향 없음 — 사전등록 F-d 판정용)
+    print("\n===== TREND GOAL CHECK (V1-6, 저장소 strategy_goals.TrendGoal + D-37 즉시기각선) =====")
+    tg = trend_goal_check(trades, start_date, end_date)
+    for k, v in tg.items():
+        if k == "criteria":
+            for ck, cv in v.items():
+                print(f"    {ck}: {'PASS' if cv else 'FAIL'}")
+        elif isinstance(v, float):
+            print(f"  {k}: {v:.4f}")
+        else:
+            print(f"  {k}: {v}")
+
+    return equity, trades, fold_report
+
+
+# ══════════════════════════════════════════════
+# 15. 저장소 공식 기준 대조 (V1-6) — strategy_goals.TrendGoal + D-37 즉시기각선
+# ══════════════════════════════════════════════
+
+def _fold_labels(
+    exit_dates: pd.Series,
+    start_date,
+    end_date,
+    test_months: int = 6
+) -> pd.Series:
+    """_generate_fold_reports 와 같은 6개월 폴드 경계(start_date 기준, 마지막 폴드는 end_date 절단)로
+    exit_date 를 라벨링. 범위 밖은 NaN(무라벨 → trade_metrics 창 안정성에서 제외)."""
+    start_date = pd.Timestamp(start_date)
+    end_date   = pd.Timestamp(end_date)
+    labels = pd.Series(np.nan, index=exit_dates.index, dtype=object)
+    cursor = start_date
+    while cursor <= end_date:
+        fold_end = min(
+            cursor + pd.DateOffset(months=test_months) - pd.Timedelta(days=1),
+            end_date
+        )
+        mask = (exit_dates >= cursor) & (exit_dates <= fold_end)
+        labels[mask] = f"{cursor.date()} ~ {fold_end.date()}"
+        if fold_end >= end_date:
+            break
+        cursor += pd.DateOffset(months=test_months)
+    return labels
+
+
+def net_return_pct(trades: pd.DataFrame) -> pd.Series:
+    """비용후 퍼센트 수익률 = pnl_net / 진입 현금(entry_price·shares·(1+ENTRY_COST)) × 100.
+    D-37 스크립트·paper_trading.paper_returns 와 같은 *퍼센트* 규약(capital_metrics 의 분수 규약과 다름)."""
+    t = trades if "pnl_net" in trades.columns else attach_costs(trades)
+    cash_in = t["entry_price"] * t["shares"] * (1 + ENTRY_COST)
+    return (t["pnl_net"] / cash_in) * 100.0
+
+
+def trend_goal_check(trades: pd.DataFrame, start_date, end_date) -> dict:
+    """V1-6: 저장소 공식 기준 TrendGoal(payoff≥2.00·PF≥1.30·expectancy>0·이익창비율≥0.50·완결거래≥30)
+    + D-37 즉시기각선(비용후 평균수익 ≤ 0). 결과 등급(힌트 상한)에는 영향 없음.
+    korea_quant 는 함수 안에서만 import (모듈 import 시 부작용 없음; D-37 과 같은 sys.path 방식).
+    반환 dict 는 건수·불리언만 — 호출자가 그대로 요약에 실어도 수익률·PF 수치가 새지 않는다
+    (mean_net_return 등 통계는 넣지 않음; 필요 시 trade_metrics 를 별도 조회)."""
+    import sys
+    from pathlib import Path
+    repo_src = Path(__file__).resolve().parents[2] / "src"
+    if str(repo_src) not in sys.path:
+        sys.path.insert(0, str(repo_src))
+    from korea_quant.strategy_goals import TrendGoal, trade_metrics  # noqa: E402
+
+    goal = TrendGoal()
+    if trades is None or trades.empty:
+        return {
+            "closed_trades": 0, "window_count": 0,
+            "immediate_reject": True, "trend_goal_pass": False,
+            "criteria": {},
+        }
+
+    frame = pd.DataFrame({
+        "NetReturnPct": net_return_pct(trades).to_numpy(),
+        "Status":       "closed",
+        "Window":       _fold_labels(trades["exit_date"], start_date, end_date).to_numpy(),
+    })
+    m = trade_metrics(frame, return_column="NetReturnPct", window_column="Window")
+    criteria = {
+        f"trades>={goal.minimum_trades}":
+            m.closed_trades >= goal.minimum_trades,
+        f"payoff>={goal.minimum_payoff_ratio}":
+            m.payoff_ratio >= goal.minimum_payoff_ratio,
+        f"PF>={goal.minimum_profit_factor}":
+            m.profit_factor >= goal.minimum_profit_factor,
+        f"expectancy>{goal.minimum_expectancy}":
+            m.expectancy > goal.minimum_expectancy,
+        f"window_share>={goal.minimum_profitable_window_share}":
+            (m.window_count == 0)
+            or (m.profitable_window_share >= goal.minimum_profitable_window_share),
+    }
+    return {
+        "closed_trades":    int(m.closed_trades),
+        "window_count":     int(m.window_count),
+        "immediate_reject": bool(m.mean_net_return <= 0.0),      # D-37 즉시기각선
+        "trend_goal_pass":  bool(goal.passes(m)),
+        "criteria":         {k: bool(v) for k, v in criteria.items()},
+    }

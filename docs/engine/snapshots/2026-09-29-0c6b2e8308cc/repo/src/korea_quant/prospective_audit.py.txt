@@ -1,0 +1,262 @@
+"""Read-only prospective audit for the frozen live recommendation baseline."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from html import escape
+from pathlib import Path
+
+import pandas as pd
+
+PROSPECTIVE_START = pd.Timestamp("2026-08-28")
+
+AUDIT_REQUIRED_COLUMNS = {
+    "AuditId",
+    "AsOf",
+    "Symbol",
+    "Name",
+    "Market",
+    "SignalType",
+    "SelectionOutcome",
+    "IsSelected",
+}
+EVENT_REQUIRED_COLUMNS = {"CandidateAuditId", "Date", "Type", "NetReturnPct"}
+POSITION_REQUIRED_COLUMNS = {"CandidateAuditId", "Status"}
+
+REPORT_COLUMNS = (
+    "AuditId",
+    "AsOf",
+    "Symbol",
+    "Name",
+    "Market",
+    "SignalType",
+    "Lifecycle",
+    "EntryDate",
+    "ExitDate",
+    "NetReturnPct",
+    "PositionStatus",
+)
+
+# D-33's per-signal-type closed-trade floors, mirrored from ReversionGoal in
+# strategy_goals.py. Reported here as a reference number only: the audit counts
+# closed trades against them, it never turns the comparison into a verdict.
+SAMPLE_FLOORS = {"swing": 100, "long_term": 30}
+
+
+@dataclass(frozen=True)
+class ProspectiveAuditSummary:
+    selected_candidates: int
+    buy_signalled: int
+    buy_filled: int
+    buy_cancelled: int
+    closed: int
+    open_or_pending: int
+    realised_win_rate: float
+    realised_mean_net_return: float
+    closed_swing: int = 0
+    closed_long_term: int = 0
+    closed_kospi: int = 0
+    closed_kosdaq: int = 0
+    observed_sessions: int = 0
+    first_session: str = ""
+    last_session: str = ""
+    max_session_gap_days: int = 0
+    regime_gate_blocked_sessions: int = 0
+
+    def as_row(self) -> dict[str, float | int | str]:
+        return {
+            "Selected Candidates": self.selected_candidates,
+            "BUY_SIGNAL": self.buy_signalled,
+            "BUY_FILLED": self.buy_filled,
+            "BUY_CANCELLED": self.buy_cancelled,
+            "SELL_FILLED": self.closed,
+            "Open or Pending": self.open_or_pending,
+            "Realised Win Rate": self.realised_win_rate,
+            "Realised Mean Net Return": self.realised_mean_net_return,
+            # D-33 sample-accumulation counters: how far the prospective stream
+            # is from the floors, per signal type, plus the market split that
+            # says whether the sample resembles the one behind those floors.
+            "Closed swing": self.closed_swing,
+            "Closed long_term": self.closed_long_term,
+            "Sample Floor swing": SAMPLE_FLOORS["swing"],
+            "Sample Floor long_term": SAMPLE_FLOORS["long_term"],
+            "Closed KOSPI": self.closed_kospi,
+            "Closed KOSDAQ": self.closed_kosdaq,
+            # Observation-day denominator: without it a silent outage looks the
+            # same as a stretch of genuinely signal-free sessions (D-34).
+            "Observed Sessions": self.observed_sessions,
+            "First Session": self.first_session,
+            "Last Session": self.last_session,
+            "Max Session Gap Days": self.max_session_gap_days,
+            "Regime Gate Blocked Sessions": self.regime_gate_blocked_sessions,
+        }
+
+
+def _require(frame: pd.DataFrame, columns: set[str], label: str) -> None:
+    missing = columns - set(frame.columns)
+    if missing:
+        raise ValueError(f"{label} is missing: {', '.join(sorted(missing))}")
+
+
+def _selected_audits(audit: pd.DataFrame, since: pd.Timestamp) -> pd.DataFrame:
+    _require(audit, AUDIT_REQUIRED_COLUMNS, "Candidate audit")
+    result = audit.copy()
+    result["AsOf"] = pd.to_datetime(result["AsOf"], errors="coerce")
+    result = result.loc[
+        result["AsOf"].ge(since)
+        & result["IsSelected"].astype(str).str.lower().eq("true")
+        & result["SelectionOutcome"].eq("selected")
+    ].copy()
+    return result.drop_duplicates("AuditId", keep="first")
+
+
+def _observation_coverage(audit: pd.DataFrame, since: pd.Timestamp) -> dict[str, int | str]:
+    """Count the sessions the audit actually observed, selected or not.
+
+    ``_selected_audits`` keeps only the rows that became entries, so on its own
+    the report cannot tell "no signal fired" from "the bot did not run". Every
+    audited session -- including ``regime_gate_blocked`` and no-signal rows --
+    is counted here so the closed-trade counts have a denominator, and so a
+    multi-week outage shows up as a session gap instead of disappearing.
+    """
+
+    observed = audit.copy()
+    observed["AsOf"] = pd.to_datetime(observed["AsOf"], errors="coerce")
+    observed = observed.loc[observed["AsOf"].ge(since)]
+    sessions = pd.Series(sorted(observed["AsOf"].dropna().dt.normalize().unique()))
+    blocked = observed.loc[observed["SelectionOutcome"].eq("regime_gate_blocked"), "AsOf"]
+    # Calendar days, not trading days: the audit has no KRX calendar, and a gap
+    # only needs to be visible, not attributed to holidays versus downtime.
+    gaps = sessions.diff().dropna()
+    return {
+        "observed_sessions": len(sessions),
+        "first_session": sessions.iloc[0].date().isoformat() if not sessions.empty else "",
+        "last_session": sessions.iloc[-1].date().isoformat() if not sessions.empty else "",
+        "max_session_gap_days": int(gaps.dt.days.max()) if not gaps.empty else 0,
+        "regime_gate_blocked_sessions": int(blocked.dropna().dt.normalize().nunique()),
+    }
+
+
+def build_prospective_audit(
+    candidate_audit: pd.DataFrame,
+    event_log: pd.DataFrame,
+    active_positions: pd.DataFrame,
+    since: str | pd.Timestamp,
+) -> tuple[pd.DataFrame, ProspectiveAuditSummary]:
+    """Link frozen-baseline selections to paper events without scoring a new rule."""
+
+    start = pd.Timestamp(since).normalize()
+    if start < PROSPECTIVE_START:
+        raise ValueError(
+            f"Prospective audit starts no earlier than {PROSPECTIVE_START.date().isoformat()}."
+        )
+    _require(event_log, EVENT_REQUIRED_COLUMNS, "Event log")
+    _require(active_positions, POSITION_REQUIRED_COLUMNS, "Active positions")
+
+    selected = _selected_audits(candidate_audit, start)
+    events = event_log.copy()
+    events["Date"] = pd.to_datetime(events["Date"], errors="coerce")
+    events = events.loc[
+        events["Date"].ge(start) & events["CandidateAuditId"].isin(selected["AuditId"])
+    ].copy()
+    positions = active_positions.loc[
+        active_positions["CandidateAuditId"].isin(selected["AuditId"])
+    ].copy()
+
+    event_dates = (
+        events.pivot_table(
+            index="CandidateAuditId", columns="Type", values="Date", aggfunc="min"
+        )
+        .rename_axis(None, axis=1)
+    )
+    returns = (
+        events.loc[events["Type"].eq("SELL_FILLED")]
+        .assign(NetReturnPct=lambda frame: pd.to_numeric(frame["NetReturnPct"], errors="coerce"))
+        .groupby("CandidateAuditId")["NetReturnPct"]
+        .first()
+    )
+    position_status = positions.drop_duplicates("CandidateAuditId", keep="last").set_index(
+        "CandidateAuditId"
+    )["Status"]
+
+    report = selected.set_index("AuditId").reindex(columns=[
+        "AsOf", "Symbol", "Name", "Market", "SignalType"
+    ])
+    report["EntryDate"] = event_dates.get("BUY_FILLED")
+    report["ExitDate"] = event_dates.get("SELL_FILLED")
+    report["NetReturnPct"] = returns
+    report["PositionStatus"] = position_status
+    report["Lifecycle"] = "not_executed"
+    def event_ids(event_type: str) -> list[str]:
+        return events.loc[events["Type"].eq(event_type), "CandidateAuditId"].dropna().unique().tolist()
+    report.loc[event_ids("BUY_SIGNAL"), "Lifecycle"] = "buy_signalled"
+    report.loc[event_ids("BUY_FILLED"), "Lifecycle"] = "open_or_pending"
+    report.loc[event_ids("BUY_CANCELLED"), "Lifecycle"] = "buy_cancelled"
+    report.loc[event_ids("SELL_FILLED"), "Lifecycle"] = "closed"
+    report = report.reset_index().reindex(columns=REPORT_COLUMNS)
+
+    closed_rows = report.loc[report["Lifecycle"].eq("closed")]
+    closed_returns = closed_rows["NetReturnPct"].dropna()
+    closed_by_type = closed_rows["SignalType"].value_counts()
+    closed_by_market = closed_rows["Market"].value_counts()
+    coverage = _observation_coverage(candidate_audit, start)
+    summary = ProspectiveAuditSummary(
+        selected_candidates=len(report),
+        buy_signalled=int(report["Lifecycle"].isin({"buy_signalled", "open_or_pending", "buy_cancelled", "closed"}).sum()),
+        buy_filled=int(report["Lifecycle"].isin({"open_or_pending", "closed"}).sum()),
+        buy_cancelled=int(report["Lifecycle"].eq("buy_cancelled").sum()),
+        closed=int(report["Lifecycle"].eq("closed").sum()),
+        open_or_pending=int(report["Lifecycle"].eq("open_or_pending").sum()),
+        realised_win_rate=float((closed_returns > 0).mean()) if not closed_returns.empty else float("nan"),
+        realised_mean_net_return=float(closed_returns.mean()) if not closed_returns.empty else float("nan"),
+        closed_swing=int(closed_by_type.get("swing", 0)),
+        closed_long_term=int(closed_by_type.get("long_term", 0)),
+        closed_kospi=int(closed_by_market.get("KOSPI", 0)),
+        closed_kosdaq=int(closed_by_market.get("KOSDAQ", 0)),
+        **coverage,
+    )
+    return report, summary
+
+
+def write_prospective_audit_report(
+    report: pd.DataFrame,
+    summary: ProspectiveAuditSummary,
+    html_output: Path,
+    csv_output: Path,
+) -> tuple[Path, Path]:
+    """Write a descriptive prospective log report; it does not make a PASS/FAIL verdict."""
+
+    html_output.parent.mkdir(parents=True, exist_ok=True)
+    csv_output.parent.mkdir(parents=True, exist_ok=True)
+    csv = pd.concat(
+        [
+            pd.DataFrame([summary.as_row()]).assign(RecordType="summary"),
+            report.assign(RecordType="candidate"),
+        ],
+        ignore_index=True,
+        sort=False,
+    )
+    csv.to_csv(csv_output, index=False)
+
+    summary_cells = "".join(
+        f"<li>{escape(key)}: {escape(str(value))}</li>" for key, value in summary.as_row().items()
+    )
+    headers = "".join(f"<th>{escape(str(column))}</th>" for column in report.columns)
+    rows = "".join(
+        "<tr>" + "".join(f"<td>{escape(str(value))}</td>" for value in row) + "</tr>"
+        for row in report.itertuples(index=False, name=None)
+    )
+    html_output.write_text(
+        f"""<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<title>Prospective recommendation audit</title></head><body>
+<h1>Prospective recommendation audit</h1>
+<p>Descriptive paper-execution evidence only. This report does not tune, rank, or accept/reject a strategy.</p>
+<p>Sample floors ({escape(str(SAMPLE_FLOORS))}) are shown for reference only; reaching one is a
+precondition for a D-33 judgment, not a result. Closed-trade win rate and mean return stay
+descriptive under D-26 and are never the judgment metric.</p>
+<ul>{summary_cells}</ul>
+<table><thead><tr>{headers}</tr></thead><tbody>{rows}</tbody></table>
+</body></html>""",
+        encoding="utf-8",
+    )
+    return html_output, csv_output

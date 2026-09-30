@@ -1,0 +1,214 @@
+{
+  "schema": "kqs-change-verification/v1",
+  "change_id": "EINT-011A",
+  "verified_at": "2026-09-29T14:16:38.917201+00:00",
+  "status": "approved_candidate_price_target_wiring_locally_verified; no_deployment",
+  "supersedes_pending_item": {
+    "verification": "docs/engine/verification/EINT-011.json",
+    "file": "app/backend/scheduler.py",
+    "resolved": true,
+    "historical_verification_preserved": true
+  },
+  "scope": "Only KQS candidate collection selection in scheduler. Separate leverage DCA is outside scope and unchanged.",
+  "authorization": {
+    "user_approval": "응 승인할게",
+    "user_constraint": "레버리지는 별개에 아이템이야 아무것도 변경하지마",
+    "approved_action": "KQS candidate query source change only. Preserve all DCA code, files, configuration, job registration and timing.",
+    "aws_deployment_authorized": false,
+    "automatic_deployment_workflow_authorized": false
+  },
+  "reused_decisions": [
+    "EINT-011 explicit native/bridge source and observation collections",
+    "D-27 observation noninterference",
+    "D-28 engine versus human ledgers",
+    "D-44 legacy pipeline is not permission to execute new automatic fills"
+  ],
+  "engine": {
+    "version": "0.6.0",
+    "registered_revision": "EINT-007A",
+    "source_unchanged": true,
+    "revision_check_passed": true,
+    "revision_sha256": "ebc166f5d0fd7c93b9b0fa294e34d0c6a439c22365bed9ae5c7a15533cc9e380"
+  },
+  "previous_verification_unchanged": {
+    "path": "docs/engine/verification/EINT-011.json",
+    "sha256": "b6ad9db24775a5273a0d368956bd89e0326094040b76de9de32653efc8fef997"
+  },
+  "scheduler": {
+    "before_sha256": "2ea4b4970e7ec70c3ae8bc51dd15b8eb69b2e12e25555f2e0e93d319def083d3",
+    "after_sha256": "aef47e6da0e9e752ae8ad1e6317c1338b312dd96d9e7ceba926f7a42e06291ce",
+    "changed_line_count": 3,
+    "line_changes": [
+      {
+        "line": 26,
+        "before": "    from .routers.kqs import capture_all_portfolio_reconciliation_snapshots, capture_candidate_queue_snapshot, capture_candidate_outcome_snapshots, capture_kqs_decision_outcomes",
+        "after": "    from .routers.kqs import capture_all_portfolio_reconciliation_snapshots, capture_candidate_queue_snapshot, capture_candidate_outcome_snapshots, capture_kqs_decision_outcomes, _candidate_collection"
+      },
+      {
+        "line": 33,
+        "before": "    from routers.kqs import capture_all_portfolio_reconciliation_snapshots, capture_candidate_queue_snapshot, capture_candidate_outcome_snapshots, capture_kqs_decision_outcomes",
+        "after": "    from routers.kqs import capture_all_portfolio_reconciliation_snapshots, capture_candidate_queue_snapshot, capture_candidate_outcome_snapshots, capture_kqs_decision_outcomes, _candidate_collection"
+      },
+      {
+        "line": 99,
+        "before": "    async for snapshot in db.kqs_candidate_queue_snapshots.find({}, {\"candidates\": 1}):",
+        "after": "    async for snapshot in _candidate_collection(db, \"kqs_candidate_queue_snapshots\").find({}, {\"candidates\": 1}):"
+      }
+    ],
+    "all_other_lines_preserved": true,
+    "preservation_check": "Exact full-file comparison to pre-change capture after the three approved replacements. No DCA lines changed.",
+    "protected_sections_unchanged": true,
+    "protected_sections_sha256": {
+      "watch_leverage_dca_market_close": "3833461d76e02b7268046f3c720804d5164734137a46a97a0fb32c60547e3cc1",
+      "start_scheduler": "c2fde1b0ccaa70dfec51321e402f1e15bd388424a6f98e5bec54d117785135f0",
+      "stop_scheduler": "160c427fd36a3105a050d36334ed6e264fc166edc3bad868bac62994733c3b44"
+    },
+    "leverage_files_before_sha256": {
+      "app/backend/leverage_dca_strategy.py": "b28f1eaf4784071f437d85d0e1800c70dfd8695ae031a25a39e2171a82f03d6a",
+      "app/backend/routers/strategy.py": "7a934a7d62231026f8774b19eed4145a1ad62c94a5059bced4b2e6aecc3a73bd",
+      "app/frontend/js/views/leverageDca.js": "ff46a21ab342415be90a27e8eecfb0f6087aa1f50d176ce68579481c33b8cafe"
+    },
+    "leverage_files_after_sha256": {
+      "app/backend/leverage_dca_strategy.py": "b28f1eaf4784071f437d85d0e1800c70dfd8695ae031a25a39e2171a82f03d6a",
+      "app/backend/routers/strategy.py": "7a934a7d62231026f8774b19eed4145a1ad62c94a5059bced4b2e6aecc3a73bd",
+      "app/frontend/js/views/leverageDca.js": "ff46a21ab342415be90a27e8eecfb0f6087aa1f50d176ce68579481c33b8cafe"
+    },
+    "leverage_files_unchanged": true
+  },
+  "artifacts": {
+    "app/backend/scheduler.py": "aef47e6da0e9e752ae8ad1e6317c1338b312dd96d9e7ceba926f7a42e06291ce",
+    "tests/test_kqs_native_views.py": "ccfea20e8c098b43036fa381d7d42812858c2de6702f1a915dca4e95630999f5",
+    "docs/engine/README.md": "22279bd3793edb47ba9cf1bb7eb65125af8ee29df4c8e396abe49f5b076da8d1",
+    "docs/engine/NATIVE_VIEWS.md": "7a61e0de58694c2f87baf56dbaa9bedb4567146d7b9180f49b593cd711abc018",
+    "docs/engine/OPERATIONS.md": "d150c8448ad5c39fa6973473c600ebb8f26b5df1f85adf3535eca546a2692548",
+    "docs/engine/CHANGES.md": "e38fa09d3b1888d6837d2eead2f10cdd64fd14c907081f31cac5b5e6a683ffe8",
+    "docs/engine/verification/EINT-011.json": "b6ad9db24775a5273a0d368956bd89e0326094040b76de9de32653efc8fef997",
+    "engine/kqs/revisions/EINT-007A.json": "ebc166f5d0fd7c93b9b0fa294e34d0c6a439c22365bed9ae5c7a15533cc9e380",
+    "app/backend/leverage_dca_strategy.py": "b28f1eaf4784071f437d85d0e1800c70dfd8695ae031a25a39e2171a82f03d6a",
+    "app/backend/routers/strategy.py": "7a934a7d62231026f8774b19eed4145a1ad62c94a5059bced4b2e6aecc3a73bd",
+    "app/frontend/js/views/leverageDca.js": "ff46a21ab342415be90a27e8eecfb0f6087aa1f50d176ce68579481c33b8cafe",
+    ".github/workflows/deploy.yml": "5d2cad7b568800528a2c6f456388132148acf2b6d7b64fa16f0e39599e6c8e83",
+    ".github/workflows/kqs-runtime.yml": "c99d45ce79887fc7e0211b8f524d037eb2033005f121f6b7ead317263a3df9ec",
+    "app/backend/routers/kqs.py": "e003e7982e61a3c146b6f0c63692c617c509f27cc87c860de05b813be21f7932",
+    "app/backend/kqs_recommendations.py": "8ec8bbf32cba1fbe1360f2ed13edc2498694ee21ed7d2ec698c096b18db0ca97"
+  },
+  "boundaries": {
+    "default_and_explicit_snapshot_collection": "kqs_native_candidate_queue_snapshots",
+    "explicit_bridge_collection": "kqs_candidate_queue_snapshots",
+    "invalid_source_fails": true,
+    "automatic_bridge_fallback": false,
+    "existing_holdings_strategy_and_manual_decision_targets_preserved": true,
+    "collection_queries_do_not_write": true,
+    "korean_market_suffix_and_deduplication_preserved": true,
+    "provider_calls_prohibited_in_new_tests": true,
+    "scheduler_start_and_dca_calls_prohibited_in_new_tests": true,
+    "no_new_jobs": true
+  },
+  "tests": [
+    {
+      "command": "python -m pytest tests/test_kqs_bridge.py tests/test_kqs_contract.py tests/test_kqs_native_views.py -q -p no:cacheprovider",
+      "environment": "Python 3.14.4 /tmp/iv-kqs-eint010-ci.5qz9Uk/venv",
+      "passed": 69,
+      "skipped": 0,
+      "warnings": 13,
+      "new_tests": 4,
+      "new_cases": [
+        "default native targets only",
+        "explicit snapshot targets only",
+        "explicit bridge targets only",
+        "invalid source fails without fallback"
+      ],
+      "data_boundary": "Dedicated MongoDB 7 container on loopback random port 32770; jy_investing_test_eint011a; tmpfs only. No operating DB volumes. Synthetic documents, no real quotes."
+    },
+    {
+      "command": "python -m unittest discover -s scripts/tests -v",
+      "environment": "Python 3.14.4 engine venv plus isolated /tmp/iv-kqs-eint010-testdeps",
+      "passed": 66,
+      "skipped": 0,
+      "data_boundary": "Fake API, fake Docker, temporary files and synthetic publications only."
+    },
+    {
+      "command": "python scripts/check_engine_evidence.py --topic 원장",
+      "passed": true,
+      "archived_files": 167,
+      "decision_count": 45,
+      "metadata_only_files": 1735,
+      "full_backup_complete": false
+    },
+    {
+      "command": "python engine/kqs/tools/check_revision.py",
+      "passed": true
+    },
+    {
+      "command": "python scripts/check_kqs_release.py",
+      "passed": true,
+      "production_verified": false,
+      "deployment_configuration_ready": false
+    },
+    {
+      "command": "git diff --check",
+      "passed": true
+    },
+    {
+      "command": "git diff HEAD -- .github/workflows/deploy.yml",
+      "empty": true,
+      "passed": true
+    }
+  ],
+  "current_regression_tests_passed": 135,
+  "current_new_tests": 4,
+  "initial_test_runs_passed": true,
+  "historical_results_reused_not_rerun": {
+    "verification": "docs/engine/verification/EINT-011.json",
+    "engine_synthetic_tests": 101,
+    "node_rendering_and_syntax_checks": true,
+    "reason": "No engine or frontend change. Reused recorded results and checked registered engine bytes; did not claim fresh full-suite execution."
+  },
+  "ci": {
+    "existing_kqs_test_command_already_includes_new_tests": true,
+    "workflow_modified_this_change": false,
+    "matrix": [
+      "3.12",
+      "3.14"
+    ],
+    "local_versions_tested": [
+      "3.14.4"
+    ],
+    "remote_workflow_executed": false
+  },
+  "cleanup": {
+    "mongo_test_container": "kqs-eint011a-test-mongo",
+    "container_id": "c7bf35d3303fcd18b6875925a3e1e3bd53f729a700481acd1e1d6ae84e95f423",
+    "stopped_and_removed": true,
+    "tmpfs_test_data_discarded": true,
+    "existing_db_volumes_mounted": false,
+    "user_data_deleted": false
+  },
+  "remaining_approval_pending": {
+    "file": ".github/workflows/deploy.yml",
+    "reason": "EINT-010 automatic deployment file approval remains separate. This KQS scheduler approval does not authorize it.",
+    "unchanged": true,
+    "sha256": "5d2cad7b568800528a2c6f456388132148acf2b6d7b64fa16f0e39599e6c8e83"
+  },
+  "limits": [
+    "Verified only candidate price-target inclusion; no real provider request, daily price download, operating pipeline or outcome availability proved.",
+    "Candidate daily snapshots must first exist in the chosen collection.",
+    "No AWS deployment/restart/production authenticated or browser E2E.",
+    "No remote CI or local Python 3.12 execution.",
+    "Only relevant 69 backend and 66 scripts tests rerun, not all application or engine tests.",
+    "Historical passing tests are not investment-performance certification.",
+    "Private raw data and personal Mongo ledger backup/restore remain outstanding.",
+    "EINT-010 automated-deployment discrepancies and uncommitted/untracked sources remain."
+  ],
+  "historical_research_reexecuted": 0,
+  "actual_holdout_reopened": 0,
+  "orders_or_automatic_fills_created": 0,
+  "user_ledger_writes": 0,
+  "leverage_dca_runs": 0,
+  "scheduler_starts": 0,
+  "real_market_requests": 0,
+  "aws_changes": 0,
+  "deployment_performed": false,
+  "committed_or_pushed": false,
+  "next_stage": "EINT-012 manual judgement/trade timestamp, duplicate-request and ledger consistency. Not automatically started; leverage DCA stays separate and untouched."
+}

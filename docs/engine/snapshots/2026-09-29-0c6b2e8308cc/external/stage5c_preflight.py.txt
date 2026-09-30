@@ -1,0 +1,33 @@
+"""Pre-flight for the Stage 5C locked-window run: structural checks only.
+
+Calls the runner's load_inputs() and verifies date alignment. Computes and
+prints no return, signal, or performance figure, so the locked window stays
+unconsumed under 합의15 §6.
+"""
+
+from __future__ import annotations
+
+import sys
+
+import pandas as pd
+
+sys.path.insert(0, "src")
+sys.path.insert(0, "/home/gram")
+
+from korea_quant.index_tsmom_backtest import month_end_trading_days  # noqa: E402
+from stage5c_run_locked_window import RESULT, load_inputs  # noqa: E402
+
+prices, distributions, cd91 = load_inputs()
+days = pd.DatetimeIndex(prices["date"])
+day_set = set(days)
+
+print(f"결과 파일 기존재 여부(=이미 소비): {RESULT.exists()}")
+print(f"가격 {len(prices)}행, 경계 {days[0].date()}~{days[-1].date()}, 결측 {int(prices.isna().sum().sum())}")
+print(f"CD91 {len(cd91)}행, 날짜 완전일치={bool(pd.DatetimeIndex(cd91['date']).equals(days))}, 결측 {int(cd91['cd91_value'].isna().sum())}")
+print(f"분배 {len(distributions)}건")
+print(f"  배당락일이 모두 거래일: {set(distributions['ex_dividend_date']).issubset(day_set)}")
+print(f"  실지급일이 모두 거래일: {set(distributions['payment_date']).issubset(day_set)}")
+print(f"  실지급일 >= 배당락일: {bool((distributions['payment_date'] >= distributions['ex_dividend_date']).all())}")
+
+month_ends = month_end_trading_days(days)
+print(f"월말 거래일 {len(month_ends)}개 → 12개월 룩백 후 판정 예정 {len(month_ends) - 12}회")

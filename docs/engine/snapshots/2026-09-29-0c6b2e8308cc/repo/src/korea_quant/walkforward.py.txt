@@ -1,0 +1,154 @@
+"""Rolling out-of-sample validation for daily-bar strategies."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from html import escape
+from pathlib import Path
+
+import pandas as pd
+
+from korea_quant.backtest import (
+    BacktestConfig,
+    BacktestReport,
+    apply_golden_cross_filter,
+    apply_market_trend_filter,
+    build_report,
+    generate_signals,
+    run_signals,
+)
+
+
+@dataclass(frozen=True)
+class WalkForwardConfig:
+    """Window sizes measured in observed trading sessions, not calendar days."""
+
+    training_sessions: int = 252
+    testing_sessions: int = 63
+
+
+@dataclass(frozen=True)
+class WalkForwardWindow:
+    """One independent out-of-sample window and its backtest result."""
+
+    training_start: pd.Timestamp
+    training_end: pd.Timestamp
+    testing_start: pd.Timestamp
+    testing_end: pd.Timestamp
+    report: BacktestReport
+
+
+@dataclass(frozen=True)
+class WalkForwardReport:
+    """All sequential out-of-sample windows for one fixed strategy configuration."""
+
+    windows: tuple[WalkForwardWindow, ...]
+
+    def summary(self) -> pd.DataFrame:
+        """Return comparable, one-row-per-window out-of-sample metrics."""
+        rows = []
+        for number, window in enumerate(self.windows, start=1):
+            rows.append(
+                {
+                    "Window": number,
+                    "Training Start": window.training_start.date().isoformat(),
+                    "Training End": window.training_end.date().isoformat(),
+                    "Testing Start": window.testing_start.date().isoformat(),
+                    "Testing End": window.testing_end.date().isoformat(),
+                    **window.report.metrics,
+                }
+            )
+        return pd.DataFrame(rows)
+
+
+def run_walk_forward(
+    prices: pd.DataFrame,
+    strategy_config: BacktestConfig,
+    window_config: WalkForwardConfig | None = None,
+    market_close: pd.Series | None = None,
+) -> WalkForwardReport:
+    """Evaluate a fixed strategy over successive independent future windows.
+
+    Every test window uses observations available up to its own end date to
+    calculate indicators. Only the test rows are passed to the portfolio, so
+    capital and positions restart for each out-of-sample evaluation. This is
+    validation of a fixed configuration, not parameter optimization.
+    """
+    window_config = window_config or WalkForwardConfig()
+    _validate_inputs(prices, window_config)
+    all_signals = generate_signals(prices, strategy_config)
+    if strategy_config.require_golden_cross:
+        all_signals = apply_golden_cross_filter(
+            all_signals, prices["Close"], strategy_config.golden_fast_window,
+            strategy_config.golden_slow_window,
+            exit_on_regime_loss=strategy_config.hold_until_golden_exit,
+        )
+    if market_close is not None:
+        all_signals = apply_market_trend_filter(
+            all_signals, market_close, strategy_config.market_filter_window
+        )
+    windows: list[WalkForwardWindow] = []
+    start = window_config.training_sessions
+    for test_start in range(start, len(prices), window_config.testing_sessions):
+        test_end = min(test_start + window_config.testing_sessions, len(prices))
+        test_prices = prices.iloc[test_start:test_end]
+        if len(test_prices) < 2:
+            break
+        test_signals = all_signals.iloc[test_start:test_end]
+        portfolio = run_signals(test_prices, test_signals, strategy_config)
+        report = build_report(portfolio, test_prices["Close"], strategy_config)
+        windows.append(
+            WalkForwardWindow(
+                training_start=pd.Timestamp(prices.index[0]),
+                training_end=pd.Timestamp(prices.index[test_start - 1]),
+                testing_start=pd.Timestamp(test_prices.index[0]),
+                testing_end=pd.Timestamp(test_prices.index[-1]),
+                report=report,
+            )
+        )
+    return WalkForwardReport(tuple(windows))
+
+
+def write_walk_forward_reports(
+    report: WalkForwardReport, html_output: Path, csv_output: Path, *, title: str
+) -> tuple[Path, Path]:
+    """Write a compact, reproducible out-of-sample window report."""
+    summary = report.summary()
+    if summary.empty:
+        raise ValueError("Walk-forward report has no windows.")
+    html_output.parent.mkdir(parents=True, exist_ok=True)
+    csv_output.parent.mkdir(parents=True, exist_ok=True)
+    summary.to_csv(csv_output, index=False)
+
+    display = summary.copy()
+    for column in {"CAGR", "MDD", "Total Return", "Benchmark Return", "Win Rate", "Fee Rate", "Slippage Rate"} & set(display.columns):
+        display[column] = display[column].map(lambda value: f"{value:.2%}")
+    if "Sharpe Ratio" in display:
+        display["Sharpe Ratio"] = display["Sharpe Ratio"].map(lambda value: f"{value:.2f}")
+    for column in ("Trade Count",):
+        if column in display:
+            display[column] = display[column].map(lambda value: f"{int(value):,}")
+    if "Total Fees" in display:
+        display["Total Fees"] = display["Total Fees"].map(lambda value: f"{value:,.0f} KRW")
+    headers = "".join(f"<th>{escape(str(column))}</th>" for column in display.columns)
+    rows = [
+        "<tr>" + "".join(f"<td>{escape(str(value))}</td>" for value in row) + "</tr>"
+        for row in display.itertuples(index=False, name=None)
+    ]
+    html_output.write_text(
+        f'''<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>{escape(title)}</title>
+<style>body{{font-family:system-ui;margin:32px}}table{{border-collapse:collapse;width:100%}}th,td{{padding:9px;border:1px solid #ddd;text-align:right}}th:nth-child(-n+5),td:nth-child(-n+5){{text-align:left}}th{{background:#f5f5f5;position:sticky;top:0}}</style>
+</head><body><h1>{escape(title)}</h1><p>Each row is an independent out-of-sample window. Indicators use only data available by that window; positions and cash restart for each test window. Fees and slippage are included. Research evidence only.</p>
+<table><thead><tr>{headers}</tr></thead><tbody>{''.join(rows)}</tbody></table></body></html>''',
+        encoding="utf-8",
+    )
+    return html_output, csv_output
+
+
+def _validate_inputs(prices: pd.DataFrame, config: WalkForwardConfig) -> None:
+    if config.training_sessions < 1 or config.testing_sessions < 2:
+        raise ValueError("Training sessions must be positive and testing sessions must be at least two.")
+    if not {"Open", "Close"} <= set(prices.columns):
+        raise ValueError("Walk-forward prices require Open and Close columns.")
+    if len(prices) <= config.training_sessions:
+        raise ValueError("Prices must contain at least one out-of-sample session after training.")

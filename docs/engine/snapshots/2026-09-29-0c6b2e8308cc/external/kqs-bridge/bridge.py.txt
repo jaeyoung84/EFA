@@ -1,0 +1,1131 @@
+#!/usr/bin/env python3
+"""kqs-bridge — korea-quant-system 읽기 전용 상태 브리지 + 대시보드 (1단계).
+
+* 표준 라이브러리만 사용(시스템 python3). 저장소 밖(/home/gram/kqs-bridge)에 산다.
+* 저장소·DB·로그를 절대 쓰지 않는다: sqlite 는 `mode=ro` 로만 열고, 파일은 읽기만 한다.
+* 기본 바인드 127.0.0.1:18100 (환경변수 KQS_BRIDGE_BIND / KQS_BRIDGE_PORT 로 변경).
+* 엔드포인트마다 짧은 캐시(초 단위)를 두어 파일·DB 를 자주 두드리지 않는다.
+
+엔드포인트
+  GET /                 대시보드(dashboard.html)
+  GET /api/health       브리지 자체 상태
+  GET /api/scheduler    Windows 작업 스케줄러 KoreaQuantDailyPipeline (PowerShell 읽기 전용 조회)
+  GET /api/pipeline     data/pipeline_run.log 파싱(마지막 실행 + 이력 + skip 줄)
+  GET /api/db           krx_daily.sqlite3 (mode=ro) 최신 거래일·수집 로그 요약
+  GET /api/paper        평균회귀 모의투자 CSV(감사로그·포지션·체결 로그)
+  GET /api/benchmark    benchmark_forward.csv
+  GET /api/forward      Pullback v2/v4 전향 관측 러너 로그 + 사전등록 §9 추기
+  GET /api/hashlock     사전등록 해시 잠금 표 재검증(sha256)
+  GET /api/v1/recommendations  최신 엔진 추천·근거의 해시 검증 가능한 읽기 전용 계약
+  GET /api/all          위 전부를 한 번에
+"""
+from __future__ import annotations
+
+import ast
+import csv
+import glob
+import hashlib
+import json
+import os
+import re
+import sqlite3
+import subprocess
+import sys
+import threading
+import time
+from collections import Counter, OrderedDict
+from datetime import datetime, timedelta, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import urlparse
+
+from recommendations import build_recommendations
+
+VERSION = "kqs-bridge 0.1.0"
+HERE = Path(__file__).resolve().parent
+REPO = Path(os.environ.get("KQS_REPO", "/home/gram/korea-quant-system"))
+HOME = Path(os.environ.get("KQS_HOME", "/home/gram"))
+BIND = os.environ.get("KQS_BRIDGE_BIND", "127.0.0.1")
+PORT = int(os.environ.get("KQS_BRIDGE_PORT", "18100"))
+
+DB = REPO / "data" / "krx_daily.sqlite3"
+PIPE_LOG = REPO / "data" / "pipeline_run.log"
+AUDIT_CSV = REPO / "data" / "bot_candidate_audit.csv"
+POS_CSV = REPO / "data" / "bot_active_positions.csv"
+TRADE_CSV = REPO / "data" / "bot_trade_log.csv"
+BENCH_CSV = REPO / "data" / "benchmark_forward.csv"
+FWD_LOGS = {
+    "v2": HOME / "pullback_v2_forward_runs.log",
+    "v4": HOME / "pullback_v4_forward_runs.log",
+}
+PREREG = {
+    v: REPO / "research" / f"daily_trend_pullback_{v}" / f"PREREGISTRATION_{v}.md"
+    for v in ("v1", "v2", "v3", "v4")
+}
+D36_HASHLOCK = REPO / "PREREGISTRATION_D36_index_tsmom_v1.hashlock.md"
+TASK_NAME = "KoreaQuantDailyPipeline"
+POWERSHELL = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
+
+KST = timezone(timedelta(hours=9))
+STARTED = time.time()
+
+# 캐시 TTL(초). 스케줄러 조회는 PowerShell 을 띄우므로 길게.
+TTL = {
+    "health": 0,
+    "scheduler": 120,
+    "pipeline": 20,
+    "db": 20,
+    "paper": 20,
+    "benchmark": 30,
+    "forward": 30,
+    "hashlock": 300,
+}
+
+
+# ----------------------------------------------------------------------------- utils
+def now_kst() -> datetime:
+    return datetime.now(KST)
+
+
+def fmt_dt(dt: datetime) -> str:
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def ts_kst(epoch: float) -> str:
+    return fmt_dt(datetime.fromtimestamp(epoch, KST))
+
+
+def utc_iso_to_kst(s: str) -> str:
+    """'2026-09-16T00:20:01Z' -> '2026-09-16 09:20:01' (KST). 실패하면 원문."""
+    try:
+        dt = datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        return fmt_dt(dt.astimezone(KST))
+    except ValueError:
+        return s
+
+
+def utc_iso_to_epoch(s: str):
+    try:
+        return datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+    except ValueError:
+        return None
+
+
+def file_info(p: Path) -> dict:
+    try:
+        st = p.stat()
+        return {"path": str(p), "exists": True, "size": st.st_size, "mtime": ts_kst(st.st_mtime)}
+    except FileNotFoundError:
+        return {"path": str(p), "exists": False}
+
+
+def read_text(p: Path) -> str:
+    with open(p, encoding="utf-8", errors="replace") as fh:
+        return fh.read()
+
+
+def read_csv_rows(p: Path):
+    # bot_*.csv 는 UTF-8 BOM 으로 시작한다 -> utf-8-sig
+    with open(p, newline="", encoding="utf-8-sig") as fh:
+        r = csv.DictReader(fh)
+        return list(r.fieldnames or []), list(r)
+
+
+def safe_literal(s: str):
+    """러너가 찍은 파이썬 리터럴(dict) 파싱. np.int64(3) 같은 꼬리표는 벗겨서 재시도."""
+    s = s.strip()
+    try:
+        return ast.literal_eval(s)
+    except Exception:
+        pass
+    s2 = re.sub(r"np\.\w+\(([^()]*)\)", r"\1", s)
+    try:
+        return ast.literal_eval(s2)
+    except Exception:
+        return s
+
+
+def all_true(d) -> bool | None:
+    if not isinstance(d, dict) or not d:
+        return None
+    return all(v is True for v in d.values())
+
+
+def to_int(s: str):
+    try:
+        return int(str(s).strip())
+    except ValueError:
+        return None
+
+
+def sha256_file(p: Path) -> str:
+    h = hashlib.sha256()
+    with open(p, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+class Cache:
+    """엔드포인트별 TTL 캐시. 같은 키의 동시 요청은 한 번만 계산한다."""
+
+    def __init__(self):
+        self._d: dict = {}
+        self._guard = threading.Lock()
+        self._locks: dict = {}
+
+    def get(self, key: str, ttl: float, fn):
+        with self._guard:
+            ent = self._d.get(key)
+            if ent and ent[0] > time.monotonic():
+                return ent[1]
+            lk = self._locks.setdefault(key, threading.Lock())
+        with lk:
+            with self._guard:
+                ent = self._d.get(key)
+                if ent and ent[0] > time.monotonic():
+                    return ent[1]
+            t0 = time.monotonic()
+            try:
+                val = fn()
+            except Exception as e:  # 어떤 수집기가 죽어도 브리지는 계속 응답한다
+                val = {"error": f"{type(e).__name__}: {e}"}
+            val = dict(val)
+            val["_took_ms"] = round((time.monotonic() - t0) * 1000)
+            val["_cached_at"] = fmt_dt(now_kst())
+            with self._guard:
+                self._d[key] = (time.monotonic() + ttl, val)
+            return val
+
+
+CACHE = Cache()
+
+
+# ----------------------------------------------------------------------------- health
+def collect_health() -> dict:
+    files = {
+        "db": file_info(DB),
+        "pipeline_log": file_info(PIPE_LOG),
+        "audit_csv": file_info(AUDIT_CSV),
+        "positions_csv": file_info(POS_CSV),
+        "trade_log_csv": file_info(TRADE_CSV),
+        "benchmark_csv": file_info(BENCH_CSV),
+        "forward_v2_log": file_info(FWD_LOGS["v2"]),
+        "forward_v4_log": file_info(FWD_LOGS["v4"]),
+        "dashboard": file_info(HERE / "dashboard.html"),
+    }
+    return {
+        "ok": True,
+        "bridge": VERSION,
+        "pid": os.getpid(),
+        "python": sys.version.split()[0],
+        "sqlite": sqlite3.sqlite_version,
+        "started_at": ts_kst(STARTED),
+        "uptime_s": round(time.time() - STARTED),
+        "now_kst": fmt_dt(now_kst()),
+        "bind": BIND,
+        "port": PORT,
+        "repo": str(REPO),
+        "read_only": True,
+        "files": files,
+        "missing": [k for k, v in files.items() if not v["exists"]],
+    }
+
+
+# ----------------------------------------------------------------------------- scheduler (PowerShell, read-only)
+PS_CMD = (
+    "$ErrorActionPreference='Stop'; $n='" + TASK_NAME + "'; "
+    "$i=Get-ScheduledTaskInfo -TaskName $n; $t=Get-ScheduledTask -TaskName $n; "
+    "[pscustomobject]@{LastRunTime=$i.LastRunTime; LastTaskResult=$i.LastTaskResult; "
+    "NextRunTime=$i.NextRunTime; NumberOfMissedRuns=$i.NumberOfMissedRuns; State=[string]$t.State} "
+    "| ConvertTo-Json -Compress"
+)
+_INTEROP_OK: dict = {"sock": None}
+
+
+def _interop_candidates():
+    cands = []
+    cur = os.environ.get("WSL_INTEROP")
+    if _INTEROP_OK["sock"]:
+        cands.append(_INTEROP_OK["sock"])
+    if cur:
+        cands.append(cur)
+    # 세션이 끝나면 그 세션의 소켓은 사라진다. 살아 있는 아무 소켓이나 쓰면 된다(1_interop = init).
+    for p in sorted(glob.glob("/run/WSL/*_interop")):
+        cands.append(p)
+    seen, out = set(), []
+    for c in cands:
+        if c not in seen and os.path.exists(c):
+            seen.add(c)
+            out.append(c)
+    return out
+
+
+def run_powershell(cmd: str, timeout: float = 25.0) -> dict:
+    if not os.path.exists(POWERSHELL):
+        return {"ok": False, "reason": "powershell.exe not reachable (no /mnt/c)"}
+    last_err = "no interop socket"
+    for sock in _interop_candidates() or [None]:
+        env = dict(os.environ)
+        if sock:
+            env["WSL_INTEROP"] = sock
+        try:
+            cp = subprocess.run(
+                [POWERSHELL, "-NoProfile", "-NonInteractive", "-Command", cmd],
+                capture_output=True, timeout=timeout, env=env, stdin=subprocess.DEVNULL,
+            )
+        except subprocess.TimeoutExpired:
+            last_err = f"timeout {timeout}s (sock={sock})"
+            continue
+        except OSError as e:
+            last_err = f"{type(e).__name__}: {e} (sock={sock})"
+            continue
+        out = cp.stdout.decode("utf-8", errors="replace").replace("\r", "").strip()
+        err = cp.stderr.decode("utf-8", errors="replace").replace("\r", "").strip()
+        if cp.returncode == 0 and out:
+            _INTEROP_OK["sock"] = sock
+            return {"ok": True, "stdout": out, "sock": sock}
+        last_err = f"rc={cp.returncode} (sock={sock}) {err[:300]}"
+    return {"ok": False, "reason": last_err}
+
+
+def _ps_date(v):
+    """ConvertTo-Json 의 '\\/Date(1758064801000)\\/' -> KST 문자열."""
+    if v is None:
+        return None
+    m = re.search(r"Date\((-?\d+)\)", str(v))
+    if not m:
+        return str(v)
+    return ts_kst(int(m.group(1)) / 1000.0)
+
+
+def collect_scheduler() -> dict:
+    r = run_powershell(PS_CMD)
+    if not r["ok"]:
+        return {"available": False, "task": TASK_NAME, "reason": r["reason"]}
+    try:
+        j = json.loads(r["stdout"].splitlines()[-1])
+    except Exception as e:
+        return {"available": False, "task": TASK_NAME, "reason": f"json: {e}", "stdout": r["stdout"][:300]}
+    rc = j.get("LastTaskResult")
+    return {
+        "available": True,
+        "task": TASK_NAME,
+        "state": j.get("State"),
+        "last_run": _ps_date(j.get("LastRunTime")),
+        "last_result": rc,
+        "last_result_hex": (f"0x{rc & 0xFFFFFFFF:08X}" if isinstance(rc, int) else None),
+        "last_result_ok": (rc == 0) if isinstance(rc, int) else None,
+        "next_run": _ps_date(j.get("NextRunTime")),
+        "missed_runs": j.get("NumberOfMissedRuns"),
+        "queried_at": fmt_dt(now_kst()),
+        "interop_sock": r.get("sock"),
+    }
+
+
+# ----------------------------------------------------------------------------- pipeline log
+RE_START = re.compile(r"^===== (\S+) pipeline start =====(?: \(arg: (\S+)\))?\s*$")
+RE_END = re.compile(r"^===== (\S+) pipeline end =====\s*$")
+RE_SKIP = re.compile(r"^(\S+) skip: (.*)$")
+RE_FATAL = re.compile(r"^(\S+) FATAL: (.*)$")
+RE_STEP = re.compile(r"^\[(\d)/(\d)\] (.*)$")  # 예전 블록은 [n/2], 현재는 [n/4]
+STEP_KINDS = (("krx_cli.py", "krx"), ("daily_picks_cli.py", "picks"), ("benchmark_snapshot.py", "benchmark"),
+              ("pullback forward runners", "runners"))
+
+
+def _step_kind(name: str) -> str:
+    for prefix, kind in STEP_KINDS:
+        if name.startswith(prefix):
+            return kind
+    return "other"
+RE_EXIT = re.compile(r"^\s{2}exit code: (\d+)\s*$")
+RE_DB_BEFORE = re.compile(r"^\s{2}DB latest before: (\S+)")
+RE_DB_AFTER = re.compile(r"^\s{2}DB latest after: (\S+)")
+RE_PICKS = re.compile(r"^--- 추천 : (\d+)건 ---")
+RE_PICK_ITEM = re.compile(r"^\s{2}(\d+)\. \[(.*?)\] (.*)$")
+RE_RUNNER = re.compile(r"^\s{2}(v\d) (FORWARD_WINDOW|FORWARD_TRADES|JUDGE_FORWARD|RUN_ERROR|ABORT|WARNING):?\s*(.*)$")
+RE_TRADES = re.compile(r"raw=(\d+) closed=(\d+) floor=(\d+)")
+RE_JSON_OBJ = re.compile(r"\{[^{}]*\}", re.S)
+
+
+def _new_run(ts_utc: str, arg):
+    return {
+        "start_utc": ts_utc,
+        "start_kst": utc_iso_to_kst(ts_utc),
+        "end_utc": None,
+        "end_kst": None,
+        "duration_s": None,
+        "arg": arg,
+        "incomplete": False,
+        "step_total": None,  # 블록 형식: 2(krx+picks) · 3(+벤치마크) · 4(+러너)
+        "db_before": None,
+        "db_after": None,
+        "db_advanced": None,
+        "steps": OrderedDict(),
+        "gap": [],
+        "warnings": [],
+        "run_error": False,
+        "abort": False,
+        "status": None,
+        "raw": [],
+    }
+
+
+def _finish_run(run: dict):
+    if run["end_utc"]:
+        run["end_kst"] = utc_iso_to_kst(run["end_utc"])
+        a, b = utc_iso_to_epoch(run["start_utc"]), utc_iso_to_epoch(run["end_utc"])
+        if a is not None and b is not None:
+            run["duration_s"] = round(b - a)
+    if run["db_before"] is not None and run["db_after"] is not None:
+        run["db_advanced"] = run["db_after"] != run["db_before"] and run["db_after"] != "none"
+    steps = run["steps"]
+    by_kind = {s.get("kind"): s for s in steps.values()}
+    # [1/4] krx update: JSON 요약 {rows, requests, skipped}
+    s1 = by_kind.get("krx")
+    if s1:
+        m = RE_JSON_OBJ.search("\n".join(s1["lines"]))
+        if m:
+            try:
+                s1["summary"] = json.loads(m.group(0))
+            except Exception:
+                s1["summary"] = None
+    # [2/4] daily picks: 추천 건수·종목·근거
+    s2 = by_kind.get("picks")
+    if s2:
+        picks, info, cur_pick, picks_count = [], [], None, None
+        for ln in s2["lines"]:
+            s = ln.strip()
+            m = RE_PICKS.match(s)
+            if m:
+                picks_count = int(m.group(1))
+                continue
+            m = RE_PICK_ITEM.match(ln)
+            if m:
+                cur_pick = {"n": int(m.group(1)), "label": m.group(2), "name": m.group(3).strip(), "reasons": []}
+                picks.append(cur_pick)
+                continue
+            if s.startswith("✓") and cur_pick is not None:
+                cur_pick["reasons"].append(s.lstrip("✓").strip())
+            elif s.startswith("당일 신호 없음"):
+                picks_count = picks_count or 0
+                info.append(s)
+            elif s and not s.startswith("exit code"):
+                info.append(s)
+        s2["picks_count"] = picks_count
+        s2["picks"] = picks
+        s2["info"] = info[:12]
+    # [3/4] benchmark snapshot 한 줄 요약
+    s3 = by_kind.get("benchmark")
+    if s3:
+        s3["summary"] = next((ln.strip() for ln in s3["lines"] if ln.strip()), None)
+    # [4/4] 러너 출력
+    s4 = by_kind.get("runners")
+    if s4:
+        runners: dict = {}
+        for ln in s4["lines"]:
+            m = RE_RUNNER.match(ln)
+            if not m:
+                continue
+            ver, key, rest = m.group(1), m.group(2), m.group(3).strip()
+            d = runners.setdefault(ver, {"window": None, "trades": None, "judge": None, "errors": [], "warnings": []})
+            if key == "FORWARD_WINDOW":
+                d["window"] = rest
+            elif key == "FORWARD_TRADES":
+                mm = RE_TRADES.search(rest)
+                if mm:
+                    d["trades"] = {"raw": int(mm.group(1)), "closed": int(mm.group(2)), "floor": int(mm.group(3))}
+            elif key == "JUDGE_FORWARD":
+                d["judge"] = safe_literal(rest)
+            elif key in ("RUN_ERROR", "ABORT"):
+                d["errors"].append(f"{key}: {rest}")
+            elif key == "WARNING":
+                d["warnings"].append(rest)
+        s4["runners"] = runners
+    # 상태 판정: 블록에 실제로 있는 단계만 본다(예전 [n/2]·[n/3] 형식은 뒤 단계가 없다).
+    # 필수 단계(krx·picks)의 rc≠0 또는 중단 → fail, 보조 단계(벤치마크) rc≠0·경고·러너 오류 → warn.
+    core_rcs = [s.get("rc") for s in (s1, s2) if s]
+    aux_rcs = [s.get("rc") for s in (s3,) if s]
+    if run["incomplete"] or any(rc != 0 for rc in core_rcs) or not core_rcs:
+        run["status"] = "fail"
+    elif run["warnings"] or run["run_error"] or run["abort"] or any(rc != 0 for rc in aux_rcs):
+        run["status"] = "warn"
+    else:
+        run["status"] = "ok"
+    run["raw"] = "\n".join(run["raw"])
+
+
+def parse_pipeline_log(text: str):
+    runs, skips, fatals = [], [], []
+    cur = None
+    step = None
+    section = None
+    for raw in text.splitlines():
+        line = raw.rstrip("\r")
+        m = RE_START.match(line)
+        if m:
+            if cur is not None:
+                cur["incomplete"] = True
+                _finish_run(cur)
+                runs.append(cur)
+            cur = _new_run(m.group(1), m.group(2))
+            cur["raw"].append(line)
+            step, section = None, "steps"
+            continue
+        if cur is None:
+            m = RE_SKIP.match(line)
+            if m:
+                skips.append({"ts_utc": m.group(1), "ts_kst": utc_iso_to_kst(m.group(1)), "msg": m.group(2)})
+                continue
+            m = RE_FATAL.match(line)
+            if m:
+                fatals.append({"ts_utc": m.group(1), "ts_kst": utc_iso_to_kst(m.group(1)), "msg": m.group(2)})
+            continue
+        cur["raw"].append(line)
+        m = RE_END.match(line)
+        if m:
+            cur["end_utc"] = m.group(1)
+            _finish_run(cur)
+            runs.append(cur)
+            cur = None
+            continue
+        if line.startswith("WARNING:") or " WARNING: " in line:
+            cur["warnings"].append(line.strip())
+        if "RUN_ERROR" in line:
+            cur["run_error"] = True
+        if "ABORT" in line:
+            cur["abort"] = True
+        m = RE_DB_BEFORE.match(line)
+        if m:
+            cur["db_before"] = m.group(1)
+            continue
+        m = RE_DB_AFTER.match(line)
+        if m:
+            cur["db_after"] = m.group(1)
+            continue
+        m = RE_STEP.match(line)
+        if m:
+            step, section = m.group(1), "steps"
+            name = m.group(3)
+            cur["step_total"] = int(m.group(2))
+            cur["steps"][step] = {"name": name, "kind": _step_kind(name), "rc": None, "lines": []}
+            if cur["steps"][step]["kind"] == "runners":
+                cur["steps"][step]["ran"] = not name.startswith("pullback forward runners skipped")
+                cur["steps"][step]["rc"] = 0  # 러너 단계는 종료코드를 찍지 않는다(관측 보조 단계)
+            continue
+        if line.startswith("--- 갭 자가진단 ---"):
+            step, section = None, "gap"
+            continue
+        m = RE_EXIT.match(line)
+        if m and step:
+            cur["steps"][step]["rc"] = int(m.group(1))
+            continue
+        if section == "gap":
+            if line.strip():
+                cur["gap"].append(line.strip())
+            continue
+        if step:
+            cur["steps"][step]["lines"].append(line)
+    if cur is not None:
+        cur["incomplete"] = True
+        _finish_run(cur)
+        runs.append(cur)
+    return runs, skips, fatals
+
+
+def _compact_run(run: dict) -> dict:
+    st = run["steps"]
+    by_kind = {v.get("kind"): v for v in st.values()}
+    s2 = by_kind.get("picks", {})
+    s4 = by_kind.get("runners", {})
+    return {
+        "start_kst": run["start_kst"],
+        "end_kst": run["end_kst"],
+        "duration_s": run["duration_s"],
+        "arg": run["arg"],
+        "status": run["status"],
+        "incomplete": run["incomplete"],
+        "step_total": run["step_total"],
+        "rc": {k: v.get("rc") for k, v in st.items()},
+        "db_before": run["db_before"],
+        "db_after": run["db_after"],
+        "db_advanced": run["db_advanced"],
+        "picks_count": s2.get("picks_count"),
+        "picks": [p["name"] for p in s2.get("picks", [])],
+        "runners_ran": s4.get("ran"),
+        "warnings": run["warnings"],
+        "run_error": run["run_error"],
+        "abort": run["abort"],
+    }
+
+
+def collect_pipeline() -> dict:
+    info = file_info(PIPE_LOG)
+    if not info["exists"]:
+        return {"log": info, "runs": [], "run_count": 0, "skips": [], "skip_count": 0, "last": None}
+    runs, skips, fatals = parse_pipeline_log(read_text(PIPE_LOG))
+    last = runs[-1] if runs else None
+    last_out = None
+    if last:
+        last_out = dict(last)
+        last_out["steps"] = {
+            k: {kk: vv for kk, vv in v.items() if kk != "lines"} for k, v in last["steps"].items()
+        }
+    events = []
+    if last:
+        events.append(("run", last["end_kst"] or last["start_kst"]))
+    if skips:
+        events.append(("skip", skips[-1]["ts_kst"]))
+    last_event = max(events, key=lambda e: e[1]) if events else None
+    return {
+        "log": info,
+        "run_count": len(runs),
+        "skip_count": len(skips),
+        "fatal_count": len(fatals),
+        "last": last_out,
+        "last_event": {"kind": last_event[0], "at_kst": last_event[1]} if last_event else None,
+        "history": [_compact_run(r) for r in reversed(runs[-40:])],
+        "skips": list(reversed(skips[-20:])),
+        "fatals": list(reversed(fatals[-5:])),
+        "status_counts": dict(Counter(r["status"] for r in runs)),
+    }
+
+
+# ----------------------------------------------------------------------------- sqlite (mode=ro)
+def collect_db() -> dict:
+    info = file_info(DB)
+    out = {
+        "file": info,
+        "wal": file_info(DB.with_name(DB.name + "-wal")),
+        "shm": file_info(DB.with_name(DB.name + "-shm")),
+    }
+    if not info["exists"]:
+        out["error"] = "db file missing"
+        return out
+    con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True, timeout=5)
+    try:
+        con.execute("pragma query_only=1")
+        out["journal_mode"] = con.execute("pragma journal_mode").fetchone()[0]
+        out["tables"] = [r[0] for r in con.execute("select name from sqlite_master where type='table' order by 1")]
+        latest = con.execute("select max(trade_date) from daily_prices").fetchone()[0]
+        first = con.execute("select min(trade_date) from daily_prices").fetchone()[0]
+        prev = con.execute("select max(trade_date) from daily_prices where trade_date < ?", (latest,)).fetchone()[0] if latest else None
+        n_latest = con.execute("select count(*) from daily_prices where trade_date=?", (latest,)).fetchone()[0] if latest else 0
+        by_market = [
+            {"market": r[0], "rows": r[1]}
+            for r in con.execute("select market, count(*) from daily_prices where trade_date=? group by market order by 1", (latest,))
+        ] if latest else []
+        cl = con.execute(
+            "select count(*), count(distinct trade_date), min(trade_date), max(trade_date), max(collected_at), sum(row_count) from collection_log"
+        ).fetchone()
+        cl_market = [
+            {"market": r[0], "latest": r[1], "entries": r[2], "rows_total": r[3]}
+            for r in con.execute("select market, max(trade_date), count(*), sum(row_count) from collection_log group by market order by 1")
+        ]
+        cl_recent = [
+            {"trade_date": r[0], "market": r[1], "row_count": r[2], "collected_at": r[3]}
+            for r in con.execute("select trade_date, market, row_count, collected_at from collection_log order by trade_date desc, collected_at desc limit 12")
+        ]
+        extras = {}
+        for t in ("universe_snapshots", "universe_members"):
+            try:
+                extras[t] = con.execute(f"select count(*) from {t}").fetchone()[0]
+            except sqlite3.Error as e:
+                extras[t] = f"err: {e}"
+        today = now_kst().date()
+        gap_days = None
+        if latest:
+            try:
+                gap_days = (today - datetime.strptime(latest, "%Y-%m-%d").date()).days
+            except ValueError:
+                gap_days = None
+        out.update({
+            "latest_trade_date": latest,
+            "previous_trade_date": prev,
+            "first_trade_date": first,
+            "today_kst": today.isoformat(),
+            "latest_gap_days": gap_days,
+            "rows_on_latest": n_latest,
+            "rows_on_latest_by_market": by_market,
+            "collection_log": {
+                "entries": cl[0], "trade_dates": cl[1], "first": cl[2], "latest": cl[3],
+                "last_collected_at": cl[4], "rows_total": cl[5],
+                "by_market": cl_market, "recent": cl_recent,
+            },
+            "other_tables": extras,
+        })
+    finally:
+        con.close()
+    return out
+
+
+# ----------------------------------------------------------------------------- paper trading csvs
+def collect_paper() -> dict:
+    out = {"audit": file_info(AUDIT_CSV), "positions": file_info(POS_CSV), "trade_log": file_info(TRADE_CSV)}
+    if out["audit"]["exists"]:
+        cols, rows = read_csv_rows(AUDIT_CSV)
+        by_asof: dict = OrderedDict()
+        for r in rows:
+            a = r.get("AsOf", "")
+            d = by_asof.setdefault(a, {"asof": a, "rows": 0, "selected": 0, "entry_due": 0,
+                                       "scan_state": Counter(), "outcome": Counter(), "signal_type": Counter(),
+                                       "fingerprints": set(), "timing": set()})
+            d["rows"] += 1
+            if r.get("IsSelected") == "True":
+                d["selected"] += 1
+            if r.get("ScanState") == "entry_due_next_session":
+                d["entry_due"] += 1
+            d["scan_state"][r.get("ScanState", "")] += 1
+            d["outcome"][r.get("SelectionOutcome", "")] += 1
+            d["signal_type"][r.get("SignalType", "") or "(none)"] += 1
+            if r.get("ConfigFingerprint"):
+                d["fingerprints"].add(r["ConfigFingerprint"])
+            if r.get("ExecutionTiming"):
+                d["timing"].add(r["ExecutionTiming"])
+        asofs = sorted(by_asof)
+        latest = asofs[-1] if asofs else None
+        sel_cols = ["AsOf", "AuditId", "Symbol", "Name", "Market", "SignalType", "ScanState", "SelectionOutcome",
+                    "MarketCapTier", "MarketCapRank", "AverageTradingValue", "ExecutionTiming", "ConfigFingerprint"]
+        selected_rows = [{c: r.get(c) for c in sel_cols} for r in rows if r.get("IsSelected") == "True"]
+        latest_rows = [r for r in rows if r.get("AsOf") == latest]
+        entry_due = [{c: r.get(c) for c in sel_cols} for r in latest_rows if r.get("ScanState") == "entry_due_next_session"]
+        signal_rows = [{c: r.get(c) for c in sel_cols} for r in latest_rows if (r.get("SignalType") or "") not in ("", "none")]
+
+        def pack(d):
+            return {
+                "asof": d["asof"], "rows": d["rows"], "selected": d["selected"], "entry_due": d["entry_due"],
+                "scan_state": dict(d["scan_state"].most_common()),
+                "outcome": dict(d["outcome"].most_common()),
+                "signal_type": dict(d["signal_type"].most_common()),
+                "fingerprints": sorted(d["fingerprints"]), "timing": sorted(d["timing"]),
+            }
+
+        out["audit"].update({
+            "columns": cols,
+            "rows": len(rows),
+            "asof_first": asofs[0] if asofs else None,
+            "asof_latest": latest,
+            "asof_count": len(asofs),
+            "by_asof": [pack(by_asof[a]) for a in reversed(asofs)],
+            "latest": pack(by_asof[latest]) if latest else None,
+            "selected_rows": list(reversed(selected_rows))[:50],
+            "selected_total": len(selected_rows),
+            "latest_entry_due": entry_due[:30],
+            "latest_signal_rows": signal_rows[:30],
+            "fingerprints_all": sorted({fp for d in by_asof.values() for fp in d["fingerprints"]}),
+        })
+    if out["positions"]["exists"]:
+        cols, rows = read_csv_rows(POS_CSV)
+        out["positions"].update({"columns": cols, "rows": len(rows), "items": rows[-50:],
+                                 "status_counts": dict(Counter(r.get("Status", "") for r in rows))})
+    if out["trade_log"]["exists"]:
+        cols, rows = read_csv_rows(TRADE_CSV)
+        out["trade_log"].update({"columns": cols, "rows": len(rows), "items": list(reversed(rows[-50:])),
+                                 "type_counts": dict(Counter(r.get("Type", "") for r in rows))})
+    return out
+
+
+# ----------------------------------------------------------------------------- benchmark csv
+def collect_benchmark() -> dict:
+    out = {"file": file_info(BENCH_CSV)}
+    if not out["file"]["exists"]:
+        return out
+    cols, rows = read_csv_rows(BENCH_CSV)
+    per: dict = OrderedDict()
+    for r in rows:
+        s = r.get("Symbol", "")
+        d = per.setdefault(s, {"symbol": s, "name": r.get("Name"), "count": 0, "first": None, "last": None,
+                               "last_close": None, "last_recorded_at": None})
+        d["count"] += 1
+        dt = r.get("Date")
+        if d["first"] is None or (dt and dt < d["first"]):
+            d["first"] = dt
+        if d["last"] is None or (dt and dt >= d["last"]):
+            d["last"] = dt
+            d["last_close"] = r.get("Close")
+            d["last_recorded_at"] = r.get("RecordedAtUtc")
+    dates = sorted({r.get("Date") for r in rows if r.get("Date")})
+    out.update({
+        "columns": cols,
+        "rows": len(rows),
+        "dates": len(dates),
+        "first_date": dates[0] if dates else None,
+        "last_date": dates[-1] if dates else None,
+        "per_symbol": list(per.values()),
+        "recent": list(reversed(rows[-12:])),
+    })
+    return out
+
+
+# ----------------------------------------------------------------------------- forward runners + prereg §9
+RE_FWD_START = re.compile(r"^===== pullback_(v\d)_forward run @ (\S+ \S+) =====\s*$")
+RE_WINDOW = re.compile(r"(\S+) ~ (\S+) \(DB 마지막 거래일 (\S+)\)")
+RE_F_ENTRY = re.compile(r"^- \*\*(?:기준선 실행 )?(#F\d+) \(([^)]+)\)\*\*:\s*(.*)$")
+
+
+def parse_forward_log(text: str):
+    blocks = []
+    cur = None
+    for raw in text.splitlines():
+        line = raw.rstrip("\r")
+        m = RE_FWD_START.match(line)
+        if m:
+            if cur is not None:
+                blocks.append(cur)
+            cur = {"ver": m.group(1), "ts": m.group(2), "steps": [], "errors": [], "abort": False, "run_error": False,
+                   "window": None, "trades": None, "judge": None, "verdict": None, "raw": [line]}
+            continue
+        if cur is None:
+            continue
+        cur["raw"].append(line)
+        if line.startswith("STEP"):  # "STEP n. …" 줄은 콜론이 없을 수 있다
+            cur["steps"].append(line.strip())
+            continue
+        key, sep, rest = line.partition(":")
+        if not sep:
+            continue
+        key, rest = key.strip(), rest.strip()
+        if key == "DB_STAT_BEFORE":
+            cur["db_before"] = rest
+        elif key == "DB_STAT_AFTER":
+            cur["db_after"] = rest
+            cur["db_unchanged"] = "unchanged=True" in rest
+        elif key == "HASH_LOCK(pre)":
+            d = safe_literal(rest)
+            cur["hash_pre"] = d
+            cur["hash_pre_ok"] = all_true(d)
+        elif key == "HASH_LOCK(post)":
+            d = safe_literal(rest)
+            cur["hash_post"] = d
+            cur["hash_post_ok"] = all_true(d)
+        elif key == "HASH_LOCK":
+            cur["hash_lock"] = safe_literal(rest)
+        elif key == "HASH16(now)":
+            cur["hash16"] = safe_literal(rest)
+        elif key == "PARAMS":
+            cur["params"] = rest
+        elif key == "FORWARD_WINDOW":
+            cur["window"] = rest
+            mm = RE_WINDOW.search(rest)
+            if mm:
+                cur["window_start"], cur["window_end"], cur["db_last"] = mm.group(1), mm.group(2), mm.group(3)
+        elif key == "UNIVERSE":
+            cur["universe"] = to_int(rest)
+        elif key == "FORWARD_TRADES":
+            mm = RE_TRADES.search(rest)
+            if mm:
+                cur["trades"] = {"raw": int(mm.group(1)), "closed": int(mm.group(2)), "floor": int(mm.group(3))}
+        elif key == "FORWARD_EXIT_REASONS":
+            cur["exit_reasons"] = {k: int(v) for k, v in re.findall(r"'([^']+)':\s*(?:np\.\w+\()?(\d+)", rest)}
+        elif key == "FORWARD_TRADES_HASH":
+            cur["trades_hash"] = rest
+        elif key == "JUDGE_FORWARD":
+            cur["judge"] = safe_literal(rest)
+        elif key == "ELAPSED":
+            try:
+                cur["elapsed_s"] = float(rest.rstrip("s"))
+            except ValueError:
+                cur["elapsed_s"] = rest
+        elif key == "VERDICT_DICT":
+            cur["verdict"] = safe_literal(rest)
+        elif key == "ABORT":
+            cur["errors"].append(line.strip())
+            cur["abort"] = True
+        elif key == "RUN_ERROR":
+            cur["errors"].append(line.strip())
+            cur["run_error"] = True
+    if cur is not None:
+        blocks.append(cur)
+    for b in blocks:
+        b["raw"] = "\n".join(b["raw"])
+        j = b["judge"] if isinstance(b["judge"], dict) else {}
+        b["verdict_text"] = j.get("verdict")
+        b["ok"] = (not b["errors"]) and b.get("hash_pre_ok") is True and b.get("hash_post_ok") is not False
+    return blocks
+
+
+def _compact_fwd(b: dict) -> dict:
+    j = b["judge"] if isinstance(b["judge"], dict) else {}
+    return {
+        "ts": b["ts"], "window": b["window"], "trades": b["trades"], "verdict": b.get("verdict_text"),
+        "hash_pre_ok": b.get("hash_pre_ok"), "hash_post_ok": b.get("hash_post_ok"), "db_unchanged": b.get("db_unchanged"),
+        "floor_reached": j.get("floor_reached"), "deadline_passed": j.get("deadline_passed"), "hash_lock_ok": j.get("hash_lock_ok"),
+        "elapsed_s": b.get("elapsed_s"), "errors": b["errors"], "ok": b["ok"], "exit_reasons": b.get("exit_reasons"),
+        "trades_hash": b.get("trades_hash"),
+    }
+
+
+def collect_forward() -> dict:
+    out = {}
+    for ver, path in FWD_LOGS.items():
+        info = file_info(path)
+        d = {"log": info, "runs": 0, "last": None, "history": []}
+        if info["exists"]:
+            blocks = parse_forward_log(read_text(path))
+            d["runs"] = len(blocks)
+            d["error_runs"] = sum(1 for b in blocks if b["errors"])
+            if blocks:
+                last = dict(blocks[-1])
+                d["last"] = last
+                d["history"] = [_compact_fwd(b) for b in reversed(blocks[-30:])]
+        out[ver] = d
+    prereg = {}
+    for ver in ("v2", "v4"):
+        p = PREREG[ver]
+        info = file_info(p)
+        entries = []
+        if info["exists"]:
+            for ln in read_text(p).splitlines():
+                m = RE_F_ENTRY.match(ln.rstrip("\r"))
+                if m:
+                    entries.append({"id": m.group(1), "ts": m.group(2), "text": m.group(3)[:400]})
+        prereg[ver] = {"file": info, "entries": len(entries), "last": entries[-1] if entries else None,
+                       "list": list(reversed(entries))}
+    out["prereg"] = prereg
+    return out
+
+
+# ----------------------------------------------------------------------------- hash lock re-verification
+RE_PREREG_ROW = re.compile(r"^\|\s*`?([^|`]+?)`?\s*\|\s*([0-9a-f]{64})\s*\|")
+RE_D36_ROW = re.compile(r"^([0-9a-f]{64})\s{2,}(\S+)\s*(.*)$")
+RE_D36_INLINE = re.compile(r"`([0-9a-f]{64})\s{2,}(\S+)`")
+SKIP_DIRS = {".git", ".venv", "__pycache__", "archive", "scratchpad", "node_modules", ".pytest_cache", ".ruff_cache"}
+
+
+def _repo_index() -> dict:
+    """basename -> [paths]  (저장소 안의 잠금 대상 후보만, .venv 등은 제외)"""
+    idx: dict = {}
+    roots = [(REPO, False), (REPO / "data", True), (REPO / "tests", True), (REPO / "scripts", True),
+             (REPO / "src", True), (REPO / "research", True)]
+    for root, recursive in roots:
+        if not root.is_dir():
+            continue
+        if not recursive:
+            for p in root.iterdir():
+                if p.is_file():
+                    idx.setdefault(p.name, []).append(p)
+            continue
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+            for fn in filenames:
+                idx.setdefault(fn, []).append(Path(dirpath) / fn)
+    return idx
+
+
+def _verify(entries, resolver):
+    for e in entries:
+        cands = resolver(e["file"])
+        e["candidates"] = [str(c) for c in cands]
+        e["path"], e["actual"], e["status"] = None, None, "missing"
+        for c in cands:
+            try:
+                h = sha256_file(c)
+            except OSError:
+                continue
+            if e["path"] is None:
+                e["path"], e["actual"], e["status"] = str(c), h, ("ok" if h == e["expected"] else "mismatch")
+            if h == e["expected"]:
+                e["path"], e["actual"], e["status"] = str(c), h, "ok"
+                break
+    return entries
+
+
+def _summ(entries):
+    c = Counter()
+    for e in entries:
+        if e.get("historical") and e["status"] == "mismatch":
+            c["historical"] += 1
+        else:
+            c[e["status"]] += 1
+    return {"ok": c["ok"], "mismatch": c["mismatch"], "missing": c["missing"], "historical": c["historical"],
+            "total": len(entries)}
+
+
+def collect_hashlock() -> dict:
+    docs = []
+    for ver, p in PREREG.items():
+        info = file_info(p)
+        entries = []
+        if info["exists"]:
+            for ln in read_text(p).splitlines():
+                m = RE_PREREG_ROW.match(ln.rstrip("\r"))
+                if m:
+                    entries.append({"file": m.group(1).strip(), "expected": m.group(2), "note": ""})
+        rdir = p.parent
+
+        def resolver(name, rdir=rdir):
+            c = []
+            for cand in (rdir / name, HOME / name, REPO / name):
+                if cand.is_file():
+                    c.append(cand)
+            return c
+
+        _verify(entries, resolver)
+        docs.append({"doc": ver, "file": info, "entries": entries, "summary": _summ(entries)})
+    info = file_info(D36_HASHLOCK)
+    entries = []
+    if info["exists"]:
+        idx = _repo_index()
+        for ln in read_text(D36_HASHLOCK).splitlines():
+            ln = ln.rstrip("\r")
+            m = RE_D36_ROW.match(ln)
+            if m:
+                name, note = m.group(2), m.group(3).strip()
+                if name.startswith("("):
+                    entries.append({"file": None, "expected": m.group(1), "note": (name + " " + note).strip(),
+                                    "status": "note", "historical": True})
+                    continue
+                entries.append({"file": name, "expected": m.group(1), "note": note,
+                                "historical": ("폐기" in note) or ("시점" in note)})
+                continue
+            m = RE_D36_INLINE.search(ln)
+            if m:
+                entries.append({"file": m.group(2), "expected": m.group(1), "note": ln.strip()[:120], "historical": False})
+
+        def resolver_d36(name, idx=idx):
+            c = []
+            if "/" in name and (REPO / name).is_file():
+                c.append(REPO / name)
+            base = name.rsplit("/", 1)[-1]
+            for cand in idx.get(base, []):
+                if cand not in c:
+                    c.append(cand)
+            return c
+
+        _verify([e for e in entries if e.get("file")], resolver_d36)
+        # 같은 파일명이 여러 번 등장(개정 이력)하고 그중 하나가 현재 파일과 일치하면
+        # 나머지 불일치 항목은 예전 버전 기록으로 본다.
+        ok_names = {e["file"] for e in entries if e.get("file") and e["status"] == "ok"}
+        for e in entries:
+            if e.get("file") and e["status"] == "mismatch" and e["file"] in ok_names:
+                e["historical"] = True
+                e["note"] = (e["note"] + " " if e["note"] else "") + "(같은 파일의 현재 해시 일치 항목 있음 → 예전 버전)"
+            elif e.get("file") and e["status"] == "missing" and re.search(r"_\d{8}\.(csv|xls|xlsx)$", e["file"]):
+                e["note"] = (e["note"] + " " if e["note"] else "") + "(원본 데이터 파일 — 저장소 안에 없음, 미보관 추정)"
+    docs.append({"doc": "D-36", "file": info, "entries": entries, "summary": _summ([e for e in entries if e.get("file")])})
+    total = Counter()
+    for d in docs:
+        for k, v in d["summary"].items():
+            total[k] += v
+    return {"docs": docs, "summary": dict(total), "verified_at": fmt_dt(now_kst())}
+
+
+# ----------------------------------------------------------------------------- routing
+COLLECTORS = {
+    "health": collect_health,
+    "scheduler": collect_scheduler,
+    "pipeline": collect_pipeline,
+    "db": collect_db,
+    "paper": collect_paper,
+    "benchmark": collect_benchmark,
+    "forward": collect_forward,
+    "hashlock": collect_hashlock,
+}
+
+
+def get_endpoint(name: str) -> dict:
+    if name == "all":
+        out = {"generated_at": fmt_dt(now_kst())}
+        for k in COLLECTORS:
+            out[k] = get_endpoint(k)
+        return out
+    fn = COLLECTORS[name]
+    if TTL.get(name, 0) <= 0:
+        return fn()
+    return CACHE.get(name, TTL[name], fn)
+
+
+def get_recommendations() -> dict:
+    # 공용 캐시는 결과에 진단 필드를 추가하므로 서명된 계약에는 사용하지 않는다.
+    return build_recommendations(REPO, AUDIT_CSV)
+
+
+def to_json(obj) -> bytes:
+    return json.dumps(obj, ensure_ascii=False, default=str, indent=None).encode("utf-8")
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = VERSION.replace(" ", "/")
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, fmt, *args):  # 조용히: 2xx 는 남기지 않는다
+        msg = fmt % args
+        if re.search(r'" 2\d\d ', msg):
+            return
+        sys.stderr.write("%s %s %s\n" % (fmt_dt(now_kst()), self.address_string(), msg))
+
+    def _send(self, code: int, body: bytes, ctype: str):
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def do_HEAD(self):
+        self.do_GET()
+
+    def do_GET(self):
+        path = urlparse(self.path).path
+        try:
+            if path in ("/", "/index.html", "/dashboard"):
+                p = HERE / "dashboard.html"
+                if not p.exists():
+                    return self._send(404, b"dashboard.html missing", "text/plain; charset=utf-8")
+                return self._send(200, p.read_bytes(), "text/html; charset=utf-8")
+            if path == "/favicon.ico":
+                return self._send(204, b"", "image/x-icon")
+            if path == "/api/v1/recommendations":
+                return self._send(200, to_json(get_recommendations()), "application/json; charset=utf-8")
+            if path.startswith("/api/"):
+                name = path[5:].strip("/")
+                if name == "all" or name in COLLECTORS:
+                    return self._send(200, to_json(get_endpoint(name)), "application/json; charset=utf-8")
+                return self._send(404, to_json({"error": "unknown endpoint", "endpoints": ["all", *COLLECTORS]}),
+                                  "application/json; charset=utf-8")
+            return self._send(404, b"not found", "text/plain; charset=utf-8")
+        except Exception as e:  # pragma: no cover
+            sys.stderr.write("%s ERROR %s: %r\n" % (fmt_dt(now_kst()), path, e))
+            return self._send(500, to_json({"error": f"{type(e).__name__}: {e}"}), "application/json; charset=utf-8")
+
+
+def main(argv=None) -> int:
+    import argparse
+
+    ap = argparse.ArgumentParser(description="kqs-bridge (read-only)")
+    ap.add_argument("--bind", default=BIND)
+    ap.add_argument("--port", type=int, default=PORT)
+    ap.add_argument("--once", metavar="ENDPOINT", help="서버를 띄우지 않고 해당 엔드포인트 JSON 만 출력(all|health|...)")
+    ap.add_argument("--pidfile", default=str(HERE / "bridge.pid"))
+    a = ap.parse_args(argv)
+    if a.once:
+        sys.stdout.write(json.dumps(get_endpoint(a.once), ensure_ascii=False, default=str, indent=2))
+        sys.stdout.write("\n")
+        return 0
+    ThreadingHTTPServer.allow_reuse_address = True
+    ThreadingHTTPServer.daemon_threads = True
+    srv = ThreadingHTTPServer((a.bind, a.port), Handler)
+    try:
+        Path(a.pidfile).write_text(str(os.getpid()) + "\n")
+    except OSError:
+        pass
+    sys.stderr.write("%s %s listening on http://%s:%d/ (repo=%s, read-only)\n" % (fmt_dt(now_kst()), VERSION, a.bind, a.port, REPO))
+    sys.stderr.flush()
+    try:
+        srv.serve_forever(poll_interval=1.0)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        srv.server_close()
+        try:
+            if Path(a.pidfile).read_text().strip() == str(os.getpid()):
+                Path(a.pidfile).unlink()
+        except OSError:
+            pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

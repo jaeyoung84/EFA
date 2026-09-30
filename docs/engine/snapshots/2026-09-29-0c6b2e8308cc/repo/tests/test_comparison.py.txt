@@ -1,0 +1,82 @@
+from types import SimpleNamespace
+
+import pandas as pd
+import pytest
+
+from korea_quant import comparison
+from korea_quant.backtest import BacktestConfig, BacktestReport
+from korea_quant.comparison import (
+    StrategyRun,
+    comparison_summary,
+    run_all_strategies,
+    write_comparison_reports,
+)
+
+
+def _report(value: float = 0.1):
+    index = pd.bdate_range("2024-01-01", periods=2)
+    return BacktestReport(
+        metrics={
+            "CAGR": value, "MDD": -value, "Sharpe Ratio": 1.0,
+            "Total Return": value, "Benchmark Return": value / 2,
+            "Trade Count": 1.0, "Win Rate": 1.0, "Fee Rate": 0.001,
+            "Total Fees": 100.0, "Slippage Rate": 0.001,
+        },
+        equity=pd.DataFrame({"Strategy": [100, 110], "Benchmark": [100, 105]}, index=index),
+        monthly_returns=pd.DataFrame({"Strategy": [0.1], "Benchmark": [0.05]}, index=[index[-1]]),
+    )
+
+
+def test_run_all_strategies_uses_same_prices_and_cost_config(monkeypatch):
+    prices = pd.DataFrame({"Close": [100, 101], "Open": [100, 101]})
+    seen = []
+
+    def fake_run(received_prices, config):
+        seen.append((received_prices, config))
+        return SimpleNamespace(), pd.DataFrame({"entries": [False, True], "exits": [False, False]})
+
+    monkeypatch.setattr(comparison, "run_baseline", fake_run)
+    monkeypatch.setattr(comparison, "build_report", lambda *_args: _report())
+    results = run_all_strategies(
+        prices, BacktestConfig(fee_rate=0.002, slippage_rate=0.003), ("sma", "rsi-obv")
+    )
+
+    assert set(results) == {"sma", "rsi-obv"}
+    assert all(item[0] is prices for item in seen)
+    assert {item[1].strategy for item in seen} == {"sma", "rsi-obv"}
+    assert all(item[1].fee_rate == 0.002 and item[1].slippage_rate == 0.003 for item in seen)
+
+
+def test_comparison_summary_counts_signals():
+    signals = pd.DataFrame({"entries": [False, True, False], "exits": [False, False, True]})
+    summary = comparison_summary({"sma": StrategyRun(_report(), signals)})
+    assert summary.loc[0, "Strategy"] == "sma"
+    assert summary.loc[0, "Entry Signals"] == 1
+    assert summary.loc[0, "Exit Signals"] == 1
+
+
+def test_comparison_rejects_unknown_or_empty_strategy_list():
+    prices = pd.DataFrame({"Close": [100, 101], "Open": [100, 101]})
+    with pytest.raises(ValueError, match="At least one"):
+        run_all_strategies(prices, BacktestConfig(), ())
+    with pytest.raises(ValueError, match="Unknown"):
+        run_all_strategies(prices, BacktestConfig(), ("unknown",))
+
+
+def test_write_comparison_reports_links_details_and_exports_csv(tmp_path, monkeypatch):
+    signals = pd.DataFrame({"entries": [False, True], "exits": [False, False]})
+    results = {"sma": StrategyRun(_report(), signals)}
+
+    def fake_write(_report, html, csv, **_kwargs):
+        html.write_text("detail", encoding="utf-8")
+        csv.write_text("detail", encoding="utf-8")
+        return html, csv
+
+    monkeypatch.setattr(comparison, "write_reports", fake_write)
+    html, csv = write_comparison_reports(
+        results, pd.DataFrame(), tmp_path, "005930", "삼성전자"
+    )
+
+    assert 'href="sma.html"' in html.read_text(encoding="utf-8")
+    exported = pd.read_csv(csv)
+    assert exported["Strategy"].tolist() == ["sma"]

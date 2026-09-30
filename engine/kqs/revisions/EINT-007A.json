@@ -1,0 +1,116 @@
+{
+  "schema": "kqs-runtime-revision/v1",
+  "change_id": "EINT-007A",
+  "created_at": "2026-09-29T03:52:07.698974+00:00",
+  "supersedes": "EINT-007",
+  "initial_manifest": {
+    "path": "engine/kqs/migration_manifest.json",
+    "sha256": "989dd536a3aa1bb7e96e55e5ef903b50d259594c98ef2445dbe173d364355580"
+  },
+  "previous_revision": {
+    "path": "engine/kqs/revisions/EINT-007.json",
+    "sha256": "f16d5ea43d0f216664f8a3071c54c69d5fc538840f8beaad32fabdbc4a72235d"
+  },
+  "previous_verification": {
+    "path": "docs/engine/verification/EINT-007.json",
+    "sha256": "b76e091f7dffccb350e9336011d588cef0f68a6d51488cf33fa173b554cf99ed"
+  },
+  "dependency_lock": {
+    "path": "engine/kqs/requirements.lock",
+    "sha256": "d5677f00d64a3952e04be5d02b509de1ddb808e3877eb8ea1d3b4b56359a38b3"
+  },
+  "package_metadata": {
+    "path": "engine/kqs/pyproject.toml",
+    "sha256": "f08730305884250a3a8bd0dd8740d3f0ef8b20788c61775ee059c97f79a4a04c"
+  },
+  "code": {
+    "package_version": "0.6.0",
+    "source_commit": "ae52b1fee82dbfab8e825c7848f5345187cba9ae",
+    "code_sha256": "9517b85047566c0f07980c6f6cc3da41816cba866cf48d8ccd3683de0b3ced1e",
+    "component_sha256": {
+      "korea_quant/__init__.py": "960d03eca7c45577aea05e6d71dea5269a209ad02c7f15f584f53d535da6a405",
+      "korea_quant/eligibility.py": "f363ec556a14adfdad06af331f3f94f35beb9de405cb047b83b1677f8da1836d",
+      "korea_quant/reversion_scanner.py": "c9bc74ff52f2c79e4e4197679d4ea967bb9aa91b37fa2cf643cc5538c0bd1d99",
+      "korea_quant/strategy.py": "bdf8506cf1371f9b5aca1f4001649ca509c132651d749a550062a452c3b3c9d8",
+      "kqs_collection/__init__.py": "99e384cc6de3f53eb35caf61a8f68e8224705ccd195287f60af234f0d1988ffc",
+      "kqs_collection/cli.py": "05fb03c1024eee29e12838ffe9f27ec2d02c088b5fe2212021170a57387378e8",
+      "kqs_collection/coverage.py": "64848e30d98a254c97053275bf34cd3d7ec97b3b914ef292edeb2418d9906da0",
+      "kqs_collection/krx.py": "fb6d5fbd23009fe4e29cef71f90680d81c53906d0c2e51ce4eb9215d0e7a43df",
+      "kqs_collection/quality.py": "3f50e8d2df2cb94ad3e94abe7ec4b613a811015917eba90aa1b76a993341e1f7",
+      "kqs_collection/store.py": "094bfb5388e70d43835c2ba456ff2349005d8956a27f908f07335d7a02eb47ad",
+      "kqs_ops/__init__.py": "cad9fb03eee68f911d2c23541c2ae7e4095a63d4f5df594e7f324a4072355a9c",
+      "kqs_ops/backup.py": "01fdb35eef67c72d7213c6d422a1874037b8a5c217eeec0b4bdee21daf347955",
+      "kqs_ops/paths.py": "b05f2ae5f8809dd1bb74650788f60322d07daa51901a76707d7efb557949eb11",
+      "kqs_ops/runlog.py": "70999197f1c4190b0d3cf776913742be4f1c4361ecd96c90841e6a05dffb82f2",
+      "kqs_ops/status.py": "1f1a50c63c90b3755daf8d40622b3be11846b19686d257d1a66561d9a51ae0f8",
+      "kqs_publication/__init__.py": "c66278f32a047b596624280f0fafd4e29b5a7a4527792546ffaba488b342016d",
+      "kqs_publication/attempts.py": "5699f5e1607a395844a7c78b965f29ef3861a16caf1b19066ff2f8efaddbba1c",
+      "kqs_publication/calendar.py": "bc4b4badb87c948a7cf1b955b9a909c98df3400e0fb9882821000cb27756389e",
+      "kqs_publication/calendars/krx_equity_2026.json": "c35228678b6f1059fcd944ec34f20f620207bf5b577d063d0cee52a3f8ab11b9",
+      "kqs_publication/contract.py": "b0668aaffc2ec677d0b21567239f04f4714a73cc7751ea99e0c7c0ec8b0adb6d",
+      "kqs_publication/publisher.py": "b6029705c4c94e750b1a2ad85eac959d861b73fa0490931d9f11351dbc76fc9b",
+      "kqs_publication/store.py": "8ec9d63b3a7e55e8b01f30861cff12113330112cfb38cdbd455f53ee042bf829",
+      "kqs_publication/writer.py": "a1dd5c1379dd9e684f38681e42ca0460a9ebf1d40463381b0d8d18bd6e9e6685",
+      "kqs_runtime/__init__.py": "02cda8978398b4c7f9a4c3ce2399cd8ea250aefc69c124c6140a6552b6df3a8a",
+      "kqs_runtime/cli.py": "31b2a207fe870a9ffa16c51339c42a198838cbe9bd4218702a7154ffecbcc35f",
+      "kqs_runtime/inputs.py": "3130ba44dd732e0048699dbeee5ce9f2ddef71297ec82fe9f53784bf209d7fdc",
+      "kqs_runtime/pipeline.py": "904d4cc9bbf962dacaa4a103a7e95f459637c451c67ae20d26d358e0f7eb32b1",
+      "kqs_runtime/provenance.py": "1a548c3bef535cab795e187e130ee75ed1c5bf9565782c405f9c237ef4a1998b",
+      "kqs_runtime/recommendations.py": "9f08ae80ccf0c30700a49dbbaf8052840c5a096918685ce2ac67c4e8220681f0",
+      "kqs_runtime/sqlite_reader.py": "35c92efd496fdb7dc51066ec1192994104ee52ed10ba881cbdb55df97af626dc",
+      "kqs_runtime/worker.py": "fee8930ca466c18f55e1ded7cf4c97d784670f93913cb264e8a3cea5380c946c"
+    },
+    "python": "3.14.4",
+    "dependencies": {
+      "pandas": "2.3.3",
+      "numpy": "2.3.5",
+      "python-dateutil": "2.9.0.post0",
+      "pytz": "2026.4",
+      "tzdata": "2026.4",
+      "six": "1.17.0"
+    }
+  },
+  "calendar": {
+    "calendar_id": "krx-equity-2026",
+    "path": "engine/kqs/src/kqs_publication/calendars/krx_equity_2026.json",
+    "sha256": "c35228678b6f1059fcd944ec34f20f620207bf5b577d063d0cee52a3f8ab11b9",
+    "policy": "krx-session-expiry/v1",
+    "data_available_time_kst": "06:00",
+    "coverage": "2026 only; unknown year fails closed",
+    "sources": [
+      "https://global.krx.co.kr/contents/GLB/06/0602/0602010201/GLB0602010201T1.jsp",
+      "https://global.krx.co.kr/contents/GLB/05/0501/0501060000/GLB0501060000T3.jsp"
+    ]
+  },
+  "reused_decisions": [
+    "D-11",
+    "D-19",
+    "D-24",
+    "D-27",
+    "D-28",
+    "D-30",
+    "D-31",
+    "D-44"
+  ],
+  "preserved_core_modules": 4,
+  "changes": [
+    "kqs_runtime.inputs.normalize_symbol: accept six-character alphanumeric KRX codes (e.g. 00088K, 0030R0) as the archived validate_krx_symbol does; numeric codes keep the zero-fill",
+    "kqs_runtime.sqlite_reader.drop_unfillable_halted_rows: rows still without OHLC after halt carry-forward (symbol halted from the first history row) are dropped and counted in history.attrs; they never reach the unchanged core",
+    "kqs_runtime.worker: attempt records input_adjustments (dropped row and symbol counts)",
+    "infra/docker/docker-compose.engine.yml: kqs-backup keeps 2 local copies (S3 keeps 30 days)"
+  ],
+  "contract": "kqs-recommendations/v1",
+  "publication_policy": "explicit-session-expiry/v1 + krx-session-expiry/v1 + market-input-quality-gate/v1 + single-writer-lock/v1",
+  "safety": {
+    "orders_enabled": false,
+    "automatic_fills_enabled": false,
+    "legacy_ledger_compatible": false,
+    "research_runs": 0,
+    "market_collection_runs": 0,
+    "production_publication_performed": true,
+    "deployment_performed": true
+  },
+  "scope": "Amendment of EINT-007 for defects found by the first real deployment; deployed to EC2 and verified on real data.",
+  "verification": "docs/engine/verification/EINT-007A.json",
+  "future_change_rule": "Add a new successor and change CI manifest selection explicitly; never overwrite EINT-001..007 manifests or verification records."
+}

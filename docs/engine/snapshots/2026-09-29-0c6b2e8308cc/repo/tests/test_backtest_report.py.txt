@@ -1,0 +1,534 @@
+from types import SimpleNamespace
+
+import pandas as pd
+import pytest
+
+from korea_quant.backtest import (
+    BacktestConfig,
+    apply_golden_cross_filter,
+    apply_liquidity_filter,
+    apply_market_trend_filter,
+    apply_outlier_filter,
+    apply_rs_filter,
+    apply_trade_blocks,
+    build_report,
+    build_trade_block_masks,
+    generate_signals,
+    run_baseline,
+    run_signals,
+    write_reports,
+)
+
+
+class FakePortfolio:
+    def __init__(self):
+        self._value = pd.Series(
+            [100.0, 110.0, 99.0, 120.0],
+            index=pd.to_datetime(["2024-01-30", "2024-01-31", "2024-02-01", "2024-02-29"]),
+        )
+        self.trades = SimpleNamespace(
+            records_readable=pd.DataFrame(
+                {"PnL": [10.0, -5.0, 7.0], "Status": ["Closed", "Closed", "Open"]}
+            )
+        )
+        self.orders = SimpleNamespace(records_readable=pd.DataFrame({"Fees": [1.5, 2.5]}))
+
+    def value(self):
+        return self._value
+
+
+def test_build_report_calculates_required_metrics_and_months():
+    benchmark = pd.Series([100, 102, 101, 108], index=FakePortfolio().value().index)
+    report = build_report(FakePortfolio(), benchmark, BacktestConfig())
+
+    assert set(report.metrics) == {
+        "CAGR",
+        "MDD",
+        "Sharpe Ratio",
+        "Total Return",
+        "Benchmark Return",
+        "Trade Count",
+        "Win Rate",
+        "Fee Rate",
+        "Total Fees",
+        "Slippage Rate",
+    }
+    assert report.metrics["Total Return"] == pytest.approx(0.2)
+    assert report.metrics["Benchmark Return"] == pytest.approx(0.08)
+    assert report.metrics["MDD"] == pytest.approx(-0.1)
+    assert report.metrics["Trade Count"] == 2
+    assert report.metrics["Win Rate"] == pytest.approx(0.5)
+    assert report.metrics["Total Fees"] == 4.0
+    assert len(report.monthly_returns) == 2
+
+
+def test_write_reports_contains_metrics_and_all_csv_sections(tmp_path):
+    benchmark = pd.Series([100, 102, 101, 108], index=FakePortfolio().value().index)
+    report = build_report(FakePortfolio(), benchmark, BacktestConfig())
+    html_path, csv_path = write_reports(report, tmp_path / "report.html", tmp_path / "report.csv")
+
+    html = html_path.read_text(encoding="utf-8")
+    csv = pd.read_csv(csv_path)
+    assert "CAGR" in html and "Asset Curve" in html and "Monthly Returns" in html
+    assert set(csv["section"]) == {"summary", "monthly_return", "equity_curve"}
+    assert {"Strategy", "Benchmark"} <= set(csv.loc[csv.section == "monthly_return", "metric"])
+
+
+def test_write_reports_includes_market_chart_prices_and_signals(tmp_path):
+    benchmark = pd.Series([100, 102, 101, 108], index=FakePortfolio().value().index)
+    report = build_report(FakePortfolio(), benchmark, BacktestConfig())
+    prices = pd.DataFrame(
+        {
+            "Open": [100, 101, 102, 103],
+            "High": [102, 103, 104, 105],
+            "Low": [99, 100, 101, 102],
+            "Close": [101, 102, 103, 104],
+            "Volume": [1000, 1100, 1200, 1300],
+        },
+        index=benchmark.index,
+    )
+    signals = pd.DataFrame(
+        {
+            "fast": [None, 101.5, 102.5, 103.5],
+            "slow": [None, None, 102.0, 103.0],
+            "entries": [False, False, False, True],
+            "exits": [False, False, False, False],
+        },
+        index=benchmark.index,
+    )
+
+    html_path, csv_path = write_reports(
+        report,
+        tmp_path / "full.html",
+        tmp_path / "full.csv",
+        prices=prices,
+        signals=signals,
+        title="005930 삼성전자",
+    )
+
+    html = html_path.read_text(encoding="utf-8")
+    csv = pd.read_csv(csv_path)
+    assert all(
+        label in html for label in ("Daily Candles and Signals", "Volume", "005930 삼성전자")
+    )
+    assert {"daily_price", "signal"} <= set(csv["section"])
+
+
+def test_run_baseline_applies_fees_and_slippage():
+    index = pd.bdate_range("2024-01-01", periods=30)
+    close = pd.Series([100 + index % 8 for index in range(30)], index=index)
+    prices = pd.DataFrame({"Open": close, "Close": close, "Volume": 1000}, index=index)
+    free, _ = run_baseline(
+        prices,
+        BacktestConfig(
+            fast_window=2,
+            slow_window=5,
+            fee_rate=0,
+            slippage_rate=0,
+            minimum_average_trading_value=0,
+            minimum_signal_trading_value=0,
+        ),
+    )
+    costly, _ = run_baseline(
+        prices,
+        BacktestConfig(
+            fast_window=2,
+            slow_window=5,
+            fee_rate=0.01,
+            slippage_rate=0.01,
+            minimum_average_trading_value=0,
+            minimum_signal_trading_value=0,
+        ),
+    )
+
+    assert costly.value().iloc[-1] < free.value().iloc[-1]
+
+
+def test_liquidity_filter_uses_prior_close_observation_for_open_entry():
+    index = pd.bdate_range("2024-01-01", periods=4)
+    signals = pd.DataFrame({"entries": True, "exits": False}, index=index)
+    prices = pd.DataFrame(
+        {
+            "Close": 100,
+            "Volume": 1,
+            "TradingValue": [10, 10, 1_000, 1_000],
+        },
+        index=index,
+    )
+    config = BacktestConfig(
+        liquidity_window=2,
+        minimum_average_trading_value=100,
+        minimum_signal_trading_value=500,
+    )
+
+    filtered = apply_liquidity_filter(signals, prices, config)
+
+    assert bool(filtered.loc[index[2], "liquidity_observed"])
+    assert not bool(filtered.loc[index[2], "entries"])
+    assert bool(filtered.loc[index[3], "entries"])
+
+
+def test_relative_strength_filter_uses_prior_close_for_open_entry():
+    index = pd.bdate_range("2024-01-01", periods=4)
+    signals = pd.DataFrame({"entries": True, "exits": False}, index=index)
+    close = pd.Series([100, 100, 120, 120], index=index)
+    market = pd.Series(100, index=index)
+
+    filtered = apply_rs_filter(signals, close, market, window=1, threshold=0.10)
+
+    assert bool(filtered.loc[index[2], "relative_strength_observed"])
+    assert not bool(filtered.loc[index[2], "entries"])
+    assert bool(filtered.loc[index[3], "entries"])
+
+
+def test_outlier_filter_includes_exact_threshold_and_blocks_following_sessions():
+    index = pd.bdate_range("2024-01-01", periods=6)
+    signals = pd.DataFrame({"entries": True, "exits": False}, index=index)
+    close = pd.Series([100, 100, 50, 50, 50, 50], index=index)
+
+    filtered = apply_outlier_filter(signals, close, threshold=0.50, cooldown=2)
+
+    assert bool(filtered.loc[index[2], "outlier_observed"])
+    assert bool(filtered.loc[index[2], "entries"])
+    assert not bool(filtered.loc[index[3], "entries"])
+    assert not bool(filtered.loc[index[4], "entries"])
+    assert bool(filtered.loc[index[5], "entries"])
+
+
+def test_market_trend_filter_uses_prior_close_for_entries_and_keeps_exits():
+    index = pd.bdate_range("2024-01-01", periods=5)
+    signals = pd.DataFrame(
+        {"entries": [False, False, True, False, True], "exits": [False, False, False, True, False]},
+        index=index,
+    )
+    market_close = pd.Series([100, 99, 100, 90, 100], index=index)
+
+    filtered = apply_market_trend_filter(signals, market_close, window=2)
+
+    assert not filtered.loc[index[2], "entries"]
+    assert not filtered.loc[index[4], "entries"]
+    assert filtered.loc[index[3], "exits"]
+    assert not filtered.loc[index[0], "market_entry_allowed"]
+
+
+def test_market_trend_filter_requires_complete_positive_market_prices():
+    index = pd.bdate_range("2024-01-01", periods=3)
+    signals = pd.DataFrame({"entries": False, "exits": False}, index=index)
+    with pytest.raises(ValueError, match="cover"):
+        apply_market_trend_filter(signals, pd.Series([100, 101], index=index[:2]), window=2)
+
+
+def test_golden_cross_filter_uses_prior_close_and_keeps_exits():
+    index = pd.bdate_range("2024-01-01", periods=6)
+    signals = pd.DataFrame(
+        {
+            "entries": [False, False, False, True, True, False],
+            "exits": [False, False, False, False, False, True],
+        },
+        index=index,
+    )
+    close = pd.Series([10, 9, 10, 11, 12, 13], index=index)
+
+    filtered = apply_golden_cross_filter(signals, close, fast_window=2, slow_window=3)
+
+    assert not filtered.loc[index[3], "entries"]
+    assert filtered.loc[index[4], "entries"]
+    assert filtered.loc[index[5], "exits"]
+    assert filtered.loc[index[4], "golden_entry_allowed"]
+
+
+def test_golden_cross_filter_can_exit_only_after_regime_loss():
+    index = pd.bdate_range("2024-01-01", periods=7)
+    signals = pd.DataFrame({"entries": False, "exits": False}, index=index)
+    close = pd.Series([10, 11, 12, 13, 8, 7, 6], index=index)
+
+    filtered = apply_golden_cross_filter(
+        signals, close, fast_window=2, slow_window=3, exit_on_regime_loss=True
+    )
+
+    lost_regime = filtered.index[
+        ~filtered["golden_cross_observed"] & filtered["golden_slow"].notna()
+    ][0]
+    assert not bool(filtered.loc[lost_regime, "exits"])
+    assert filtered.loc[filtered.index[filtered.index.get_loc(lost_regime) + 1], "exits"]
+
+
+def test_split_exit_requires_golden_cross():
+    index = pd.bdate_range("2024-01-01", periods=10)
+    prices = pd.DataFrame({"Open": range(10, 20), "Close": range(10, 20)}, index=index)
+    with pytest.raises(ValueError, match="requires"):
+        run_baseline(
+            prices,
+            BacktestConfig(
+                fast_window=2,
+                slow_window=3,
+                split_exit=True,
+                minimum_average_trading_value=0,
+                minimum_signal_trading_value=0,
+            ),
+        )
+
+
+def test_generate_signals_selects_bollinger_rsi():
+    index = pd.bdate_range("2024-01-01", periods=40)
+    prices = pd.DataFrame({"Close": [100 + value % 7 for value in range(40)]}, index=index)
+
+    signals = generate_signals(
+        prices,
+        BacktestConfig(strategy="bollinger-rsi", bollinger_window=10, rsi_window=5),
+    )
+
+    assert {"bb_upper", "bb_middle", "bb_lower", "rsi", "entries", "exits"} == set(signals)
+
+
+def test_generate_signals_rejects_unknown_strategy():
+    with pytest.raises(ValueError, match="Unknown strategy"):
+        generate_signals(pd.DataFrame({"Close": [1, 2, 3]}), BacktestConfig(strategy="unknown"))
+
+
+def test_generate_signals_selects_donchian_atr():
+    index = pd.bdate_range("2024-01-01", periods=40)
+    close = pd.Series([100 + value for value in range(40)], index=index)
+    prices = pd.DataFrame({"High": close + 1, "Low": close - 1, "Close": close}, index=index)
+
+    signals = generate_signals(
+        prices,
+        BacktestConfig(
+            strategy="donchian-atr",
+            donchian_entry_window=10,
+            donchian_exit_window=5,
+            atr_window=5,
+        ),
+    )
+
+    assert {"donchian_upper", "donchian_lower", "atr", "atr_stop", "entries", "exits"} == set(
+        signals
+    )
+
+
+def test_generate_signals_selects_macd_trend():
+    index = pd.bdate_range("2024-01-01", periods=40)
+    prices = pd.DataFrame({"Close": [100 + value % 10 for value in range(40)]}, index=index)
+
+    signals = generate_signals(
+        prices,
+        BacktestConfig(
+            strategy="macd-trend",
+            macd_fast=3,
+            macd_slow=6,
+            macd_signal=2,
+            trend_window=10,
+        ),
+    )
+
+    assert {"trend_sma", "macd", "macd_signal", "macd_histogram", "entries", "exits"} == set(
+        signals
+    )
+
+
+def test_generate_signals_selects_candle_volume():
+    index = pd.bdate_range("2024-01-01", periods=30)
+    close = pd.Series([100 + value % 5 for value in range(30)], index=index)
+    prices = pd.DataFrame(
+        {
+            "Open": close - 1,
+            "High": close + 1,
+            "Low": close - 2,
+            "Close": close,
+            "Volume": 1000,
+        },
+        index=index,
+    )
+    signals = generate_signals(
+        prices,
+        BacktestConfig(strategy="candle-volume", volume_window=5),
+    )
+    assert {
+        "volume_average",
+        "volume_confirmed",
+        "bullish_engulfing",
+        "bullish_hammer",
+        "bearish_engulfing",
+        "entries",
+        "exits",
+    } == set(signals)
+
+
+def test_generate_signals_selects_rsi_obv():
+    index = pd.bdate_range("2024-01-01", periods=30)
+    prices = pd.DataFrame(
+        {"Close": [100 + value % 5 for value in range(30)], "Volume": 1000}, index=index
+    )
+    signals = generate_signals(
+        prices,
+        BacktestConfig(strategy="rsi-obv", rsi_window=5, obv_signal_window=3),
+    )
+    assert {
+        "rsi",
+        "obv",
+        "obv_signal",
+        "rsi_recovery",
+        "obv_rising",
+        "obv_weakening",
+        "entries",
+        "exits",
+    } == set(signals)
+
+
+def test_generate_signals_selects_ema30_resistance():
+    index = pd.bdate_range("2024-01-01", periods=40)
+    close = pd.Series([100 + value % 7 for value in range(40)], index=index)
+    prices = pd.DataFrame(
+        {"Open": close - 1, "High": close + 2, "Low": close - 2, "Close": close},
+        index=index,
+    )
+    signals = generate_signals(
+        prices,
+        BacktestConfig(strategy="ema30-resistance", ema_window=10),
+    )
+    assert {
+        "ema30",
+        "resistance",
+        "latest_support",
+        "structure_stop",
+        "confirmed_swing_high",
+        "confirmed_swing_low",
+        "strong_bullish",
+        "breakout",
+        "entries",
+        "exits",
+    } == set(signals)
+
+
+def test_generate_signals_selects_volatility_squeeze():
+    index = pd.bdate_range("2024-01-01", periods=140)
+    close = pd.Series([100 + value % 4 for value in range(140)], index=index)
+    prices = pd.DataFrame(
+        {"High": close + 1, "Low": close - 1, "Close": close, "Volume": 1_000}, index=index
+    )
+
+    signals = generate_signals(
+        prices,
+        BacktestConfig(
+            strategy="volatility-squeeze",
+            ema_window=5,
+            squeeze_band_window=5,
+            squeeze_atr_window=3,
+            squeeze_lookback=10,
+            squeeze_breakout_window=5,
+            volume_window=5,
+        ),
+    )
+
+    assert {"squeeze", "breakout_level", "volume_confirmed", "entries", "exits"} <= set(signals)
+
+
+def test_write_reports_adds_rsi_panel_for_bollinger_strategy(tmp_path):
+    benchmark = pd.Series([100, 102, 101, 108], index=FakePortfolio().value().index)
+    report = build_report(FakePortfolio(), benchmark, BacktestConfig())
+    prices = pd.DataFrame(
+        {
+            "Open": [100, 101, 102, 103],
+            "High": [102, 103, 104, 105],
+            "Low": [99, 100, 101, 102],
+            "Close": [101, 102, 103, 104],
+            "Volume": [1000, 1100, 1200, 1300],
+        },
+        index=benchmark.index,
+    )
+    signals = pd.DataFrame(
+        {
+            "bb_upper": [103, 104, 105, 106],
+            "bb_middle": [101, 102, 103, 104],
+            "bb_lower": [99, 100, 101, 102],
+            "rsi": [25, 35, 45, 55],
+            "entries": [False, True, False, False],
+            "exits": [False, False, False, True],
+        },
+        index=benchmark.index,
+    )
+
+    html, _ = write_reports(
+        report, tmp_path / "rsi.html", tmp_path / "rsi.csv", prices=prices, signals=signals
+    )
+
+    content = html.read_text(encoding="utf-8")
+    assert "Bollinger Lower" in content
+    assert "RSI" in content
+
+
+def test_trade_blocks_require_the_price_limit_to_remain_locked_all_session():
+    index = pd.bdate_range("2024-01-01", periods=5)
+    prices = pd.DataFrame(
+        {
+            "Open": [100, 130, 130, 91, 91],
+            "High": [100, 130, 135, 91, 100],
+            "Low": [100, 130, 120, 91, 85],
+            "Close": [100, 100, 130, 130, 100],
+            "Volume": [100, 100, 100, 100, 100],
+        },
+        index=index,
+    )
+    cant_buy, cant_sell = build_trade_block_masks(prices, 0.30)
+    assert cant_buy.tolist() == [False, True, False, False, False]
+    assert cant_sell.tolist() == [False, False, False, True, False]
+
+
+def test_trade_blocks_cancel_entries_and_delay_exits_until_trading_resumes():
+    index = pd.bdate_range("2024-01-01", periods=5)
+    entries = pd.Series([False, True, False, False, False], index=index)
+    exits = pd.Series([False, False, True, False, False], index=index)
+    cant_buy = pd.Series([False, True, False, False, False], index=index)
+    cant_sell = pd.Series([False, False, True, True, False], index=index)
+    new_entries, new_exits = apply_trade_blocks(entries, exits, cant_buy, cant_sell)
+    assert not new_entries.any()
+    assert new_exits.tolist() == [False, False, False, False, True]
+    assert new_exits.sum() == 1
+
+
+def test_run_signals_caps_entries_but_fully_closes_positions():
+    index = pd.bdate_range("2024-01-01", periods=4)
+    prices = pd.DataFrame(
+        {
+            "Open": [10.0, 10.0, 10.0, 10.0],
+            "Close": [10.0, 10.0, 10.0, 10.0],
+            "Volume": [100, 100, 100, 100],
+            "TradingValue": [1_000.0, 1_000.0, 1_000.0, 1_000.0],
+        },
+        index=index,
+    )
+    signals = pd.DataFrame(
+        {"entries": [False, True, False, False], "exits": [False, False, True, False]},
+        index=index,
+    )
+    config = BacktestConfig(
+        initial_cash=1_000, fee_rate=0, sell_tax_rate=0, slippage_rate=0,
+        maximum_participation_rate=0.10, filter_halts=False,
+    )
+    portfolio = run_signals(prices, signals, config)
+    orders = portfolio.orders.records_readable
+    assert orders["Size"].tolist() == [10.0, 10.0]
+
+
+def test_run_signals_drops_entry_when_prior_session_trading_value_is_zero():
+    index = pd.bdate_range("2024-01-01", periods=4)
+    prices = pd.DataFrame(
+        {
+            "Open": [10.0, 10.0, 10.0, 10.0],
+            "Close": [10.0, 10.0, 10.0, 10.0],
+            "Volume": [100, 0, 100, 100],
+            "TradingValue": [1_000.0, 0.0, 1_000.0, 1_000.0],
+        },
+        index=index,
+    )
+    signals = pd.DataFrame(
+        {"entries": [False, False, True, False], "exits": [False, False, False, True]},
+        index=index,
+    )
+    config = BacktestConfig(
+        initial_cash=1_000, fee_rate=0, sell_tax_rate=0, slippage_rate=0,
+        maximum_participation_rate=0.10, filter_halts=False,
+    )
+    portfolio = run_signals(prices, signals, config)
+    orders = portfolio.orders.records_readable
+    assert orders.empty

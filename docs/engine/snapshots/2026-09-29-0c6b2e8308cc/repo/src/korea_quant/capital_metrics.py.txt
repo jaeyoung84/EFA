@@ -1,0 +1,576 @@
+"""Capital-aware evaluation -- what a trade list earns on money, not per trade.
+
+Every acceptance metric in ``strategy_goals`` is measured per trade: win rate,
+profit factor, payoff ratio, expectancy, median return. None of them has a
+capital denominator, so a strategy can pass all of them and still be worth less
+than an index fund. That is not hypothetical. Under D-8's adopted regime filter
+bollinger-rsi and rsi-obv show profit factors of 1.76 and 2.33 with 65% and 74%
+win rates, and DECISIONS.md's own "annualised equivalent" arithmetic reports
+35.7% and 51.2% a year -- while the same trades run through an actual portfolio
+return 3-5% a year against 15.6% for buying KODEX 200 over the identical span.
+
+The gap has one cause, and it is structural rather than a parameter mistake:
+
+* **Signals arrive in bursts.** A mean-reversion family gated to buy weakness
+  fires everything at once. Measured over 2018-2026 the two strategies together
+  open a median of 2 positions on a signal day but as many as 59, and hold a
+  median of 7 concurrent positions against a peak of 182. Capital sized for the
+  peak idles through the median; capital sized for the median skips precisely
+  the crowded selloffs the family earns its living in.
+* **The annualised-equivalent formula assumes the capital never waits.** It
+  divides mean trade return by mean holding period. Two of every ten business
+  days hold no position at all, and that idle time earns nothing.
+
+So this module simulates the deployment rule the system actually ships --
+``daily_picks_cli`` takes the top few names per session and never re-enters a
+symbol it already holds -- and reports CAGR, drawdown and exposure from the
+resulting equity curve.
+
+Two deliberate limits, both of which make the numbers here optimistic rather
+than pessimistic:
+
+1. **Drawdown is realised-only.** Validation trades carry an entry and an exit,
+   not a daily mark, so the equity curve moves at exits. A position 30% underwater
+   mid-hold is invisible until it closes. Treat ``realised_max_drawdown`` as a
+   floor on the real figure.
+2. **Selection inside a day is not modelled as skill.** A generic trade list has
+   no record of the live scanner's point-in-time ordering, so random orderings
+   remain its neutral assumption. Validation trade lists that carry
+   ``Live Selection Key`` instead replay that deterministic live ordering. The
+   key is an operational tie-break (market-cap rank, then stable identifiers),
+   not a quality ranking. The two greedy hindsight scenarios only show how
+   sensitive the result is to choosing among same-day candidates. They are
+   neither exhaustive optima nor mathematical bounds, and they are not evidence
+   for a live ranking model.
+
+Nothing here gates PASS. The thresholds that would make it gate are a decision
+for DECISIONS.md, not a default invented in a module.
+"""
+
+from __future__ import annotations
+
+import itertools
+import math
+from collections.abc import Callable
+from dataclasses import dataclass
+
+import numpy as np
+import pandas as pd
+
+__all__ = [
+    "CAPITAL_COLUMNS",
+    "CAPITAL_DECIMAL_COLUMNS",
+    "CAPITAL_KRW_COLUMNS",
+    "CAPITAL_PERCENT_COLUMNS",
+    "DEPLOYMENT_INPUT_COLUMNS",
+    "LIVE_SELECTION_KEY",
+    "SELECTION_COLUMNS",
+    "CapitalMetrics",
+    "DeploymentConfig",
+    "benchmark_buy_and_hold",
+    "can_measure_deployment",
+    "deployment_metrics",
+    "selection_bounds",
+    "truncate_long_holds",
+    "unmeasured_metrics",
+    "validate_deployment_config",
+]
+
+
+# Optional, but all-or-nothing when present. Reversion validation builds this
+# from data available at the prior close so the deployment simulator can replay
+# daily_picks_cli's existing deterministic candidate order instead of sampling
+# an imaginary random one.
+LIVE_SELECTION_KEY = "Live Selection Key"
+# A deployment simulation needs to know when capital went out and came back.
+# Callers that only ever needed per-trade metrics may not carry these.
+DEPLOYMENT_INPUT_COLUMNS = ("Entry Timestamp", "Exit Timestamp", "NetReturnPct")
+
+# Published beside the per-trade metrics so a reader never sees profit factor
+# without also seeing what it earned on capital.
+CAPITAL_COLUMNS = (
+    "Deployed Trade Count", "Skipped Daily Cap", "Skipped No Slot",
+    "Skipped Held Already", "CAGR", "CAGR Low", "CAGR High",
+    "Realised Max Drawdown", "Exposure Share", "Simulated Years",
+    "Final Capital",
+)
+
+# Greedy hindsight scenarios are presentation-only sensitivity diagnostics, not
+# a property of one simulation or an achievable range.
+SELECTION_COLUMNS = ("Greedy Hindsight Low CAGR", "Greedy Hindsight High CAGR")
+
+# Rendering hints for the single summary formatter in strategy_goals, which has
+# to lay out these columns in the same table as the per-trade ones.
+CAPITAL_PERCENT_COLUMNS = (
+    "CAGR", "CAGR Low", "CAGR High", "Realised Max Drawdown", "Exposure Share",
+    *SELECTION_COLUMNS,
+)
+CAPITAL_DECIMAL_COLUMNS = ("Simulated Years",)
+# Won-denominated, so they get comma-grouped integers rather than a percent or
+# a bare decimal -- both of the other formatters would misrepresent the scale.
+CAPITAL_KRW_COLUMNS = ("Final Capital",)
+
+_DAYS_PER_YEAR = 365.25
+
+
+@dataclass(frozen=True)
+class DeploymentConfig:
+    """The deployment rule, not a tuning surface.
+
+    Defaults mirror what the live path does today: ``daily_picks_cli`` caps each
+    category at ``--top-n`` (3) and drops names already tracked by the paper
+    ledger. ``position_slots`` has no live counterpart yet -- the scanner
+    recommends, it does not size -- so it is the one number a caller is expected
+    to sweep rather than accept.
+    """
+
+    position_slots: int = 15
+    daily_entry_cap: int = 3
+    dedupe_symbols: bool = True
+    # Random orderings resolve same-day ties. One draw is a single path through
+    # a path-dependent process; the median of many is the statistic, and the
+    # 5th/95th percentiles say how much the draw mattered.
+    ordering_samples: int = 25
+    seed: int = 20260907
+    # Denominates CAGR into a won figure so a reader sees what the percentage
+    # means on real money, not just the compounding rate.
+    starting_capital: float = 100_000_000.0
+    # A position still open at this many days is force-exited rather than left
+    # to run to its recorded exit -- see truncate_long_holds(). 0 disables the
+    # cap; deployment_metrics itself does not enforce it, since doing so needs
+    # a price lookup this module does not have.
+    max_holding_days: int = 365
+
+
+@dataclass(frozen=True)
+class CapitalMetrics:
+    """One deployment simulation's outcome, in units of money."""
+
+    deployed_trades: int
+    skipped_daily_cap: int
+    skipped_no_slot: int
+    skipped_held_already: int
+    cagr: float
+    cagr_low: float
+    cagr_high: float
+    realised_max_drawdown: float
+    exposure_share: float
+    years: float
+    final_capital: float
+    cumulative_return_krw: float
+
+    def as_row(self) -> dict[str, float | int]:
+        return {
+            "Deployed Trade Count": self.deployed_trades,
+            "Skipped Daily Cap": self.skipped_daily_cap,
+            "Skipped No Slot": self.skipped_no_slot,
+            "Skipped Held Already": self.skipped_held_already,
+            "CAGR": self.cagr,
+            "CAGR Low": self.cagr_low,
+            "CAGR High": self.cagr_high,
+            "Realised Max Drawdown": self.realised_max_drawdown,
+            "Exposure Share": self.exposure_share,
+            "Simulated Years": self.years,
+            "Final Capital": self.final_capital,
+        }
+
+
+def _empty_metrics(starting_capital: float) -> CapitalMetrics:
+    # No trades is a real outcome -- a book that held nothing and earned nothing
+    # -- so it reports zeros (and the capital it started with) rather than the
+    # blanks below.
+    return CapitalMetrics(0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, starting_capital, 0.0)
+
+
+def can_measure_deployment(trades: pd.DataFrame) -> bool:
+    """Whether this trade list carries the dates a deployment walk needs."""
+
+    return not set(DEPLOYMENT_INPUT_COLUMNS) - set(trades.columns)
+
+
+def unmeasured_metrics() -> CapitalMetrics:
+    """Blanks for a trade list with no entry and exit dates.
+
+    Zeros would read as "this book earned nothing", which is a claim. Not-a-
+    number reads as "nobody measured", which is the truth, and the summary
+    formatter renders it as n/a rather than 0.00%.
+    """
+
+    return CapitalMetrics(
+        0, 0, 0, 0, math.nan, math.nan, math.nan, math.nan, math.nan, math.nan,
+        math.nan, math.nan,
+    )
+
+
+def _prepare(trades: pd.DataFrame) -> pd.DataFrame:
+    """Keep the closed trades a portfolio could actually have held.
+
+    Open positions carry a mark-to-market number rather than a realised one, and
+    a trade with no exit date cannot free its slot -- including either would let
+    an unresolved position both occupy capital forever and book a return.
+    """
+
+    missing = set(DEPLOYMENT_INPUT_COLUMNS) - set(trades.columns)
+    if missing:
+        raise ValueError(f"Trades are missing: {', '.join(sorted(missing))}")
+    data = trades.copy()
+    if "Status" in data:
+        data = data.loc[data["Status"].astype(str).str.lower().eq("closed")]
+    data["Entry Timestamp"] = pd.to_datetime(data["Entry Timestamp"], errors="coerce")
+    data["Exit Timestamp"] = pd.to_datetime(data["Exit Timestamp"], errors="coerce")
+    data["NetReturnPct"] = pd.to_numeric(data["NetReturnPct"], errors="coerce")
+    data = data.dropna(subset=["Entry Timestamp", "Exit Timestamp", "NetReturnPct"])
+    # An exit at or before its entry cannot occupy a slot for a measurable
+    # period; keeping it would book a return against zero holding time.
+    data = data.loc[data["Exit Timestamp"] > data["Entry Timestamp"]]
+    if "Symbol" not in data:
+        # No symbol column means the caller cannot express "already held", so
+        # every row is its own name and the duplicate guard is a no-op.
+        data = data.assign(Symbol=np.arange(len(data)))
+    if LIVE_SELECTION_KEY in data:
+        if data[LIVE_SELECTION_KEY].isna().any() or data[LIVE_SELECTION_KEY].astype(str).eq("").any():
+            raise ValueError(f"{LIVE_SELECTION_KEY} must be present for every deployable trade.")
+        return data.sort_values(["Entry Timestamp", LIVE_SELECTION_KEY], kind="stable").reset_index(drop=True)
+    return data.sort_values("Entry Timestamp", kind="stable").reset_index(drop=True)
+
+
+def truncate_long_holds(
+    trades: pd.DataFrame,
+    max_holding_days: int,
+    exit_at: Callable[[pd.Series, pd.Timestamp], tuple[pd.Timestamp, float] | None],
+) -> pd.DataFrame:
+    """Force-exit trades held past ``max_holding_days`` through a supplied resolver.
+
+    A trade whose recorded exit is later than ``Entry Timestamp +
+    max_holding_days`` did not actually run that long under the shipped rule --
+    the deployment layer would have closed it at the cap. The forced exit date
+    and costed ``NetReturnPct`` come from the caller-supplied ``exit_at``
+    resolver. The resolver must provide a valuation for every capped trade:
+    a first sellable session when possible, otherwise an explicit terminal
+    mark. It must never drop a trade merely because a regular exit price is
+    unavailable, because that would silently remove potential losses.
+    """
+
+    if max_holding_days <= 0:
+        return trades.copy()
+
+    data = trades.copy()
+    entry = pd.to_datetime(data["Entry Timestamp"], errors="coerce")
+    exit_ = pd.to_datetime(data["Exit Timestamp"], errors="coerce")
+    cap_date = entry + pd.Timedelta(days=max_holding_days)
+    overrun = exit_ > cap_date
+
+    for idx in data.index[overrun]:
+        outcome = exit_at(data.loc[idx], cap_date.loc[idx])
+        if outcome is None:
+            raise ValueError("Holding-cap resolver must value every capped trade.")
+        exit_timestamp, net_return = outcome
+        exit_timestamp = pd.Timestamp(exit_timestamp)
+        if exit_timestamp < cap_date.loc[idx]:
+            raise ValueError("Holding-cap exit cannot precede its cap date.")
+        data.at[idx, "Exit Timestamp"] = exit_timestamp
+        data.at[idx, "NetReturnPct"] = float(net_return)
+
+    return data
+
+
+def _run_once(
+    entry: np.ndarray,
+    exit_: np.ndarray,
+    returns: np.ndarray,
+    symbols: np.ndarray,
+    day_starts: np.ndarray,
+    config: DeploymentConfig,
+    order: np.ndarray,
+) -> tuple[list[tuple[int, int, float]], list[int], int, int, int]:
+    """Walk the calendar once under a fixed same-day ordering.
+
+    ``order`` holds, per day block, the sequence in which that day's candidates
+    are offered. Everything else is the shipped rule: at most
+    ``daily_entry_cap`` entries a session, never a name already open, and a
+    signal with no free slot is dropped rather than queued -- the scanner has no
+    memory of yesterday's rejects, so neither does this.
+    """
+
+    slots_free_at = np.full(config.position_slots, -(2**62), dtype=np.int64)
+    held_until: dict[int, int] = {}
+    # An accepted position carries its entry day, exit day and that position's
+    # net return. Its notional is deliberately not assigned here: allocation
+    # depends on the cash and positions that actually exist when it enters.
+    events: list[tuple[int, int, float]] = []
+    taken: list[int] = []
+    skipped_cap = skipped_slot = skipped_dup = 0
+
+    for block_start, block_end in itertools.pairwise(day_starts):
+        entered_today = 0
+        for position in order[block_start:block_end]:
+            entry_day = entry[position]
+            # The live ledger keeps a sell-signalled name PENDING_EXIT through
+            # the next session's open, so the same symbol cannot be bought on
+            # that exit-fill day. Other names may still use the released slot.
+            if (
+                config.dedupe_symbols
+                and held_until.get(symbols[position], -(2**62)) >= entry_day
+            ):
+                skipped_dup += 1
+                continue
+            if entered_today >= config.daily_entry_cap:
+                skipped_cap += 1
+                continue
+            free = np.flatnonzero(slots_free_at <= entry_day)
+            if free.size == 0:
+                skipped_slot += 1
+                continue
+            slots_free_at[free[0]] = exit_[position]
+            held_until[symbols[position]] = exit_[position]
+            events.append(
+                (int(entry[position]), int(exit_[position]), float(returns[position]))
+            )
+            taken.append(int(position))
+            entered_today += 1
+    return events, taken, skipped_cap, skipped_slot, skipped_dup
+
+
+def _curve_statistics(
+    events: list[tuple[int, int, float]], slots: int, first_day: int, last_day: int
+) -> tuple[float, float, float, float]:
+    """Replay cash and fixed-at-entry positions, then read equity statistics.
+
+    A slot is sized from account equity when that position enters. Its
+    principal is then fixed until it exits; a later winner must not resize a
+    position that was already open. That is the minimum self-financing
+    accounting needed for simultaneous holdings. Exits are processed before
+    entries on a shared session, matching the slot-release rule in _run_once
+    and allowing sale proceeds to fund that day's entries.
+    """
+
+    years = max((last_day - first_day) / _DAYS_PER_YEAR, 1e-9)
+    if not events:
+        return 0.0, 0.0, years, 1.0
+
+    entries: dict[int, list[tuple[int, int, float]]] = {}
+    exits: dict[int, list[tuple[int, float]]] = {}
+    for position_id, (entry_day, exit_day, net_return) in enumerate(events):
+        entries.setdefault(entry_day, []).append((position_id, exit_day, net_return))
+        exits.setdefault(exit_day, []).append((position_id, net_return))
+
+    cash = 1.0
+    principals: dict[int, float] = {}
+    equity = 1.0
+    peak = 1.0
+    drawdown = 0.0
+    for day in sorted(set(entries) | set(exits)):
+        # A closed position releases exactly the notional it received on entry,
+        # multiplied by its already costed return. It never uses today's
+        # account balance as its retrospective position size.
+        #
+        # A position may be missing here: _run_once admits entries on SLOT
+        # availability while this loop funds them from CASH, and the two ledgers
+        # can disagree. Once realised losses shrink equity below the notional
+        # already committed to open positions, `min(equity / slots, cash)` pays
+        # out the last won and drives cash to exactly 0.0; the next admitted
+        # entry is then skipped by the `principal <= 0` guard below and never
+        # recorded. Releasing nothing is the correct accounting for a position
+        # that received nothing. It still occupies a slot in _run_once and still
+        # counts in `deployed_trades`, which overstates both by the same handful
+        # of trades -- roughly 1 in 1000 admitted entries, and only in draws that
+        # fully exhaust cash. Making the two ledgers agree means teaching
+        # _run_once about capital, which it is deliberately built without.
+        for position_id, net_return in exits.get(day, []):
+            principal = principals.pop(position_id, None)
+            if principal is not None:
+                cash += principal * (1.0 + net_return)
+        for position_id, _, _ in entries.get(day, []):
+            equity_before_entry = cash + sum(principals.values())
+            principal = min(equity_before_entry / slots, cash)
+            if principal <= 0:
+                continue
+            cash -= principal
+            principals[position_id] = principal
+        equity = cash + sum(principals.values())
+        peak = max(peak, equity)
+        drawdown = min(drawdown, equity / peak - 1.0)
+    # A total loss makes the growth rate undefined rather than merely very
+    # negative; -100% a year is the honest reading of "nothing is left".
+    cagr = equity ** (1.0 / years) - 1.0 if equity > 0 else -1.0
+    return float(cagr), float(drawdown), float(years), float(equity)
+
+
+def _exposure_share(
+    entry: np.ndarray, exit_: np.ndarray, events_taken: np.ndarray, first: int, last: int
+) -> float:
+    """Fraction of the simulated calendar holding at least one position.
+
+    ``events_taken`` must be the median draw's taken-position index array. It
+    is not a boolean mask or an ordinal count: the source rows it indexes can
+    include rejected duplicates and slot misses. The numerator is the union of
+    accepted intervals, inclusive of entry and exclusive of exit because exits
+    fill at that session's open. The denominator remains the whole measured
+    calendar from the first candidate entry through the last candidate exit, so
+    idle time after a rejected or skipped signal still counts as zero exposure.
+
+    Changing a cap, filter, or duplicate guard can change both the accepted
+    intervals and the measured endpoint; exposure therefore need not be
+    monotonic across neighbouring configurations.
+    """
+
+    if events_taken.size == 0 or last <= first:
+        return 0.0
+    days = np.arange(first, last + 1)
+    open_counts = (
+        (entry[events_taken][None, :] <= days[:, None])
+        & (days[:, None] < exit_[events_taken][None, :])
+    ).sum(axis=1)
+    return float((open_counts > 0).mean())
+
+
+def deployment_metrics(
+    trades: pd.DataFrame, config: DeploymentConfig | None = None
+) -> CapitalMetrics:
+    """Simulate the shipped deployment rule and report capital-weighted results.
+
+    Same-day ordering is drawn at random ``ordering_samples`` times for generic
+    trade lists. When every deployable trade instead carries
+    ``Live Selection Key``, its already-sorted order is replayed exactly once;
+    CAGR Low and High then equal CAGR. The skip counts and drawdown always come
+    from the median (or sole deterministic) draw, so every published number
+    describes one internally consistent run.
+    """
+
+    config = config or DeploymentConfig()
+    validate_deployment_config(config)
+    data = _prepare(trades)
+    if data.empty:
+        return _empty_metrics(config.starting_capital)
+
+    entry = (data["Entry Timestamp"].values.astype("datetime64[D]")
+             .astype(np.int64))
+    exit_ = (data["Exit Timestamp"].values.astype("datetime64[D]")
+             .astype(np.int64))
+    returns = data["NetReturnPct"].to_numpy(dtype=float)
+    symbols = pd.factorize(data["Symbol"])[0]
+    # Block boundaries for "same session": rows are already entry-sorted.
+    day_starts = np.concatenate(
+        ([0], np.flatnonzero(np.diff(entry)) + 1, [len(entry)])
+    )
+    first_day, last_day = int(entry[0]), int(exit_.max())
+
+    uses_live_selection_key = LIVE_SELECTION_KEY in data
+    rng = np.random.default_rng(config.seed)
+    draws = []
+    for _ in range(1 if uses_live_selection_key else config.ordering_samples):
+        order = np.arange(len(entry))
+        if not uses_live_selection_key:
+            for block_start, block_end in itertools.pairwise(day_starts):
+                if block_end - block_start > 1:
+                    order[block_start:block_end] = rng.permutation(
+                        order[block_start:block_end]
+                    )
+        events, taken, cap, slot, dup = _run_once(
+            entry, exit_, returns, symbols, day_starts, config, order
+        )
+        cagr, drawdown, years, final_equity = _curve_statistics(
+            events, config.position_slots, first_day, last_day
+        )
+        draws.append((cagr, drawdown, years, taken, cap, slot, dup, final_equity))
+
+    cagrs = np.array([draw[0] for draw in draws])
+    # The median draw supplies every non-CAGR figure so the skip counts,
+    # drawdown and exposure all describe one internally consistent run rather
+    # than averages of runs that never happened together.
+    median_draw = draws[int(np.argsort(cagrs)[len(cagrs) // 2])]
+    taken_positions = np.asarray(median_draw[3], dtype=int)
+    final_capital = config.starting_capital * median_draw[7]
+
+    return CapitalMetrics(
+        deployed_trades=len(taken_positions),
+        skipped_daily_cap=median_draw[4],
+        skipped_no_slot=median_draw[5],
+        skipped_held_already=median_draw[6],
+        cagr=float(np.median(cagrs)),
+        cagr_low=float(np.percentile(cagrs, 5)),
+        cagr_high=float(np.percentile(cagrs, 95)),
+        realised_max_drawdown=median_draw[1],
+        exposure_share=_exposure_share(
+            entry, exit_, taken_positions, first_day, last_day
+        ),
+        years=median_draw[2],
+        final_capital=final_capital,
+        cumulative_return_krw=final_capital - config.starting_capital,
+    )
+
+
+def selection_bounds(
+    trades: pd.DataFrame, config: DeploymentConfig | None = None
+) -> tuple[float, float]:
+    """CAGR for two greedy same-day hindsight orderings.
+
+    This is a sensitivity diagnostic, not an exhaustive optimum or a bound:
+    it sorts only candidates from the same day by realised return and ignores
+    later slot opportunity cost. Both paths use future information and cannot
+    justify a live ranking model. Low/high are sorted only to prevent inverted
+    presentation; they are not mathematical bounds.
+    """
+
+    config = config or DeploymentConfig()
+    validate_deployment_config(config)
+    data = _prepare(trades)
+    if data.empty:
+        return 0.0, 0.0
+
+    entry = data["Entry Timestamp"].values.astype("datetime64[D]").astype(np.int64)
+    exit_ = data["Exit Timestamp"].values.astype("datetime64[D]").astype(np.int64)
+    returns = data["NetReturnPct"].to_numpy(dtype=float)
+    symbols = pd.factorize(data["Symbol"])[0]
+    day_starts = np.concatenate(([0], np.flatnonzero(np.diff(entry)) + 1, [len(entry)]))
+    first_day, last_day = int(entry[0]), int(exit_.max())
+
+    results = []
+    for descending in (False, True):
+        order = np.arange(len(entry))
+        for block_start, block_end in itertools.pairwise(day_starts):
+            block = order[block_start:block_end]
+            ranked = block[np.argsort(returns[block], kind="stable")]
+            order[block_start:block_end] = ranked[::-1] if descending else ranked
+        events = _run_once(
+            entry, exit_, returns, symbols, day_starts, config, order
+        )[0]
+        results.append(
+            _curve_statistics(events, config.position_slots, first_day, last_day)[0]
+        )
+    return min(results), max(results)
+
+
+def benchmark_buy_and_hold(
+    close: pd.Series, start: pd.Timestamp, end: pd.Timestamp
+) -> tuple[float, float]:
+    """CAGR and drawdown of holding the benchmark over the same span.
+
+    Without this the capital figures have no scale. A 4% CAGR is a success
+    against a falling market and a failure against one that returned 15%, and
+    the validation window is fixed by the data rather than chosen, so the
+    comparison has to be drawn on exactly the span the trades occupy.
+    """
+
+    series = pd.to_numeric(close, errors="coerce").dropna()
+    series.index = pd.to_datetime(series.index)
+    series = series.loc[(series.index >= start) & (series.index <= end)]
+    if len(series) < 2 or series.iloc[0] <= 0:
+        return math.nan, math.nan
+    years = max((series.index[-1] - series.index[0]).days / _DAYS_PER_YEAR, 1e-9)
+    growth = float(series.iloc[-1] / series.iloc[0])
+    peak = series.cummax()
+    return growth ** (1.0 / years) - 1.0, float(((series - peak) / peak).min())
+
+
+def validate_deployment_config(config: DeploymentConfig) -> None:
+    if config.position_slots < 1:
+        raise ValueError("position_slots must be positive.")
+    if config.daily_entry_cap < 1:
+        raise ValueError("daily_entry_cap must be positive.")
+    if config.ordering_samples < 1:
+        raise ValueError("ordering_samples must be positive.")
+    if config.starting_capital <= 0:
+        raise ValueError("starting_capital must be positive.")
+    if config.max_holding_days < 0:
+        raise ValueError("max_holding_days must not be negative.")

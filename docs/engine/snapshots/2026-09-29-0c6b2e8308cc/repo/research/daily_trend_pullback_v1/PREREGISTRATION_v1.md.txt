@@ -1,0 +1,141 @@
+# PREREGISTRATION — Daily Trend Pullback 변형 v1.0-rc1 (관측 #2 + 전향 관측)
+
+- 작성일: 2026-09-12 (실DB 실행 전 작성·해시 잠금)
+- 작성 주체: Claude Opus 5 (사용자 위임 "자동으로 다 진행해", 2026-09-12; 로그 `/home/gram/pullback_track_log.md` §2 결정 ⑦)
+- 기반: T-0 v0.4-rc1 = `research/daily_trend_pullback_t0/` (커밋 `2162861`, DECISIONS D-38), 브랜치 `claude/reversion-exit-redesign`
+- 네임스페이스: `research/daily_trend_pullback_v1/` — T-0 파일은 건드리지 않는다(별개 변형·별개 사전등록, D-26 1항).
+- 형식: D-36(`PREREGISTRATION_D36_index_tsmom_v1.hashlock.md`) 방식 — 사전등록 → 해시 잠금 → 1회 실행 → 창 소비 → 감사 기록.
+- 라이브 배선 없음. 이 문서의 어떤 결과도 라이브 기본값을 바꾸지 않는다(사용자 별도 결정, 로그 §9 P8).
+
+---
+
+## 1. 왜 이 변형인가 — 정직한 탐색 이력 (D-36 항목 "honest exploration history")
+
+1. T-0(v0.4-rc1)의 실DB 관측 #1(2026-09-11, 창 2022-01-01~2026-09-08)은 646거래·불통과였다(DECISIONS D-38, 로그 §5.0).
+2. 외부 AI 토론(로그 §5.0 P-1~P-7)에서 인과가 정리됐다: **C-3** 확장 방향 랭킹(return20·dist_sma50·vol_ratio·rsi 상위) →
+   **C-2** 10EMA 이탈 청산이 청산의 473/646(73.2%)·평균 5.69일로 우측 꼬리를 절단 → **C-1** 승률 26.2% < 손익분기 손익비 2.82.
+3. 따라서 v1 의 규칙(랭킹 방향 반전·ema_cross 청산 삭제)은 **관측 #1 의 결과를 보고 만든 규칙**이다. 이 창(2022-01-01~2026-09-08)에서
+   v1 이 좋아 보여도 그것은 "아이디어의 표본 내" 결과이며, 독립 표본은 남아 있지 않다(로그 §1.7 홀드아웃 소진).
+4. 그러므로 관측 #2 의 결과 등급 상한은 **힌트**(①b)이고, 적용 여부의 실제 판단은 §6 전향 관측(FORWARD_START 이후 새 가격)에서만 한다(D-26 3항).
+5. 사전에 규정한 것: 관측 #2 는 1회만 실행하고 창을 소비한다. 결과를 보고 파라미터·가중치·청산을 바꿔 재실행하지 않는다.
+   바꾸고 싶으면 새 변형(v2)·새 사전등록·새 관측 번호(#3)다.
+
+## 2. 규칙 명세 (변경 블록 V1-1~V1-6; 그 외 전 블록 T-0 v0.4-rc1 과 바이트 동일)
+
+### 2.1 무변경 (T-0 그대로)
+- 진입: `WEEKLY_TREND & EMA5>EMA10 & Close>EMA10 & RSI∈[50,70] & ADX>20 & MACD_HIST≥0 & AVG_TURNOVER20≥min_turnover & DAILY_RET<max_daily_return & ATR>0`, `full = base & EMA10_TOUCH5`.
+- 자금관리(`FIXED_CONFIG` "기본형"): max_positions 5, max_weight 0.20, risk_per_trade 0.005, atr_multiple 1.5, holding_limit 15,
+  trailing_atr_multiple 2.0, min_turnover 5,000,000,000, max_daily_return 0.08. 시장 필터 market_sma 50.
+- 비용: fee 1.5 / tax 18.0 / slip 5.0 bps → ENTRY_COST_BPS 6.5, EXIT_COST_BPS 24.5. `attach_costs` 산식 무변경.
+- 검증: R1 = 보수 하한 PF > 1.00(블록 부트스트랩 block_sizes [30,60,120], n_bootstrap 4000, α 0.05, Bonferroni 분위 α/(2·n_obs)),
+  R3 = MDD ≤ 0.20, 검정력 라벨(declared_win_rate 0.40 = MDE 가정, 성과 아님), PF_DEP_MIN_MARGIN 0.05, tail_dep_threshold 0.50.
+- 데이터: `data_loader.py` 바이트 동일(T-0 sha256 `a41869759babd325…`). 유니버스 = KOSPI+KOSDAQ ∩ 6자리 숫자 심볼 − {069500}(H-16).
+  시장 시리즈 069500(KODEX 200), DB `data/krx_daily.sqlite3` 읽기 전용(`mode=ro`).
+
+### 2.2 변경 (블록 diff)
+| 번호 | 블록 | 내용 | 교정 대상 |
+|---|---|---|---|
+| V1-1 | `CONFIG["declared_observations"]` | 1 → **2** (관측 #1 = T-0, 관측 #2 = 본 변형). Bonferroni 분위 = 0.05/(2·2) = 0.0125 | 다중 관측 정직 반영 |
+| V1-2 | `_compute_indicators` | `DIST_EMA10 = Close/EMA10 − 1` 추가 (랭킹 입력) | — |
+| V1-3 | `_rank_candidates` | `RANK_WEIGHTS = {"dist_ema10": 0.40, "adx": 0.30, "rsi": 0.30}`; score = 0.40·(1 − dist_ema10_rank) + 0.30·adx_rank + 0.30·(1 − rsi_rank), `rank(pct=True)` | C-3 |
+| V1-4 | `_exit_signal` | `ema_cross`(Close < EMA10) 분기 삭제 → 우선순위 stop > holding_limit > trailing. `VALID_EXIT_REASONS = {stop, holding_limit, trailing, forced_close}`. 신규 파라미터 없음 | C-2 |
+| V1-5 | 후보 dict | dist_ema10·adx 추가(return20·dist_sma50·vol_ratio 는 진단용 보존, 점수 미사용) | — |
+| V1-6 | §15 `trend_goal_check` | 저장소 공식 `strategy_goals.TrendGoal`(payoff≥2.00·PF≥1.30·expectancy>0·이익창≥0.50·완결≥30) + D-37 즉시기각선(비용후 평균수익 ≤ 0). NetReturnPct = pnl_net/(entry_price·shares·(1+ENTRY_COST))×100(퍼센트). Window = 6개월 폴드(exit_date) | 저장소 기준 대조 |
+
+- 가중치 0.40/0.30/0.30 은 **탐색으로 고른 값이 아니다**: 관측 #2 전에는 어떤 가중치도 실DB에서 돌려보지 않았다(단위 테스트 픽스처만). 이 값은 판정 후에도 바꾸지 않는다(바꾸면 v2).
+- C-1(승률)은 직접 손대지 않는다. C-3·C-2 교정의 결과로 승률·손익비가 어떻게 움직이는지가 관측 #2 의 관찰 대상이다.
+
+## 3. 관측 #2 판정 틀 (실DB 1회, 창 2022-01-01 ~ 2026-09-08)
+
+### 3.1 입력
+- DB `data/krx_daily.sqlite3`(daily_prices, 2016-08-29 ~ 2026-09-09 보유), DB_START 2016-08-29(warmup 300일), 초기자본 100,000,000, 시장 069500.
+- 진입점 `run.py` (T-0 run.py 와 모듈명·docstring 만 다름). 실행 래퍼 `/home/gram/pullback_v1_obs2.py`(§4).
+
+### 3.2 산출 항목 (요약에 실리는 것 = 건수·분포·플래그·해시만)
+- validate_equity_frame / validate_trade_frame 통과 여부
+- equity 행수·기간, trades 건수·종목수·기간, exit_reason 분포, holding_days 분포(건수), forced_close 건수, 승/패 건수, 연도별 건수, 폴드 수·판정 분포
+- full_validation 플래그: 원시_거래_수, 실효_표본_수, [강제] 검정력_상태, 최대_낙폭_지속_거래일, 미회복_종료, 손절_거래_수, R1_보수_하한>1.00, R3_MDD≤20%, 최종_통과, [주의] 결과_등급, 관측_횟수(=2)
+- trend_goal_check: closed_trades, window_count, immediate_reject, trend_goal_pass, criteria(5개 불리언)
+- ㉮ 눌림목 필터: 기본 신호 건수·통과 건수·권고 발생 여부
+- 해시: trades(TRADE_COLUMNS CSV sha256 앞16), equity(CSV sha256 앞16)
+- PF·MDD·수익률·CAGR·가격 수치는 `.log` 에만 남고 요약·로그 문서·DECISIONS 에 싣지 않는다(성과 수치 열람 = 사용자 보류 중).
+
+### 3.3 사전 규정 실패 조건 (관측 #2)
+| 조건 | 내용 | 성격 |
+|---|---|---|
+| F-a | 거래 수 < 30 | 판정 |
+| F-b | R1(보수 하한 PF > 1.00, Bonferroni 0.0125 분위) False | 판정 |
+| F-c | R3(MDD ≤ 20%) False | 판정 |
+| F-d | TrendGoal 미통과 (5개 기준 중 하나라도 False) | 판정 |
+| F-d' | D-37 즉시기각선(비용후 평균수익 ≤ 0) 해당 | 판정 |
+| F-e | holding_limit 청산 비중 > 50% (ema_cross 삭제가 단순히 청산을 15일 강제청산으로 옮겼을 뿐인지 진단) | 진단 |
+| F-f | ㉮ 통과율 20~80% 밖 (권고 발생) | 권고 |
+
+- 판정 조건(F-a~F-d') 하나라도 해당 → "불통과 힌트". 전부 미해당 → "힌트"(전향 관측 진행 근거). **어느 쪽이든 PASS 는 아니다**(①b, 독립 표본 없음).
+- 검정력 라벨은 관측 #1 처럼 "검정력 부족"으로 나올 가능성이 높다(n_eff 상한 = 거래일/평균보유일). 이는 실패 조건이 아니라 등급 상한(힌트)의 근거다.
+- "불통과 힌트"라도 규칙을 고쳐 이 창에서 재실행하지 않는다. 창은 소비된다.
+
+### 3.4 관측 #1 대조 (비교 분석 ②)
+- 같은 DB·같은 창·같은 비용·같은 자금관리에서 규칙 두 블록(V1-3·V1-4)만 다르다. 대조는 건수·분포·플래그 줄 단위(래퍼 §5)로 한다:
+  거래 수, exit_reason 분포(ema_cross 473 → 0 이 되어야 함), 승/패 건수, holding_days 분포, R1/R3/최종_통과 플래그, TrendGoal 5기준.
+- 해시(trades/equity)는 규칙이 다르므로 상이한 것이 정상이다. 관측 #1 해시(d6d1778e6a49bda7 / 013e2d14359ff6cb)는 기록용.
+
+## 4. 실행 프로토콜 (D-36 3.5A 방식)
+1. 이 문서 §7 해시 표를 잠근다(sha256sum, 2026-09-12). `run_forward.verify_hash_lock()` 이 코드 4파일을, 래퍼가 자기 자신을 대조한다.
+2. 래퍼 `/home/gram/pullback_v1_obs2.py` 를 `.venv/bin/python` 으로 1회 실행. sqlite3.connect 를 `file:…?mode=ro` 로 이중 강제(래퍼 + run.main).
+3. 실행 전후 v1 7파일·t0 4파일 sha256 불변, DB mtime/size 불변을 요약에 기록(WAL `-shm` 접촉은 데이터 쓰기 아님, D-38 공개).
+4. 원출력 → `/home/gram/pullback_v1_obs2.log`(수치 포함, 열람 보류). 요약 → `/home/gram/pullback_v1_obs2_summary.txt`(건수·플래그·해시만).
+5. 실행 횟수 = 1. 창 소비. 실행 후 §8 부록에 실행 결과(건수·플래그·해시·요약 파일 sha256·Git SHA)를 추기한다(부록 추기로 문서 해시가 바뀌므로, 실행 전 문서 sha256 은 요약 파일 첫 부분에 별도 기록됨).
+6. 실행 중 예외 → 원인 기록 후 코드 수정은 허용하되, **결과를 본 뒤의 규칙 수정은 금지**. 예외 수정 후 재실행은 "실행 횟수 2"로 기록하고 해시 표를 갱신한다.
+
+## 5. 관측 #2 가 결정하지 않는 것
+- 라이브 배선(적용) 여부 — 사용자 결정(P8). 관측 #2 "힌트"는 전향 관측을 시작할 근거일 뿐이다.
+- D-9 20% 연환산 목표 — 판정 기준 아님(D-33).
+- 성과 수치 열람 — 사용자 보류 중. 본 문서·요약·DECISIONS 는 부호·건수·플래그만.
+
+## 6. 전향 관측 계획 (`run_forward.py`, D-26 3항 · D-33 방식) — 지금은 실행하지 않는다
+| 항목 | 값 | 근거 |
+|---|---|---|
+| FORWARD_START | 2026-09-09 | 관측 #2 창 종료(2026-09-08) 다음 거래일; DB 는 2026-09-09 까지 보유(1일은 표본 아님) |
+| 표본 하한 | closed trade **100건** (forced_close 제외) | D-33 swing 하한 준용. 미달 시 PASS/FAIL 없음("증거 아님") |
+| 시한 | **2028-09-08** (FORWARD_START + 2년) | D-33 시한 방식. 미도달 자체가 결론("미도달 확정") |
+| 판정 (a) | 자본가중 combined CAGR: `capital_metrics.deployment_metrics()` + `DeploymentConfig()` 기본값(슬롯 15·일 3건·dedupe·순서 표본 25·seed 20260907). **cagr_low(5%ile) > 0** | D-33 개정 2 단일 지표 |
+| 판정 (b) | 동일 길이 과거창 밴드: 관측 창 길이 L(달력일)로 관측 #2 창(2022-01-01~2026-09-08)을 월 단위로 훑은 CAGR 분포의 **5%ile 이상**. 밴드는 판정 시점에만 산출(사전 계산 = 창 길이 곡선맞춤). 밴드 재료 = 같은 코드로 관측 #2 창 재계산, trades 해시가 §8 관측 #2 해시와 같아야 유효 | D-33 개정 2 |
+| 판정 (c) | `trend_goal_check`(전향 창): TrendGoal 통과 ∧ 즉시기각 미해당 | D-37 선례 |
+| 결론 | PASS = (a)∧(b)∧(c). 하나라도 실패 = FAIL. (b) 산출 불가 = INCONCLUSIVE | D-36 14항 |
+| 리셋 | §7 코드 4파일 해시 ≠ 현재 파일 해시 → 이전 표본은 다른 전략의 표본, 카운터 0, 판정 차단 | D-33 개정 3 |
+| 기술 통계 | 실현 승률·평균 순수익은 기술만, 판정 입력 아님. D-25 4.01% 와의 비교는 기술만(판정 아님) | D-26 |
+| 표본 구성 공개 | 유니버스 = KOSPI+KOSDAQ 전체(H-16). 연구 코드가 거래별 시장 구분을 기록하지 않으므로 거래별 KOSPI/KOSDAQ 비중은 판정 시 티커 접두로 사후 집계해 공개(제약 공개) | D-33 |
+| 출력 규약 | `judge_forward()` 반환 = 건수·불리언·문자열만(CAGR·PF 수치 없음, 단위 테스트로 고정) | 성과 수치 보류 |
+| 운용 | 달력 시간 경과 후 `.venv/bin/python research/daily_trend_pullback_v1/run_forward.py`(ro). 하한 미달 동안은 건수만 기록. 판정은 1회 | — |
+
+## 7. 해시 잠금 (sha256, 2026-09-12 실행 전) — `run_forward.expected_hashes()` 가 이 표를 읽는다
+| 파일 | sha256 |
+|---|---|
+| strategy_validation_v1.py | 3645655dba365d19790c8935532f059a37667a31b594e622886a9d384e7f1043 |
+| data_loader.py | a41869759babd3251f2fa2bd5fe80ff572d90301bfe0b005764cdc34d22bfd9a |
+| run.py | d3b9f3f796f720add06f5165f0d646ab261fc3a2f9abca93d52932e4af99cc6d |
+| run_forward.py | 69ed9738d4538dc3ed33e37a3fe4559bc9be943e95dddfcf7b480b10919c4858 |
+| test_strategy_validation_v1.py | 988f27b000c0b306f98e819f78052eac026b2abe27f87a7805ed48e66167ab7b |
+| test_run_forward_v1.py | ac70de1090b99465f3c838d1ba34ce4b0f21bbad37153e569ae8295ca0a90e35 |
+| pullback_v1_obs2.py | 6dccc040f03eb41374e786de0280f48fcd11c74b60422c29e0e8a17adfa1a4a1 |
+
+- 잠금 대상(리셋 규칙 적용) = 위 4개 코드 파일(strategy_validation_v1.py, data_loader.py, run.py, run_forward.py). 테스트 2파일과 래퍼는 감사용.
+- 래퍼 경로: `/home/gram/pullback_v1_obs2.py`(저장소 밖). 기반 T-0 sha256: data_loader `a41869759babd325…`, strategy `c1abcea607b33de3…`, test `5f20244cfc590221…`, run `63a2ef2c4edb500a…`.
+- Git: HEAD `2162861` (브랜치 `claude/reversion-exit-redesign`), 작업트리 dirty(다른 에이전트 미커밋 31건 + 본 디렉터리). v1 디렉터리는 사전등록 시점에 미커밋.
+- 단위 테스트(실행 전): `test_strategy_validation_v1.py` 99 passed / 1 skipped, `test_run_forward_v1.py` 28 passed (2026-09-12, 픽스처 전용).
+
+## 8. 부록 — 실행 기록 (실행 후 추기; 건수·플래그·해시만)
+- 실행: 2026-09-12 13:33:30, 래퍼 `/home/gram/pullback_v1_obs2.py`(sha256 6dccc040…), `.venv/bin/python` 3.14.4 / pandas 3.0.5, DB `mode=ro`. **실행 횟수 = 1.** run.main() 92.6s / 총 126.5s. 예외·경고 줄 0. 실행 전 문서 sha256 = `7f0a642b99814e41df9607a07930eb54b3abfbf745b34559dd78fda7d4ae6327`(본 부록 추기 전 값, 요약 파일 4행에 동일 기록).
+- 해시 잠금: 코드 4파일 True · 래퍼 자신 True. 실행 후 v1 7파일·t0 4파일 무수정 True, DB mtime/size 불변 True. Git HEAD `2162861`(v1 디렉터리 미커밋, 다른 에이전트 31건 무접촉, git status 32 유지).
+- 입력: 유니버스 3,161(관측 #1과 동일), 시장 069500, 창 2022-01-01~2026-09-08, equity 1,145행(2022-01-03~2026-09-08), 무포지션 일수 307, cash<0 일수 0.
+- ㉮ 필터: 기본 신호 81,470 / 통과 20,605 / 권고 없음 — 관측 #1과 동일(진입 블록 무변경의 방증).
+- 검증기: validate_equity_frame True(오류 0), validate_trade_frame True(오류 0).
+- trades: 347건 / 309종목 / entry 2022-01-04~2026-07-07 / exit 2022-01-06~2026-07-29. exit_reason = holding_limit 139 · stop 118 · trailing 90 (ema_cross 0, forced_close 0). holding_days min 1 / max 15 / 평균 11.18(==1 3건, >15 0건). 승/패 115/232. r_multiple<−2 1건. 연도별 2022:42 · 2023:85 · 2024:59 · 2025:101 · 2026:60. 폴드 10개 전부 "진단 전용 [힌트]".
+- full_validation: 원시 347 · 실효 102 · 검정력 부족(n_eff 102 / 필요 808) · 최대낙폭지속 1,131거래일 · 미회복 종료 True · 손절 118 · R1 False · R3 False · 최종 False · 등급 불통과 · 관측 2.
+- trend_goal_check: closed 347 · windows 10 · trades≥30 True · payoff≥2.0 False · PF≥1.3 False · expectancy>0 False · window_share≥0.5 False · trend_goal_pass False · **immediate_reject True**(D-37 즉시기각선 해당).
+- 해시: trades `b4feeacd358e5e48` · equity `135f9916ffee2426`. 요약 `/home/gram/pullback_v1_obs2_summary.txt`(53줄) sha256 앞16 `797f6bd9dd2b0f57`; 원출력 `/home/gram/pullback_v1_obs2.log`(216줄, PF/MDD 수치 포함 — 열람 보류) sha256 앞16 `9da0010e06b25bd3`.
+- §3.3 실패 조건: F-a False · **F-b True · F-c True · F-d True · F-d' True** · F-e False(holding_limit 139/347 = 40.1%) · F-f False.
+- **판정: 불통과 힌트**(판정 조건 4건 해당; ①b 상 PASS 불가는 애초 전제). 창 2022-01-01~2026-09-08 은 관측 #1·#2 로 소비. §4.6 에 따라 규칙 수정·재실행 없음.
+- 관측 #1 대조(②, 건수만): ema_cross 473 → 0(V1-4 의도대로), 평균 보유 5.69 → 11.18일, 승률 26.2% → 33.1%(169/646 → 115/232), 거래 646 → 347, 무포지션 일수 353 → 307, n_eff 201 → 102, 최대낙폭지속 814 → 1,131. 해석: C-2 교정으로 우측 꼬리 절단은 줄고 승률은 올랐으나 D-37 즉시기각선(비용후 평균수익 ≤ 0)을 넘지 못함 — 청산 지연이 손실 거래의 손실 폭도 함께 키운 것으로 읽힘(holding_limit 139건이 최다 청산 사유, 1,145거래일 중 1,131일 고점 미회복). C-1 은 랭킹·청산 두 블록 교정으로 해결되지 않음. 남은 후보 = 진입 정의(무변경 블록)·C-5 시장필터·C-8 구간 특성(로그 §5.0 P-7, 미확정).
+- 후속(§5·§6): D-37 선례(즉시기각 = 연구 중단·섀도 미승격)에 따라 **전향 관측 미착수**. `run_forward.py` 는 실행하지 않았고(실DB 무접촉) v1 에 대해서는 실행하지 않는다. 규칙을 바꾸려면 v2 = 새 가설 문서 → 새 사전등록 → 관측 #3(Bonferroni 0.05/6). 커밋·v2 착수·트랙 종결은 사용자 결정.

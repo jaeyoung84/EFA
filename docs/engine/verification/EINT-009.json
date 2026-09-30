@@ -1,0 +1,93 @@
+{
+  "change_id": "EINT-009",
+  "verified_at": "2026-09-29T07:31:10.298968+00:00",
+  "engine_revision_unchanged": {
+    "path": "engine/kqs/revisions/EINT-007A.json",
+    "sha256": "ebc166f5d0fd7c93b9b0fa294e34d0c6a439c22365bed9ae5c7a15533cc9e380"
+  },
+  "previous_verification_unchanged": {
+    "path": "docs/engine/verification/EINT-008.json",
+    "sha256": "dd1d295489f6217899be78c965a7565dae97a807251f3a7c4acc085c4f0406e3"
+  },
+  "scope": "Immutable dataset manifests for the manual decision ledger, one-time preregistered holdout opening, manifest-bound experiments.",
+  "reused_decisions": [
+    "AGENTS.md fixed manifest/split/opening history",
+    "D-20",
+    "D-26",
+    "D-36"
+  ],
+  "defects_fixed": [
+    "live recomputed split moved boundaries as data grew",
+    "test JSONL downloadable without limit",
+    "test metrics recordable repeatedly",
+    "offline runner evaluated test on every dry run"
+  ],
+  "rules": {
+    "first_manifest": "chronological 60/20/20 by data_as_of with 20-day overlap purge",
+    "successor_manifest": "dates <= previously covered date are train; later dates split first half validation, second half test",
+    "hash_scope": "decision-time features + human_decision + observed 20-day label; notes and realized P&L excluded",
+    "drift": "any hash mismatch -> 409, manifest unusable",
+    "holdout": "one opening per manifest with preregistration (unique index); impossible after a successor is frozen",
+    "test_report": "one experiment per manifest, same family/version/config hash as preregistration (sparse unique index)",
+    "legacy_split_export": "HTTP 410"
+  },
+  "artifacts": {
+    "app/backend/routers/kqs.py": "38331b5bc134822899877674f82e8f83bb14e36642b8ee939b6e072aec25181c",
+    "app/frontend/js/views/strategyList.js": "3f742ee6f415690ea413cf7c1b4c07a89d4406d36bd903785586d444aa8c77c1",
+    "tests/test_kqs_bridge.py": "26ba3dcd064a9fea838615bab325a4464168f01e1240784a96b6f4a003a501ae",
+    "tests/conftest.py": "9fde295a76880d5913647d8cc0d58063cfb5cf8e0786f432d8b552d69788614e",
+    "scripts/run_kqs_offline_baseline.py": "21f3f539b6a8ad1bda14c2d6bae9b092486c1f338f982623ba03b3e92273e3da",
+    "scripts/tests/test_kqs_offline_baseline.py": "e9e2d0ed7b1264bcb4a33616ff008b21d87bb4aee33ed345079ec8ea7e72d853",
+    ".github/workflows/kqs-runtime.yml": "033ea6d42b87d7b18b550986859c80d48df436558d633cbd05d461a00107545e",
+    "docs/KQS_HUMAN_DECISION_DATASET.md": "e38550f5875c25d55b3466c0e5b85c35a635fb90ecf465f5d5eeb56e21eeddff",
+    "docs/engine/README.md": "b76081b5a35aaf69db817c50caf41212f053cea8b33476480f4ffb87bf2a7790"
+  },
+  "tests": [
+    {
+      "environment": "Python 3.14.4 testenv (backend, MongoDB test DB)",
+      "command": "pytest tests",
+      "passed": 225,
+      "new": 4
+    },
+    {
+      "environment": "Python 3.14.4 testenv",
+      "command": "unittest scripts/tests/test_kqs_offline_baseline.py",
+      "passed": 4
+    },
+    {
+      "environment": "Python 3.14.4 engine venv",
+      "command": "unittest discover -s scripts/tests",
+      "passed": 34,
+      "skipped": 4,
+      "note": "offline runner tests skip without sklearn/requests"
+    },
+    {
+      "environment": "node:22-alpine container",
+      "command": "node --check app/frontend/js/views/strategyList.js",
+      "passed": 1
+    }
+  ],
+  "orders_or_automatic_fills_created": 0,
+  "deployment_performed": true,
+  "committed_or_pushed": false,
+  "limits": [
+    "The ledger owner can see all outcomes; the protocol makes test reporting verifiable, not secret.",
+    "Pre-manifest (stage 80) experiments have no manifest and are not accepted as test reports."
+  ],
+  "deployment": {
+    "covers": [
+      "EINT-008",
+      "EINT-009"
+    ],
+    "user_decision": "\"다음 단계 완료 후 한번에 배포하자\"",
+    "release": "s3://investing-app-deploy-125022369601/releases/investing-app-20260929-073150.tar.gz",
+    "target": "EC2 i-0dc146c28dca4089b (3.38.170.158:8801), backend image rebuilt; engine worker image and systemd timers unchanged",
+    "smoke_checks": [
+      "/api/health ok, container healthy",
+      "new routes answer 401 without auth (unknown path 404)",
+      "container code contains the new endpoints and frontend freeze button",
+      "state/kqs mounted read-only; engine 0.6.0; kqs timers still scheduled"
+    ],
+    "not_checked": "authenticated end-to-end flow on production (no test user created in the real DB)"
+  }
+}

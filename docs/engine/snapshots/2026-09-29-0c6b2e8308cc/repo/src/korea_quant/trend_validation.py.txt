@@ -1,0 +1,429 @@
+"""Historical validation for structural trend-following strategies (Darvas Box, Turtle).
+
+Resetting to flat at every out-of-sample window boundary would either never enter
+a position that started before the window or drop it outright as "open" at the
+edge, discarding the long-duration winners this family depends on. This harness
+runs ONE continuous backtest per symbol so a position is never truncated, then
+labels each closed trade's out-of-sample window by its entry date -- the window a
+live trader would have actually been deciding in. reversion_validation was
+originally exempted from this on the grounds that its trades are short, which
+turned out to be wrong -- its recovery-only exits left 30-96% of positions open
+at a boundary -- so it now shares this structure.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import asdict, dataclass, field
+from hashlib import sha256
+from html import escape
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+from korea_quant.backtest import BacktestConfig, generate_signals, run_signals
+from korea_quant.capital_metrics import (
+    CAPITAL_COLUMNS,
+    SELECTION_COLUMNS,
+    DeploymentConfig,
+    can_measure_deployment,
+    deployment_metrics,
+    selection_bounds,
+    unmeasured_metrics,
+    validate_deployment_config,
+)
+from korea_quant.eligibility import (
+    DEFAULT_MARKET_CAP_TIERS,
+    benchmark_fingerprint,
+    entry_eligibility,
+    market_regime_allowances,
+    validate_market_cap_tiers,
+    validate_market_history,
+)
+from korea_quant.strategy import STRATEGIES
+from korea_quant.strategy_goals import (
+    METRIC_COLUMNS,
+    TrendGoal,
+    format_metric,
+    trade_metrics,
+    validate_trend_goal,
+)
+from korea_quant.strategy_profiles import profile_label
+
+# Re-exported so callers keep importing the goal from the harness they run.
+__all__ = [
+    "TrendGoal",
+    "TrendValidationConfig",
+    "TrendValidationResult",
+    "run_trend_validation",
+    "summarize_trend_trades",
+    "write_trend_validation_reports",
+]
+
+
+@dataclass(frozen=True)
+class TrendValidationConfig:
+    training_sessions: int = 252
+    testing_sessions: int = 63
+    market_cap_tiers: tuple[tuple[str, int], ...] = DEFAULT_MARKET_CAP_TIERS
+    liquidity_window: int = 20
+    minimum_average_trading_value: float = 5_000_000_000
+    minimum_history_sessions: int = 260
+    outlier_gap_threshold: float = 0.50
+    outlier_cooldown_sessions: int = 60
+    fee_rate: float = 0.00015
+    sell_tax_rate: float = 0.0018
+    slippage_rate: float = 0.0005
+    goal: TrendGoal = field(default_factory=TrendGoal)
+    checkpoint_dir: Path | None = None
+    checkpoint_symbols_per_file: int = 50
+    strategies: tuple[str, ...] = ("darvas-box", "turtle")
+    # Zero disables the benchmark regime gate, keeping the unfiltered baseline
+    # reproducible. Trend entries want the benchmark above its own average, so
+    # this family reads the filter in its plain orientation.
+    market_filter_window: int = 0
+    market_filter_inverted: bool = False
+    # See the matching field in ReversionValidationConfig: how the trade list
+    # would actually have been deployed, reported beside the per-trade metrics
+    # rather than folded into them.
+    deployment: DeploymentConfig = field(default_factory=DeploymentConfig)
+
+
+# Naming the columns keeps an all-zero summary shaped like a populated one. A
+# regime gate strict enough to suppress every trade is a legitimate result, not
+# a crash, and the report still has to render.
+SUMMARY_COLUMNS = (
+    "Segment", "Market", "Strategy", "Profile", *METRIC_COLUMNS,
+    "Minimum Trade Count", "Passes Goal", *CAPITAL_COLUMNS, *SELECTION_COLUMNS,
+)
+
+
+@dataclass(frozen=True)
+class TrendValidationResult:
+    trades: pd.DataFrame
+    summary: pd.DataFrame
+
+
+def run_trend_validation(
+    history: pd.DataFrame,
+    config: TrendValidationConfig | None = None,
+    benchmark_close: dict[str, pd.Series] | None = None,
+) -> TrendValidationResult:
+    """Run one continuous backtest per symbol; label out-of-sample windows by entry date."""
+
+    config = config or TrendValidationConfig()
+    _validate_config(config)
+    data = validate_market_history(history)
+    dates = pd.DatetimeIndex(data["Date"].drop_duplicates().sort_values())
+    if len(dates) <= config.training_sessions:
+        raise ValueError("History must contain sessions after the training window.")
+
+    ranked = entry_eligibility(
+        data,
+        market_cap_tiers=config.market_cap_tiers,
+        liquidity_window=config.liquidity_window,
+        minimum_average_trading_value=config.minimum_average_trading_value,
+        minimum_history_sessions=config.minimum_history_sessions,
+        outlier_gap_threshold=config.outlier_gap_threshold,
+        outlier_cooldown_sessions=config.outlier_cooldown_sessions,
+    )
+    groups = [
+        group for _, group in ranked.groupby(["Market", "Symbol"], sort=True)
+        if group["EntryAllowed"].any()
+    ]
+    regimes = market_regime_allowances(
+        benchmark_close,
+        data["Market"].unique(),
+        config.market_filter_window,
+        inverted=config.market_filter_inverted,
+    )
+    checkpoint_dir = _prepare_checkpoint_dir(data, config, benchmark_close)
+    trades = _run_all(groups, config, checkpoint_dir, regimes)
+    trades = _label_windows(trades, dates, config)
+    # One segment, not two -- see the matching note in reversion_validation. No
+    # parameter is fitted here, and entry_eligibility withholds every symbol
+    # until minimum_history_sessions (260) has passed, beyond training_sessions
+    # (252), so "full_sample" was an exact duplicate of the out-of-sample rows.
+    labelled = trades[trades["Window"].notna()].assign(Segment="out_of_sample")
+    return TrendValidationResult(
+        labelled, summarize_trend_trades(labelled, config.goal, config.deployment)
+    )
+
+
+def summarize_trend_trades(
+    trades: pd.DataFrame,
+    goal: TrendGoal | None = None,
+    deployment: DeploymentConfig | None = None,
+) -> pd.DataFrame:
+    """Calculate costed closed-trade acceptance results by market and strategy."""
+
+    goal = goal or TrendGoal()
+    validate_trend_goal(goal)
+    deployment = deployment or DeploymentConfig()
+    validate_deployment_config(deployment)
+    required = {"Segment", "Market", "Strategy", "NetReturnPct"}
+    missing = required - set(trades.columns)
+    if missing:
+        raise ValueError(f"Trades are missing: {', '.join(sorted(missing))}")
+    # Trend positions run long, so the ones still open when the history ends are
+    # the youngest winners as often as they are losers. Counting them keeps that
+    # visible instead of leaving the reader to assume the sample is complete.
+    rows = []
+    for market in ("KOSPI", "KOSDAQ", "ALL"):
+        scoped = trades if market == "ALL" else trades[trades["Market"] == market]
+        for (segment, strategy), group in scoped.groupby(["Segment", "Strategy"], sort=True):
+            metrics = trade_metrics(group)
+            rows.append(
+                {
+                    "Segment": segment, "Market": market, "Strategy": strategy,
+                    "Profile": profile_label(strategy), **metrics.as_row(),
+                    "Minimum Trade Count": goal.minimum_trades,
+                    # Passes Goal reads only the per-trade metrics, as in
+                    # reversion_validation -- the capital columns beside it are
+                    # reported, not enforced.
+                    "Passes Goal": goal.passes(metrics),
+                    **_capital_row(group, deployment),
+                }
+            )
+    return (
+        pd.DataFrame(rows, columns=list(SUMMARY_COLUMNS))
+        .sort_values(["Segment", "Strategy", "Market"])
+        .reset_index(drop=True)
+    )
+
+
+def _capital_row(
+    group: pd.DataFrame, deployment: DeploymentConfig
+) -> dict[str, float | int]:
+    """Capital-weighted results for one summary row's trades.
+
+    See the matching helper in reversion_validation: each row is a book
+    dedicated to that one market-and-strategy scope, so rows bound a
+    multi-strategy portfolio's outcome rather than predict it.
+    """
+
+    if not can_measure_deployment(group):
+        return {
+            **unmeasured_metrics().as_row(),
+            "Greedy Hindsight Low CAGR": float("nan"),
+            "Greedy Hindsight High CAGR": float("nan"),
+        }
+    metrics = deployment_metrics(group, deployment)
+    floor, ceiling = selection_bounds(group, deployment)
+    return {
+        **metrics.as_row(),
+        "Greedy Hindsight Low CAGR": floor,
+        "Greedy Hindsight High CAGR": ceiling,
+    }
+
+
+def write_trend_validation_reports(
+    result: TrendValidationResult,
+    html_output: Path,
+    csv_output: Path,
+    deployment: DeploymentConfig | None = None,
+) -> tuple[Path, Path]:
+    """Write an HTML acceptance table and a reproducible CSV."""
+
+    deployment = deployment or DeploymentConfig()
+    validate_deployment_config(deployment)
+    daily_cap = deployment.daily_entry_cap
+    slots = deployment.position_slots
+    samples = deployment.ordering_samples
+    html_output.parent.mkdir(parents=True, exist_ok=True)
+    csv_output.parent.mkdir(parents=True, exist_ok=True)
+    summary = result.summary.copy()
+    display = summary.copy()
+    for column in display.columns:
+        display[column] = [format_metric(column, value) for value in display[column]]
+    display["Passes Goal"] = summary["Passes Goal"].map(lambda value: "PASS" if value else "FAIL")
+    headers = "".join(f"<th>{escape(str(column))}</th>" for column in display.columns)
+    rows = [
+        "<tr>" + "".join(f"<td>{escape(str(value))}</td>" for value in row) + "</tr>"
+        for row in display.itertuples(index=False, name=None)
+    ]
+    html_output.write_text(
+        f"""<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<title>Trend validation</title><style>
+body{{font-family:system-ui;margin:32px;max-width:1400px}}table{{border-collapse:collapse;width:100%}}
+th,td{{padding:8px;border:1px solid #ddd;text-align:right}}th:nth-child(-n+3),td:nth-child(-n+3){{text-align:left}}
+th{{background:#f5f5f5}}</style></head><body><h1>Trend-following strategy validation</h1>
+<p>PASS requires the configured closed-trade count, payoff ratio, profit factor, positive expectancy,
+and the profitable-window share. Win Rate and Median Net Return are reported but are <em>not</em>
+criteria for this family: a structural trend follower is wrong on most trades by design -- these
+strategies win about 35% of the time with a negative median -- and pays for it with wins several times
+the size of its losses, which is what Payoff Ratio measures. Each symbol runs as one
+continuous backtest so positions are never truncated at a window boundary; windows are assigned by
+each closed trade's entry date. Open Trade Count is positions still unclosed when the history ends: they carry no
+realised return and are excluded from the goal, so a large count means the columns beside it describe
+only part of the sample. Research only.</p>
+<p>The capital columns replay the shipped deployment rule -- at most {daily_cap} entries a session,
+{slots} position slots, never a name already held -- and report the resulting CAGR; see
+reversion_validation's report for the full explanation of what they do and do not claim.
+<strong>They do not gate PASS.</strong> CAGR is the median of {samples} random same-day orderings
+(Low/High are the 5th/95th percentiles); Realised Max Drawdown moves only at exits and is a floor on the
+true figure; Selection Floor/Ceiling CAGR are perverse/perfect hindsight bounds on same-day ordering.
+Each row is a book dedicated to that one market-and-strategy scope.</p>
+<table><thead><tr>{headers}</tr></thead><tbody>{''.join(rows)}</tbody></table></body></html>""",
+        encoding="utf-8",
+    )
+    pd.concat(
+        [summary.assign(RecordType="summary"), result.trades.assign(RecordType="trade")],
+        ignore_index=True, sort=False,
+    ).to_csv(csv_output, index=False)
+    return html_output, csv_output
+
+
+def _label_windows(
+    trades: pd.DataFrame, dates: pd.DatetimeIndex, config: TrendValidationConfig
+) -> pd.DataFrame:
+    trades = trades.copy()
+    if trades.empty:
+        trades["Window"] = pd.array([], dtype="Int64")
+        return trades
+    entry_dates = pd.to_datetime(trades["Entry Timestamp"])
+    positions = dates.get_indexer(entry_dates)
+    unmatched = positions < 0
+    if unmatched.any():
+        positions = np.where(unmatched, dates.get_indexer(entry_dates, method="pad"), positions)
+    in_oos = positions >= config.training_sessions
+    window_number = np.where(
+        in_oos, (positions - config.training_sessions) // config.testing_sessions + 1, -1
+    )
+    trades["Window"] = pd.array(np.where(in_oos, window_number, pd.NA), dtype="Int64")
+    return trades
+
+
+def _run_all(
+    groups: list[pd.DataFrame],
+    config: TrendValidationConfig,
+    checkpoint_dir: Path | None,
+    regimes: dict[str, pd.Series] | None = None,
+) -> pd.DataFrame:
+    if not groups:
+        return _empty_trades()
+    saved: list[pd.DataFrame] = []
+    chunk_size = config.checkpoint_symbols_per_file
+    for chunk_number, first in enumerate(range(0, len(groups), chunk_size), start=1):
+        checkpoint = _checkpoint_path(checkpoint_dir, chunk_number)
+        if checkpoint is not None and checkpoint.exists():
+            saved.append(pd.read_csv(checkpoint))
+            continue
+        trades = _run_group_chunk(groups[first:first + chunk_size], config, regimes)
+        if checkpoint is not None:
+            temporary = checkpoint.with_suffix(".tmp")
+            trades.to_csv(temporary, index=False)
+            temporary.replace(checkpoint)
+        saved.append(trades)
+    return pd.concat(saved, ignore_index=True) if saved else _empty_trades()
+
+
+def _run_group_chunk(
+    groups: list[pd.DataFrame],
+    config: TrendValidationConfig,
+    regimes: dict[str, pd.Series] | None = None,
+) -> pd.DataFrame:
+    rows = []
+    for raw_group in groups:
+        group = raw_group.sort_values("Date").set_index("Date")
+        market = str(group["Market"].iloc[-1])
+        symbol = str(group["Symbol"].iloc[-1])
+        prices = group[["Open", "High", "Low", "Close", "Volume", "TradingValue"]]
+        allowed = group["EntryAllowed"].astype(bool)
+        if regimes:
+            # A market regime is one series shared by every symbol, so it is
+            # reindexed onto this symbol's calendar rather than recomputed, and
+            # only entries are gated -- exits must stay free to cut risk.
+            allowed = allowed & regimes[market].reindex(group.index, fill_value=False)
+        for strategy in config.strategies:
+            settings = _backtest_config(strategy, config)
+            signals = generate_signals(prices, settings).copy()
+            signals["entries"] = signals["entries"].astype(bool) & allowed
+            portfolio = run_signals(prices, signals, settings)
+            records = portfolio.trades.records_readable.copy()
+            if records.empty:
+                continue
+            if "Return" not in records:
+                raise ValueError("Backtest trade records must include Return.")
+            records = records.rename(columns={"Return": "NetReturnPct"})
+            # Carried through with a mark-to-market return so the summary can
+            # count what is still open; only closed trades reach the goal.
+            if "Status" not in records:
+                records["Status"] = "closed"
+            records["Status"] = records["Status"].astype(str).str.lower()
+            records["Market"] = market
+            records["Symbol"] = symbol
+            records["Strategy"] = strategy
+            rows.append(records)
+    return pd.concat(rows, ignore_index=True) if rows else _empty_trades()
+
+
+def _prepare_checkpoint_dir(
+    history: pd.DataFrame,
+    config: TrendValidationConfig,
+    benchmark_close: dict[str, pd.Series] | None = None,
+) -> Path | None:
+    if config.checkpoint_dir is None:
+        return None
+    directory = config.checkpoint_dir
+    directory.mkdir(parents=True, exist_ok=True)
+    payload = asdict(config)
+    payload["checkpoint_dir"] = None
+    payload["history_start"] = str(history["Date"].min())
+    payload["history_end"] = str(history["Date"].max())
+    payload["history_rows"] = len(history)
+    payload["benchmark"] = benchmark_fingerprint(benchmark_close)
+    signature = sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+    manifest = directory / "manifest.json"
+    if manifest.exists():
+        recorded = json.loads(manifest.read_text(encoding="utf-8"))
+        if recorded.get("signature") != signature:
+            raise ValueError(
+                "Checkpoint directory belongs to different validation inputs. "
+                "Use a new directory or remove its prior checkpoints."
+            )
+    else:
+        manifest.write_text(json.dumps({"signature": signature}, indent=2), encoding="utf-8")
+    return directory
+
+
+def _checkpoint_path(directory: Path | None, chunk_number: int) -> Path | None:
+    if directory is None:
+        return None
+    return directory / f"chunk_{chunk_number:04d}.csv"
+
+
+def _backtest_config(strategy: str, config: TrendValidationConfig) -> BacktestConfig:
+    return BacktestConfig(
+        strategy=strategy, fee_rate=config.fee_rate, sell_tax_rate=config.sell_tax_rate,
+        slippage_rate=config.slippage_rate, minimum_average_trading_value=0,
+        minimum_signal_trading_value=0, outlier_gap_threshold=0,
+    )
+
+
+def _empty_trades() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=["Market", "Symbol", "Strategy", "Status", "NetReturnPct", "Entry Timestamp"]
+    )
+
+
+def _validate_config(config: TrendValidationConfig) -> None:
+    if config.training_sessions < 1 or config.testing_sessions < 2:
+        raise ValueError("training_sessions must be positive and testing_sessions at least two.")
+    validate_market_cap_tiers(config.market_cap_tiers)
+    if config.liquidity_window < 2:
+        raise ValueError("liquidity_window must be at least two.")
+    if config.minimum_history_sessions < 2:
+        raise ValueError("minimum_history_sessions must be at least two.")
+    if config.minimum_average_trading_value < 0:
+        raise ValueError("minimum_average_trading_value cannot be negative.")
+    if config.outlier_gap_threshold <= 0 or config.outlier_cooldown_sessions < 1:
+        raise ValueError("Outlier threshold and cooldown must be positive.")
+    if config.checkpoint_symbols_per_file < 1:
+        raise ValueError("checkpoint_symbols_per_file must be positive.")
+    if config.market_filter_window < 0 or config.market_filter_window == 1:
+        raise ValueError("market_filter_window must be zero (disabled) or at least two.")
+    if not config.strategies or set(config.strategies) - set(STRATEGIES):
+        raise ValueError("strategies must contain supported strategy names.")
+    validate_trend_goal(config.goal)

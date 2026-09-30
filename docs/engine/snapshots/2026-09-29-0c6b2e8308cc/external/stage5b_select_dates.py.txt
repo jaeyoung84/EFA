@@ -1,0 +1,83 @@
+"""D-36 Stage 5B: select the 7 file-boundary dates and a random sample of dates
+for official-source spot-checking. Reads ONLY the 일자 (date) column from the
+8 original price CSVs and the already-collected merged price file's date column
+-- no price/NAV/value column is read here. Prints dates only.
+"""
+
+from __future__ import annotations
+
+import random
+from pathlib import Path
+
+import pandas as pd
+
+DOWNLOADS = Path("/mnt/c/Users/gram/Downloads")
+PRICE_FILES = [
+    "data_4421_20260909.csv",
+    "data_2117_20260909.csv",
+    "data_2207_20260909.csv",
+    "data_2256_20260909.csv",
+    "data_2339_20260909.csv",
+    "data_2416_20260909.csv",
+    "data_2444_20260909.csv",
+    "data_2515_20260909.csv",
+]
+
+RANDOM_SEED = 20260909  # documented for reproducibility
+SAMPLE_SIZE = 24
+
+
+def main() -> None:
+    boundaries = []
+    all_dates: list[pd.Timestamp] = []
+    per_file_ranges = []
+    for name in PRICE_FILES:
+        df = pd.read_csv(DOWNLOADS / name, encoding="cp949", usecols=["일자"])
+        dates = pd.to_datetime(df["일자"], format="%Y/%m/%d").sort_values()
+        per_file_ranges.append((name, dates.iloc[0].date(), dates.iloc[-1].date()))
+        all_dates.extend(dates.tolist())
+
+    print("=== 파일별 날짜 범위 ===")
+    for name, start, end in per_file_ranges:
+        print(f"  {name}: {start} ~ {end}")
+
+    print()
+    print("=== 7개 파일 경계 지점 (전 파일 마지막 거래일, 다음 파일 첫 거래일) ===")
+    for i in range(len(per_file_ranges) - 1):
+        prev_end = per_file_ranges[i][2]
+        next_start = per_file_ranges[i + 1][1]
+        print(f"  경계 {i+1}: {prev_end} -> {next_start}")
+        boundaries.append(prev_end)
+        boundaries.append(next_start)
+
+    unique_all_dates = sorted({d.date() for d in all_dates})
+    print()
+    print("전체 고유 거래일 수:", len(unique_all_dates))
+    print("구간:", unique_all_dates[0], "~", unique_all_dates[-1])
+
+    rng = random.Random(RANDOM_SEED)
+    boundary_set = set(boundaries)
+    candidate_pool = [d for d in unique_all_dates if d not in boundary_set]
+    sample_dates = sorted(rng.sample(candidate_pool, SAMPLE_SIZE))
+
+    print()
+    print(f"=== 무작위 표본 {SAMPLE_SIZE}일 (seed={RANDOM_SEED}) ===")
+    for d in sample_dates:
+        print(" ", d)
+
+    print()
+    print("=== sqlite3 겹침 구간(2016-08-29~2016-08-31)과 겹치는 항목 확인 ===")
+    overlap_start, overlap_end = pd.Timestamp("2016-08-29").date(), pd.Timestamp("2016-08-31").date()
+    all_targets = sorted(set(boundaries) | set(sample_dates))
+    overlap_targets = [d for d in all_targets if overlap_start <= d <= overlap_end]
+    krx_targets = [d for d in all_targets if d not in overlap_targets]
+    print("sqlite3 대조 대상:", overlap_targets)
+    print("KRX 공식 사이트 대조 대상 수:", len(krx_targets))
+    print()
+    print("=== KRX 대조 대상 전체 목록 ===")
+    for d in krx_targets:
+        print(" ", d)
+
+
+if __name__ == "__main__":
+    main()

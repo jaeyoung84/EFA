@@ -1,0 +1,160 @@
+diff --git a/obv_confirm_test.py b/obv_confirm_test.py
+new file mode 100644
+index 0000000..0b74153
+--- /dev/null
++++ b/obv_confirm_test.py
+@@ -0,0 +1,154 @@
++"""One-off exploratory test: does OBV confirmation improve bollinger-rsi?
++
++v1 ANDed bollinger-rsi's entry against rsi-obv's own entry signal and got
++zero overlap: rsi-obv fires on the RSI recovery cross *out* of oversold,
++while bollinger-rsi fires *at* the oversold trough -- different days by
++construction, so the two entry events almost never coincide.
++
++v2 (this version) instead ANDs bollinger-rsi's raw entry condition against
++the raw OBV-rising condition alone (obv > its signal average and rising),
++recomputed independently of rsi-obv's own RSI-cross gating. Exit stays
++bollinger-rsi's own exit (mid-band / RSI recovery).
++
++Not part of the package -- throwaway analysis script.
++"""
++from pathlib import Path
++
++import pandas as pd
++
++from korea_quant.backtest import BacktestConfig, generate_signals, run_signals
++from korea_quant.eligibility import entry_eligibility, validate_market_history
++from korea_quant.krx import KrxDailyStore
++from korea_quant.strategy import _long_only_events, _rsi
++
++DB = Path("data/krx_daily.sqlite3")
++START, END = "2021-08-30", "2026-08-27"
++
++
++def backtest_config(strategy: str) -> BacktestConfig:
++    return BacktestConfig(
++        strategy=strategy,
++        fee_rate=0.00015,
++        sell_tax_rate=0.0018,
++        slippage_rate=0.0005,
++        minimum_average_trading_value=0,
++        minimum_signal_trading_value=0,
++        outlier_gap_threshold=0,
++    )
++
++
++def main() -> None:
++    history = KrxDailyStore(DB).market_history(START, END)
++    data = validate_market_history(history)
++    ranked = entry_eligibility(
++        data,
++        market_cap_tier=100,
++        liquidity_window=20,
++        minimum_average_trading_value=5_000_000_000,
++        minimum_history_sessions=260,
++        outlier_gap_threshold=0.50,
++        outlier_cooldown_sessions=60,
++    )
++    groups = [
++        group for _, group in ranked.groupby(["Market", "Symbol"], sort=True)
++        if group["EntryAllowed"].any()
++    ]
++
++    bb_settings = backtest_config("bollinger-rsi")
++    obv_settings = backtest_config("rsi-obv")
++
++    baseline_rows = []
++    combined_rows = []
++    for raw_group in groups:
++        group = raw_group.sort_values("Date").set_index("Date")
++        market = str(group["Market"].iloc[-1])
++        symbol = str(group["Symbol"].iloc[-1])
++        prices = group[["Open", "High", "Low", "Close", "Volume", "TradingValue"]]
++        allowed = group["EntryAllowed"]
++
++        bb_signals = generate_signals(prices, bb_settings).copy()
++
++        baseline = bb_signals.copy()
++        baseline["entries"] = baseline["entries"].astype(bool) & allowed
++        baseline_records = _closed_trades(run_signals(prices, baseline, bb_settings))
++        if not baseline_records.empty:
++            baseline_records["Market"] = market
++            baseline_records["Symbol"] = symbol
++            baseline_rows.append(baseline_records)
++
++        combined = _combined_signals(prices, bb_settings, obv_settings)
++        combined["entries"] = combined["entries"].astype(bool) & allowed
++        combined_records = _closed_trades(run_signals(prices, combined, bb_settings))
++        if not combined_records.empty:
++            combined_records["Market"] = market
++            combined_records["Symbol"] = symbol
++            combined_rows.append(combined_records)
++
++    baseline_trades = pd.concat(baseline_rows, ignore_index=True) if baseline_rows else pd.DataFrame()
++    combined_trades = pd.concat(combined_rows, ignore_index=True) if combined_rows else pd.DataFrame()
++    baseline_trades.to_csv("/tmp/obv_confirm_baseline_trades.csv", index=False)
++    combined_trades.to_csv("/tmp/obv_confirm_combined_trades.csv", index=False)
++
++    print("=== baseline: bollinger-rsi only (this run's eligibility, for apples-to-apples) ===")
++    _print_summary(baseline_trades)
++    print()
++    print("=== combined: bollinger-rsi AND rsi-obv entry, bollinger-rsi exit ===")
++    _print_summary(combined_trades)
++
++
++def _combined_signals(
++    prices: pd.DataFrame, bb_settings: BacktestConfig, obv_settings: BacktestConfig
++) -> pd.DataFrame:
++    """Bollinger-rsi entry condition AND raw OBV-rising condition, same day."""
++    close = pd.to_numeric(prices["Close"], errors="coerce")
++    volume = pd.to_numeric(prices["Volume"], errors="coerce")
++
++    middle = close.rolling(bb_settings.bollinger_window, min_periods=bb_settings.bollinger_window).mean()
++    deviation = close.rolling(bb_settings.bollinger_window, min_periods=bb_settings.bollinger_window).std(ddof=0)
++    upper = middle + bb_settings.bollinger_std * deviation
++    lower = middle - bb_settings.bollinger_std * deviation
++    rsi = _rsi(close, bb_settings.rsi_window)
++
++    direction = close.diff().apply(lambda value: 1 if value > 0 else (-1 if value < 0 else 0))
++    obv = (volume.fillna(0) * direction).cumsum()
++    obv_signal = obv.rolling(obv_settings.obv_signal_window, min_periods=obv_settings.obv_signal_window).mean()
++    obv_rising = (obv > obv_signal) & (obv.diff() > 0)
++
++    entry_observed = (close <= lower) & (rsi <= bb_settings.rsi_oversold) & obv_rising
++    exit_observed = (close >= middle) | (rsi >= bb_settings.rsi_exit)
++    entries, exits = _long_only_events(entry_observed, exit_observed)
++    return pd.DataFrame(
++        {
++            "entries": pd.Series(entries, index=prices.index).shift(1, fill_value=False),
++            "exits": pd.Series(exits, index=prices.index).shift(1, fill_value=False),
++        }
++    )
++
++
++def _closed_trades(portfolio) -> pd.DataFrame:
++    records = portfolio.trades.records_readable.copy()
++    if "Status" in records:
++        records = records[records["Status"].astype(str).str.lower().eq("closed")]
++    if records.empty or "Return" not in records:
++        return pd.DataFrame()
++    return records.rename(columns={"Return": "NetReturnPct"})
++
++
++def _print_summary(trades: pd.DataFrame) -> None:
++    if trades.empty:
++        print("no closed trades")
++        return
++    for market in ("KOSPI", "KOSDAQ", "ALL"):
++        scoped = trades if market == "ALL" else trades[trades["Market"] == market]
++        count = len(scoped)
++        if count == 0:
++            print(f"{market}: n=0")
++            continue
++        win_rate = (scoped["NetReturnPct"] > 0).mean()
++        mean = scoped["NetReturnPct"].mean()
++        median = scoped["NetReturnPct"].median()
++        print(f"{market}: n={count} win_rate={win_rate:.2%} mean={mean:.2%} median={median:.2%}")
++
++
++if __name__ == "__main__":
++    main()

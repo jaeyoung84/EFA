@@ -1,0 +1,60 @@
+from datetime import date
+
+import pytest
+
+from korea_quant.ecos import (
+    CD91_ITEM_CODE,
+    CD91_STAT_CODE,
+    EcosApiError,
+    EcosOpenApiClient,
+    fetch_cd91,
+)
+
+
+def _client(transport):
+    return EcosOpenApiClient(api_key="dummy-key", transport=transport)
+
+
+def test_fetch_daily_series_parses_rows_sorted_by_date():
+    def transport(url: str) -> dict:
+        assert "dummy-key" in url
+        assert CD91_STAT_CODE in url
+        assert CD91_ITEM_CODE in url
+        return {
+            "StatisticSearch": {
+                "row": [
+                    {"TIME": "20030103", "DATA_VALUE": "4.9"},
+                    {"TIME": "20030102", "DATA_VALUE": "4.91"},
+                ]
+            }
+        }
+
+    frame = fetch_cd91(_client(transport), date(2003, 1, 1), date(2003, 1, 10))
+
+    assert list(frame["date"].dt.strftime("%Y%m%d")) == ["20030102", "20030103"]
+    assert list(frame["value"]) == [4.91, 4.9]
+
+
+def test_fetch_daily_series_raises_on_error_payload():
+    def transport(url: str) -> dict:
+        return {"RESULT": {"CODE": "INFO-200", "MESSAGE": "해당하는 데이터가 없습니다."}}
+
+    with pytest.raises(EcosApiError, match="INFO-200"):
+        fetch_cd91(_client(transport), date(2003, 1, 1), date(2003, 1, 10))
+
+
+def test_from_env_requires_api_key(monkeypatch, tmp_path):
+    monkeypatch.delenv("ECOS_API_KEY", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValueError, match="ECOS_API_KEY"):
+        EcosOpenApiClient.from_env()
+
+
+def test_from_env_reads_environment_variable(monkeypatch, tmp_path):
+    monkeypatch.setenv("ECOS_API_KEY", "env-key")
+    monkeypatch.chdir(tmp_path)
+
+    client = EcosOpenApiClient.from_env()
+
+    assert client.api_key == "env-key"

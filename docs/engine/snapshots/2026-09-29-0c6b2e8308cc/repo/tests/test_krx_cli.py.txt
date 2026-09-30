@@ -1,0 +1,57 @@
+import sys
+
+import pandas as pd
+import pytest
+
+from korea_quant import krx_cli
+from korea_quant.krx import KrxDailyStore
+
+
+def test_read_universe_csv_detects_korean_column_and_preserves_zeroes(tmp_path):
+    path = tmp_path / "members.csv"
+    pd.DataFrame({"종목코드": ["005930", "000660"]}).to_csv(
+        path, index=False, encoding="utf-8-sig"
+    )
+
+    assert krx_cli.read_universe_csv(path) == ["005930", "000660"]
+
+
+def test_universe_import_cli_records_snapshot_without_api_key(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "members.csv"
+    path.write_text("Symbol\n005930\n000660\n", encoding="utf-8")
+    database = tmp_path / "daily.sqlite3"
+    monkeypatch.delenv("KRX_AUTH_KEY", raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "krx-data", "--db", str(database), "universe-import",
+            "--universe", "KOSPI200", "--effective-date", "2024-06-14",
+            "--available-date", "2024-06-10", "--source", "licensed-file",
+            "--file", str(path),
+        ],
+    )
+
+    krx_cli.main()
+
+    output = capsys.readouterr().out
+    assert '"members": 2' in output
+    members = KrxDailyStore(database).universe_members("KOSPI200", "2024-06-14")
+    assert members["symbol"].tolist() == ["000660", "005930"]
+
+
+def test_universe_import_cli_rejects_accidental_empty_snapshot(tmp_path, monkeypatch):
+    path = tmp_path / "members.csv"
+    path.write_text("Symbol\n", encoding="utf-8")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "krx-data", "--db", str(tmp_path / "daily.sqlite3"), "universe-import",
+            "--universe", "KOSPI200", "--effective-date", "2024-06-14",
+            "--source", "fixture", "--file", str(path),
+        ],
+    )
+
+    with pytest.raises(SystemExit, match="no members"):
+        krx_cli.main()

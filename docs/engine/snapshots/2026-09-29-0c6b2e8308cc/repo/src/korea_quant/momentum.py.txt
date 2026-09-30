@@ -1,0 +1,413 @@
+"""Cross-sectional momentum portfolio research for the historical KRX universe."""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from html import escape
+from pathlib import Path
+
+import pandas as pd
+
+
+@dataclass(frozen=True)
+class MomentumConfig:
+    initial_cash: float = 10_000_000
+    fee_rate: float = 0.00015
+    sell_tax_rate: float = 0.0018
+    slippage_rate: float = 0.0005
+    lookback_sessions: int = 126
+    liquidity_sessions: int = 20
+    top_n: int = 20
+    price_limit_ratio: float = 0.295
+    filter_halts: bool = True
+    outlier_gap_threshold: float = 0.50
+
+
+@dataclass(frozen=True)
+class MomentumResult:
+    portfolio: object
+    equity: pd.Series
+    selections: pd.DataFrame
+    metrics: dict[str, float]
+    turnover: pd.Series
+    benchmark_equity: pd.Series | None = None
+
+
+def build_target_weights(
+    close: pd.DataFrame,
+    trading_value: pd.DataFrame,
+    config: MomentumConfig,
+    eligible: pd.DataFrame | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Rank at each month end and place equal-weight targets on the next session."""
+
+    if config.lookback_sessions < 1 or config.liquidity_sessions < 1 or config.top_n < 1:
+        raise ValueError("Momentum windows and top_n must be positive.")
+    if not close.index.equals(trading_value.index) or not close.columns.equals(
+        trading_value.columns
+    ):
+        raise ValueError("Close and trading-value panels must have identical axes.")
+    eligible = _validated_eligible_panel(close, eligible)
+    
+    if config.outlier_gap_threshold > 0:
+        gap = close / close.shift(1) - 1
+        outlier = (gap > config.outlier_gap_threshold) | (gap < -config.outlier_gap_threshold)
+        outlier_in_lookback = outlier.rolling(config.lookback_sessions, min_periods=1).max().astype(bool)
+        eligible = eligible & ~outlier_in_lookback
+        
+    close = close.apply(pd.to_numeric, errors="coerce").where(lambda frame: frame > 0)
+    liquidity = trading_value.apply(pd.to_numeric, errors="coerce").rolling(
+        config.liquidity_sessions, min_periods=config.liquidity_sessions
+    ).mean()
+    momentum = close / close.shift(config.lookback_sessions) - 1
+    weights = pd.DataFrame(float("nan"), index=close.index, columns=close.columns)
+    selection_rows: list[dict[str, object]] = []
+    month_end_dates = close.groupby(close.index.to_period("M")).apply(lambda frame: frame.index[-1])
+
+    for signal_date in month_end_dates:
+        position = close.index.get_loc(signal_date)
+        if position + 1 >= len(close.index):
+            continue
+        scores = pd.DataFrame(
+            {"momentum": momentum.loc[signal_date], "liquidity": liquidity.loc[signal_date]}
+        ).dropna()
+        scores = scores[eligible.loc[signal_date].reindex(scores.index)]
+        scores = scores[scores["momentum"] > 0]
+        if scores.empty:
+            selected = scores
+        else:
+            liquid_count = min(len(scores), max(config.top_n * 5, config.top_n))
+            selected = scores.nlargest(liquid_count, "liquidity").nlargest(
+                config.top_n, "momentum"
+            )
+        execution_date = close.index[position + 1]
+        weights.loc[execution_date] = 0.0
+        if not selected.empty:
+            weights.loc[execution_date, selected.index] = 1.0 / len(selected)
+            for rank, (symbol, values) in enumerate(selected.iterrows(), start=1):
+                selection_rows.append(
+                    {
+                        "signal_date": signal_date,
+                        "execution_date": execution_date,
+                        "rank": rank,
+                        "symbol": symbol,
+                        "momentum": values["momentum"],
+                        "average_trading_value": values["liquidity"],
+                        "target_weight": 1.0 / len(selected),
+                    }
+                )
+    selections = pd.DataFrame(selection_rows)
+    return weights, selections
+
+
+def build_universe_benchmark_weights(
+    close: pd.DataFrame, eligible: pd.DataFrame
+) -> pd.DataFrame:
+    """Build next-session equal weights for members known at each month end."""
+
+    eligible = _validated_eligible_panel(close, eligible)
+    numeric_close = close.apply(pd.to_numeric, errors="coerce").where(lambda frame: frame > 0)
+    weights = pd.DataFrame(float("nan"), index=close.index, columns=close.columns)
+    month_end_dates = close.groupby(close.index.to_period("M")).apply(
+        lambda frame: frame.index[-1]
+    )
+    for signal_date in month_end_dates:
+        position = close.index.get_loc(signal_date)
+        if position + 1 >= len(close.index):
+            continue
+        members = eligible.loc[signal_date] & numeric_close.loc[signal_date].notna()
+        execution_date = close.index[position + 1]
+        weights.loc[execution_date] = 0.0
+        if members.any():
+            weights.loc[execution_date, members] = 1.0 / int(members.sum())
+    return weights
+
+
+def calculate_target_turnover(weights: pd.DataFrame) -> pd.Series:
+    """Return one-way turnover at each target rebalance, including cash changes."""
+
+    targets = weights.dropna(how="all").fillna(0.0)
+    if targets.empty:
+        return pd.Series(dtype=float, name="TargetTurnover")
+    previous = pd.Series(0.0, index=targets.columns)
+    previous_cash = 1.0
+    values: list[float] = []
+    for _, target in targets.iterrows():
+        cash = max(0.0, 1.0 - float(target.sum()))
+        values.append(
+            0.5 * (float((target - previous).abs().sum()) + abs(cash - previous_cash))
+        )
+        previous = target
+        previous_cash = cash
+    return pd.Series(values, index=targets.index, name="TargetTurnover")
+
+
+def _portfolio_from_targets(
+    vbt: object,
+    close: pd.DataFrame,
+    price: pd.DataFrame,
+    targets: pd.DataFrame,
+    config: MomentumConfig,
+) -> object:
+    """Build a target-weight portfolio with fees derived from actual executed orders."""
+
+    order_kwargs = {
+        "close": close,
+        "price": price,
+        "size": targets,
+        "size_type": "targetpercent",
+        "init_cash": config.initial_cash,
+        "cash_sharing": True,
+        "group_by": True,
+        "call_seq": "auto",
+        "slippage": config.slippage_rate,
+        "freq": "1D",
+    }
+    portfolio = vbt.Portfolio.from_orders(**order_kwargs, fees=config.fee_rate)
+    if config.sell_tax_rate == 0:
+        return portfolio
+
+    fees = pd.DataFrame(config.fee_rate, index=targets.index, columns=targets.columns)
+    orders = portfolio.orders.records_readable
+    for order in orders.loc[orders["Side"].eq("Sell")].itertuples(index=False):
+        fees.at[order.Timestamp, order.Column] = config.fee_rate + config.sell_tax_rate
+    return vbt.Portfolio.from_orders(**order_kwargs, fees=fees)
+
+
+def run_momentum(
+    history: pd.DataFrame,
+    config: MomentumConfig,
+    eligible: pd.DataFrame | None = None,
+) -> MomentumResult:
+    """Run a cash-sharing vectorbt portfolio from historical KRX rows."""
+    import numpy as np
+
+    required = {"Date", "Symbol", "Open", "Close", "TradingValue"}
+    missing = required - set(history.columns)
+    if missing:
+        raise ValueError(f"Momentum history is missing: {', '.join(sorted(missing))}")
+    if history.empty:
+        raise ValueError("Momentum history cannot be empty.")
+    dates = pd.DatetimeIndex(history["Date"].drop_duplicates()).sort_values()
+    gaps = dates.to_series().diff().dt.days
+    if not gaps.empty and gaps.max() > 14:
+        gap_end = gaps.idxmax()
+        gap_start = dates[dates.get_loc(gap_end) - 1]
+        raise ValueError(
+            "KRX history has a gap longer than 14 days: "
+            f"{gap_start.date()} to {gap_end.date()}. Collect the missing dates first."
+        )
+    os.environ.setdefault("MPLCONFIGDIR", str(Path(".cache/matplotlib").resolve()))
+    import vectorbt as vbt
+
+    close = history.pivot(index="Date", columns="Symbol", values="Close").sort_index()
+    open_ = history.pivot(index="Date", columns="Symbol", values="Open").reindex_like(close)
+    trading_value = history.pivot(
+        index="Date", columns="Symbol", values="TradingValue"
+    ).reindex_like(close)
+    close = close.where(close > 0)
+    open_ = open_.where(open_ > 0)
+    eligible_panel = _validated_eligible_panel(close, eligible)
+    weights, selections = build_target_weights(
+        close, trading_value, config, eligible_panel
+    )
+    valuation_close = close.ffill()
+    execution_open = open_.fillna(close)
+    
+    if config.filter_halts:
+        prev_close = close.shift(1)
+        halted = (trading_value == 0) | trading_value.isna()
+        locked_limit_up = execution_open >= prev_close * (1 + config.price_limit_ratio)
+        locked_limit_down = execution_open <= prev_close * (1 - config.price_limit_ratio)
+        cant_buy = halted | locked_limit_up
+        cant_sell = halted | locked_limit_down
+        
+        # If cant buy, prevent building new positions (weight > 0)
+        weights = weights.mask(cant_buy & (weights > 0), np.nan)
+        # If cant sell, prevent liquidating (weight == 0)
+        weights = weights.mask(cant_sell & (weights == 0), np.nan)
+
+    portfolio = _portfolio_from_targets(
+        vbt, valuation_close, execution_open, weights, config
+    )
+    equity = pd.Series(portfolio.value(), index=close.index, name="Portfolio").astype(float)
+    turnover = calculate_target_turnover(weights)
+    benchmark_equity = None
+    benchmark_turnover = None
+    if eligible is not None:
+        benchmark_weights = build_universe_benchmark_weights(close, eligible_panel)
+        if config.filter_halts:
+            benchmark_weights = benchmark_weights.mask(cant_buy & (benchmark_weights > 0), np.nan)
+            benchmark_weights = benchmark_weights.mask(cant_sell & (benchmark_weights == 0), np.nan)
+        benchmark = _portfolio_from_targets(
+            vbt, valuation_close, execution_open, benchmark_weights, config
+        )
+        benchmark_equity = pd.Series(
+            benchmark.value(), index=close.index, name="UniverseBenchmark"
+        ).astype(float)
+        benchmark_turnover = calculate_target_turnover(benchmark_weights)
+    metrics = _metrics(
+        equity, portfolio, selections, config, turnover,
+        benchmark_equity=benchmark_equity,
+        benchmark_turnover=benchmark_turnover,
+    )
+    return MomentumResult(
+        portfolio, equity, selections, metrics, turnover, benchmark_equity
+    )
+
+
+def write_momentum_report(
+    result: MomentumResult, html_output: Path, csv_output: Path, title: str
+) -> tuple[Path, Path]:
+    """Write portfolio equity, metrics, and every historical selection."""
+
+    import plotly.graph_objects as go
+
+    html_output.parent.mkdir(parents=True, exist_ok=True)
+    csv_output.parent.mkdir(parents=True, exist_ok=True)
+    figure = go.Figure(
+        go.Scatter(x=result.equity.index, y=result.equity, name="Momentum Portfolio")
+    )
+    if result.benchmark_equity is not None:
+        figure.add_trace(
+            go.Scatter(
+                x=result.benchmark_equity.index,
+                y=result.benchmark_equity,
+                name="Point-in-time Universe Benchmark",
+            )
+        )
+    figure.update_layout(
+        template="plotly_white", title="Portfolio Asset Curve", hovermode="x unified",
+        yaxis_title="Portfolio value (KRW)", height=600,
+    )
+    cards = "".join(
+        f'<div class="metric"><span>{escape(name)}</span><strong>{_format(name, value)}</strong></div>'
+        for name, value in result.metrics.items()
+    )
+    selection_html = (
+        result.selections.tail(200).to_html(index=False, border=0)
+        if not result.selections.empty else "<p>No eligible selections.</p>"
+    )
+    html = f'''<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<title>{escape(title)}</title><style>body{{font-family:system-ui;margin:32px;max-width:1400px}}
+.metrics{{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}}
+.metric{{border:1px solid #ddd;border-radius:8px;padding:14px}}.metric span{{display:block;color:#666}}
+.metric strong{{font-size:1.2rem}}table{{border-collapse:collapse;width:100%}}th,td{{padding:7px;border:1px solid #ddd}}</style>
+</head><body><h1>{escape(title)}</h1><p>Research only. Month-end close signals execute at the next session open.
+Fees and slippage are included.</p><div class="metrics">{cards}</div>
+{figure.to_html(full_html=False, include_plotlyjs=True)}<h2>Latest selections (up to 200 rows)</h2>
+{selection_html}</body></html>'''
+    html_output.write_text(html, encoding="utf-8")
+
+    summary = pd.DataFrame(
+        [{"section": "summary", "date": "", "symbol": "", "metric": key, "value": value}
+         for key, value in result.metrics.items()]
+    )
+    equity = pd.DataFrame(
+        {"section": "equity_curve", "date": result.equity.index, "symbol": "",
+         "metric": "Portfolio", "value": result.equity.values}
+    )
+    exports = [summary, equity]
+    if result.benchmark_equity is not None:
+        exports.append(
+            pd.DataFrame(
+                {
+                    "section": "benchmark_equity_curve",
+                    "date": result.benchmark_equity.index,
+                    "symbol": "",
+                    "metric": "UniverseBenchmark",
+                    "value": result.benchmark_equity.values,
+                }
+            )
+        )
+    exports.append(
+        pd.DataFrame(
+            {
+                "section": "target_turnover",
+                "date": result.turnover.index,
+                "symbol": "",
+                "metric": "TargetTurnover",
+                "value": result.turnover.values,
+            }
+        )
+    )
+    selections = result.selections.copy()
+    if not selections.empty:
+        selections.insert(0, "section", "selection")
+    exports.append(selections)
+    pd.concat(exports, ignore_index=True, sort=False).to_csv(
+        csv_output, index=False
+    )
+    return html_output, csv_output
+
+
+def _metrics(
+    equity: pd.Series,
+    portfolio: object,
+    selections: pd.DataFrame,
+    config: MomentumConfig,
+    turnover: pd.Series,
+    benchmark_equity: pd.Series | None = None,
+    benchmark_turnover: pd.Series | None = None,
+) -> dict[str, float]:
+    returns = equity.pct_change().iloc[1:]
+    periods = max(len(equity) - 1, 1)
+    volatility = returns.std(ddof=1)
+    sharpe = 0.0 if pd.isna(volatility) or volatility == 0 else returns.mean() / volatility * 252**0.5
+    orders = portfolio.orders.records_readable
+    fees = float(orders["Fees"].sum()) if "Fees" in orders else 0.0
+    metrics = {
+        "CAGR": float((equity.iloc[-1] / equity.iloc[0]) ** (252 / periods) - 1),
+        "MDD": float((equity / equity.cummax() - 1).min()),
+        "Sharpe Ratio": float(sharpe),
+        "Total Return": float(equity.iloc[-1] / equity.iloc[0] - 1),
+        "Rebalance Count": float(
+            selections["execution_date"].nunique() if not selections.empty else 0
+        ),
+        "Order Count": float(len(orders)),
+        "Fee Rate": float(config.fee_rate),
+        "Total Fees": fees,
+        "Slippage Rate": float(config.slippage_rate),
+        "Average Target Turnover": float(turnover.mean()) if not turnover.empty else 0.0,
+        "Total Target Turnover": float(turnover.sum()),
+    }
+    if benchmark_equity is not None:
+        benchmark_total_return = float(
+            benchmark_equity.iloc[-1] / benchmark_equity.iloc[0] - 1
+        )
+        metrics.update(
+            {
+                "Benchmark CAGR": float(
+                    (benchmark_equity.iloc[-1] / benchmark_equity.iloc[0])
+                    ** (252 / periods)
+                    - 1
+                ),
+                "Benchmark Total Return": benchmark_total_return,
+                "Excess Total Return": metrics["Total Return"] - benchmark_total_return,
+                "Benchmark Average Turnover": float(benchmark_turnover.mean())
+                if benchmark_turnover is not None and not benchmark_turnover.empty
+                else 0.0,
+            }
+        )
+    return metrics
+
+
+def _validated_eligible_panel(
+    close: pd.DataFrame, eligible: pd.DataFrame | None
+) -> pd.DataFrame:
+    if eligible is None:
+        return pd.DataFrame(True, index=close.index, columns=close.columns, dtype=bool)
+    if not close.index.equals(eligible.index) or not close.columns.equals(eligible.columns):
+        raise ValueError("Eligibility panel must have the same axes as close prices.")
+    return eligible.fillna(False).astype(bool)
+
+
+def _format(name: str, value: float) -> str:
+    if name in {"Rebalance Count", "Order Count"}:
+        return f"{int(value):,}"
+    if name == "Total Fees":
+        return f"{value:,.0f} KRW"
+    if name == "Sharpe Ratio":
+        return f"{value:.2f}"
+    return f"{value:.2%}"

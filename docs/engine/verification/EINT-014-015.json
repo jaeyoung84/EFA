@@ -1,0 +1,101 @@
+{
+  "schema": "kqs-change-verification/v1",
+  "change_id": ["EINT-014", "EINT-015"],
+  "verified_at_utc": "2026-09-30 UTC",
+  "local_date_kst": "2026-09-30",
+  "status": "learning-readiness-and-data-protection-locally-verified; approved-deployment-pending-github-actions",
+  "request": "14.15 동시 진행해서 완료하고 검증완료되면 배포까지 진행하자; 승인할게 진행하자",
+  "scope": "KQS v3 learning-data readiness, explicit consent and revocation, protected backend deployment configuration. No model fit on user data and no automatic trading behavior.",
+  "authorization": {
+    "deployment_authorized": true,
+    "automatic_orders_or_fills_authorized": false,
+    "production_model_training_authorized": false,
+    "production_user_ledger_write_authorized": false,
+    "leverage_dca_change_authorized": false
+  },
+  "reused_boundaries": [
+    "D-20/D-26 consumed holdout and no re-selection",
+    "D-27 recommendation non-interference",
+    "D-28/D-44 engine records separate from user manual records",
+    "EINT-009 immutable manifests and one-time holdout",
+    "EINT-013 v3 engine-time feature provenance and legacy v2 archive-only policy"
+  ],
+  "implementation": {
+    "quality_gate": "read-only class counts, date count/span/concentration, split diversity, 20-day labels and provenance; invalid candidate data blocks new v3 freeze",
+    "quality_thresholds": {
+      "minimum_class_count": 10,
+      "minimum_distinct_dates": 10,
+      "minimum_span_days": 180,
+      "maximum_single_date_concentration": 0.4
+    },
+    "consent": "default denied; explicit KQS_LEARNING_DATA_ONLY acknowledgement; immutable grant/revoke events; revocation blocks later v3 export, new freeze, holdout, experiment recording and offline runner use",
+    "consent_does_not_grant": ["recommendation publication", "order authority", "automatic paper fills", "live trading"],
+    "immutable_history": "Existing manifests, holdout openings and experiments are retained for audit and never rewritten by consent revocation.",
+    "deployment": "main deployment requires callable KQS CI before image build; preflight validates existing Compose identity, private environment file and read-only KQS state mount; deployment uploads only compose definition, restarts only backend, preserves environment/state/services, and rolls back an unhealthy backend image."
+  },
+  "tests": [
+    {
+      "command": "MONGODB_URL=mongodb://127.0.0.1:32774/?directConnection=true MONGODB_DB=jy_investing_test_eint01415 PYTHONDONTWRITEBYTECODE=1 /tmp/iv-kqs-eint010-ci.5qz9Uk/venv/bin/python -m pytest tests/test_kqs_bridge.py tests/test_kqs_contract.py tests/test_kqs_native_views.py tests/test_kqs_manual_records.py tests/test_kqs_learning_provenance.py tests/test_kqs_learning_readiness.py -q -p no:cacheprovider --tb=short",
+      "passed": 98,
+      "warnings": 13,
+      "seconds": 10.78,
+      "data_boundary": "Disposable MongoDB 7 on loopback with tmpfs only; container stopped and removed; no production/user ledger mounted."
+    },
+    {
+      "command": "PYTHONPATH=/tmp/iv-kqs-eint010-testdeps PYTHONDONTWRITEBYTECODE=1 engine/kqs/.venv/bin/python -m unittest discover -s scripts/tests -v",
+      "passed": 71,
+      "data_boundary": "Fake API/Docker and temporary synthetic test data only."
+    },
+    {
+      "command": "node --check app/frontend/js/views/strategyList.js; node scripts/tests/kqs_recommendations_render.mjs; node scripts/tests/kqs_engine_views_render.mjs; node scripts/tests/kqs_manual_records_render.mjs",
+      "passed": true,
+      "environment": "Read-only, network-disabled Node 22 container."
+    },
+    {
+      "command": "python3 scripts/check_engine_evidence.py --topic 학습; python3 engine/kqs/tools/check_migration.py; python3 engine/kqs/tools/check_revision.py; python3 scripts/check_kqs_release.py --require-deployment-ready",
+      "passed": true,
+      "evidence_archive_files": 167,
+      "decisions": 45,
+      "metadata_only_files": 1735,
+      "full_private_backup_complete": false,
+      "deployment_configuration_ready": true,
+      "production_deployed_or_verified": false
+    },
+    {
+      "command": "bash -n infra/ops/kqs-deployment-preflight.sh; git diff --cached --check excluding immutable source snapshots with historic whitespace",
+      "passed": true
+    }
+  ],
+  "engine": {
+    "version": "0.6.0",
+    "registered_revision": "EINT-007A",
+    "revision_sha256": "ebc166f5d0fd7c93b9b0fa294e34d0c6a439c22365bed9ae5c7a15533cc9e380",
+    "source_unchanged": true,
+    "historical_research_reexecuted": 0
+  },
+  "artifacts_sha256": {
+    "app/backend/routers/kqs.py": "2473145a808595628398fd7685d5301b7695486be6d779bbb842a442cdcb95c4",
+    "scripts/run_kqs_offline_baseline.py": "950a1dbb49e2af50d5b62642e2c0884bb7d10a5f88da5facbc196b3b7e7d626b",
+    "tests/test_kqs_learning_readiness.py": "a282f10d457882c2b358fa283e8343fb79419de1e0e9877d27bd1a0a4d5b9eee",
+    "app/frontend/js/views/strategyList.js": "ce39ce18def05f09148afd0e01ef826f8977f80e8a532947530f90ee71f8372c",
+    ".github/workflows/kqs-runtime.yml": "cd553be692b16008f2ac4b00cab933e5e09b6af4f8a70f1384b105f6e865e9d2",
+    ".github/workflows/deploy.yml": "4392eb0922d178125bc16c6ca4c8024eaa17876527b6018de9f0f33ca3b27273",
+    "docs/engine/LEARNING_DATA_PROTECTION.md": "d164690a3e830e2332c16479583acf779b4534f093ba8925d07e7ad8323e3199"
+  },
+  "protected_scope": {
+    "engine_algorithm_changed": false,
+    "actual_holdout_opened": 0,
+    "production_model_training_runs": 0,
+    "orders_or_automatic_fills_created": 0,
+    "actual_user_ledger_writes": 0,
+    "leverage_dca_files_edited_or_staged_by_this_change": false,
+    "concurrent_dca_workspace_changes": "Observed but excluded from staging, verification claims and deployment scope."
+  },
+  "limits": [
+    "The quality thresholds are readiness safeguards, not evidence of predictive performance or automated-trading safety.",
+    "No real user-data model fit, actual holdout opening, strategy sweep, browser E2E or production Mongo backup/restore was performed.",
+    "Consent withdrawal is a prospective processing block; retention and physical deletion require a separately approved policy and implementation.",
+    "The evidence registry records 1,735 metadata-only private materials; it is not a full backup or recovery proof.",
+    "AWS deployment status must be confirmed by the GitHub Actions run after this approved commit is pushed."
+  ]
+}

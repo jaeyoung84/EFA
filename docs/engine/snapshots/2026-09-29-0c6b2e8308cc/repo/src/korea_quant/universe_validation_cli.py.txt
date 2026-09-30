@@ -1,0 +1,55 @@
+"""Run one fixed strategy across a liquid historical KRX universe."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+import pandas as pd
+
+from korea_quant.backtest import BacktestConfig, build_report, run_baseline, write_summary_reports
+from korea_quant.krx import KrxDailyStore
+from korea_quant.strategy import STRATEGIES
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Universe-level KRX strategy validation.")
+    parser.add_argument("--krx-db", type=Path, required=True)
+    parser.add_argument("--start", required=True)
+    parser.add_argument("--end", default=None)
+    parser.add_argument("--strategy", choices=STRATEGIES, default="trend-pullback")
+    parser.add_argument("--minimum-trading-value", type=float, default=5_000_000_000)
+    parser.add_argument("--liquidity-window", type=int, default=20)
+    parser.add_argument("--minimum-rows", type=int, default=252)
+    parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--fee", type=float, default=0.00015)
+    parser.add_argument("--slippage", type=float, default=0.0005)
+    parser.add_argument("--require-golden-cross", action="store_true")
+    parser.add_argument("--output", type=Path, default=Path("reports/universe_validation.html"))
+    args = parser.parse_args()
+    store = KrxDailyStore(args.krx_db)
+    history = store.market_history(args.start, args.end, ("KOSPI", "KOSDAQ"))
+    candidates = []
+    for symbol, group in history.groupby("Symbol"):
+        value = pd.to_numeric(group["TradingValue"], errors="coerce").tail(args.liquidity_window).mean()
+        if len(group) >= args.minimum_rows and value >= args.minimum_trading_value:
+            candidates.append(symbol)
+    if args.limit:
+        candidates = candidates[:args.limit]
+    config = BacktestConfig(strategy=args.strategy, fee_rate=args.fee, slippage_rate=args.slippage,
+                            require_golden_cross=args.require_golden_cross)
+    reports = {}
+    for symbol in candidates:
+        prices = store.daily_prices(symbol, args.start, args.end)
+        portfolio, _ = run_baseline(prices, config)
+        reports[symbol] = build_report(portfolio, prices["Close"], config)
+    if not reports:
+        raise SystemExit("No symbols passed the universe filters.")
+    summary = pd.DataFrame.from_dict({key: value.metrics for key, value in reports.items()}, orient="index")
+    summary.index.name = "Symbol"
+    write_summary_reports(summary.reset_index(), args.output, args.output.with_suffix(".csv"))
+    print(f"Universe validation: {args.output.resolve()} | symbols={len(summary)}")
+
+
+if __name__ == "__main__":
+    main()

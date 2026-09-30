@@ -1,0 +1,42 @@
+# Engine worker only. It is never started by `docker compose up`; the systemd timers run it
+# with `docker compose -f infra/docker/docker-compose.engine.yml run --rm <service>`.
+# Paths are host paths on the EC2 instance; see docs/engine/OPERATIONS.md.
+services:
+  kqs-pipeline:
+    image: iv-kqs-engine-worker:local
+    build:
+      context: ../..
+      dockerfile: infra/docker/engine-worker.Dockerfile
+    profiles: ["engine"]
+    network_mode: bridge
+    read_only: true
+    tmpfs: ["/tmp"]
+    volumes:
+      - /opt/investing-app/state/kqs:/var/lib/kqs/state
+      - /srv/kqs/market:/var/lib/kqs/market
+      - /srv/kqs/secrets/krx.env:/run/kqs/krx.env:ro
+
+  kqs-backup:
+    image: iv-kqs-engine-worker:local
+    profiles: ["engine"]
+    network_mode: none
+    read_only: true
+    tmpfs: ["/tmp"]
+    entrypoint: ["kqs-backup"]
+    command: ["--state-dir", "/var/lib/kqs/state", "--market-db", "/var/lib/kqs/market/krx_daily.sqlite3",
+              "--backup-dir", "/var/lib/kqs/backups", "--keep", "2"]
+    volumes:
+      - /opt/investing-app/state/kqs:/var/lib/kqs/state
+      - /srv/kqs/market:/var/lib/kqs/market
+      - /srv/kqs/backups:/var/lib/kqs/backups
+
+  kqs-status:
+    image: iv-kqs-engine-worker:local
+    profiles: ["engine"]
+    network_mode: none
+    read_only: true
+    tmpfs: ["/tmp"]
+    entrypoint: ["kqs-pipeline-status"]
+    command: ["--state-dir", "/var/lib/kqs/state", "--grace-hours", "6"]
+    volumes:
+      - /opt/investing-app/state/kqs:/var/lib/kqs/state:ro

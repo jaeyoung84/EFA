@@ -1,0 +1,97 @@
+{
+  "schema": "kqs-core-migration/v1",
+  "change_id": "EINT-002",
+  "created_at": "2026-09-28T22:40:00.723837+00:00",
+  "source_commit": "0c6b2e8308cc783ea5c4a50c18ff213203631ba2",
+  "package_version": "0.1.0",
+  "copied_modules": [
+    {
+      "archive": "docs/engine/snapshots/2026-09-29-0c6b2e8308cc/repo/src/korea_quant/__init__.py.txt",
+      "target": "engine/kqs/src/korea_quant/__init__.py",
+      "source_sha256": "960d03eca7c45577aea05e6d71dea5269a209ad02c7f15f584f53d535da6a405",
+      "bytes_preserved": true
+    },
+    {
+      "archive": "docs/engine/snapshots/2026-09-29-0c6b2e8308cc/repo/src/korea_quant/strategy.py.txt",
+      "target": "engine/kqs/src/korea_quant/strategy.py",
+      "source_sha256": "bdf8506cf1371f9b5aca1f4001649ca509c132651d749a550062a452c3b3c9d8",
+      "bytes_preserved": true
+    },
+    {
+      "archive": "docs/engine/snapshots/2026-09-29-0c6b2e8308cc/repo/src/korea_quant/eligibility.py.txt",
+      "target": "engine/kqs/src/korea_quant/eligibility.py",
+      "source_sha256": "f363ec556a14adfdad06af331f3f94f35beb9de405cb047b83b1677f8da1836d",
+      "bytes_preserved": true
+    },
+    {
+      "archive": "docs/engine/snapshots/2026-09-29-0c6b2e8308cc/repo/src/korea_quant/reversion_scanner.py.txt",
+      "target": "engine/kqs/src/korea_quant/reversion_scanner.py",
+      "source_sha256": "c9bc74ff52f2c79e4e4197679d4ea967bb9aa91b37fa2cf643cc5538c0bd1d99",
+      "bytes_preserved": true
+    }
+  ],
+  "extracted_helpers": [
+    {
+      "archive": "docs/engine/snapshots/2026-09-29-0c6b2e8308cc/repo/src/korea_quant/krx.py.txt",
+      "function": "_fill_halted_trading_days",
+      "line": 52,
+      "source_function_sha256": "c5095c1829f0c10b60cf1d6617cdc8fc701d5e7ae92b0df0d7c05c271a14e9e5",
+      "mode": "isolated logic extraction, not a byte-identical file copy"
+    },
+    {
+      "archive": "docs/engine/snapshots/2026-09-29-0c6b2e8308cc/repo/src/korea_quant/paper_trading.py.txt",
+      "function": "normalize_symbol",
+      "line": 64,
+      "source_function_sha256": "5814f7db2a9c824592221ca4afb7660f6fdf3c729a477611dd3bb984a31fc8a8",
+      "mode": "isolated logic extraction, not a byte-identical file copy"
+    }
+  ],
+  "reused_decisions": [
+    "D-1",
+    "D-2",
+    "D-19",
+    "D-24",
+    "D-27",
+    "D-28"
+  ],
+  "native_runtime_baseline": {
+    "package_version": "0.1.0",
+    "source_commit": "0c6b2e8308cc783ea5c4a50c18ff213203631ba2",
+    "code_sha256": "ce271014f7b910e257f63e635f58fe5c273b99713d40ac41bff73dbd8c60c0d0",
+    "component_sha256": {
+      "korea_quant/__init__.py": "960d03eca7c45577aea05e6d71dea5269a209ad02c7f15f584f53d535da6a405",
+      "korea_quant/eligibility.py": "f363ec556a14adfdad06af331f3f94f35beb9de405cb047b83b1677f8da1836d",
+      "korea_quant/reversion_scanner.py": "c9bc74ff52f2c79e4e4197679d4ea967bb9aa91b37fa2cf643cc5538c0bd1d99",
+      "korea_quant/strategy.py": "bdf8506cf1371f9b5aca1f4001649ca509c132651d749a550062a452c3b3c9d8",
+      "kqs_runtime/__init__.py": "0dce97bcae4549b7fdbfcdb4a54e2501b3a8a81e2e7e121713787d45c938b25f",
+      "kqs_runtime/cli.py": "9dad9b553e3fa840944c011cc65b6428f77575d6539a9203f2054752b2878cf1",
+      "kqs_runtime/inputs.py": "74f8bd2d4e8f2e78d553b1adc8011d22c9b577c789929388c762ab5cab4730c5",
+      "kqs_runtime/provenance.py": "a17a57bc76ac1292cc99527ad43f7e7eed94099bf309de2b1b2c59ebbe1b10d5",
+      "kqs_runtime/recommendations.py": "9f08ae80ccf0c30700a49dbbaf8052840c5a096918685ce2ac67c4e8220681f0",
+      "kqs_runtime/sqlite_reader.py": "ffc0fa4b5d576b41e5235307b90a08f997a16476dc302737aeb9f43112a27cfb"
+    },
+    "python": "3.14.4",
+    "dependencies": {
+      "pandas": "2.3.3",
+      "numpy": "2.3.5",
+      "python-dateutil": "2.9.0.post0",
+      "pytz": "2026.4",
+      "tzdata": "2026.4",
+      "six": "1.17.0"
+    }
+  },
+  "orders_enabled": false,
+  "legacy_ledger_compatible": false,
+  "publication_ready": false,
+  "research_runs": 0,
+  "excluded": [
+    "daily_picks_cli",
+    "paper_trading",
+    "krx collector/store",
+    "backtests",
+    "research runners",
+    "prospective fill runners",
+    "training"
+  ],
+  "scope": "Executable recommendation core only, not full collector/AWS/API migration."
+}

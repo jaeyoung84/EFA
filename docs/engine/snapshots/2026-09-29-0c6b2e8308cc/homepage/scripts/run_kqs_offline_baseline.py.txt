@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+"""KQS 사용자 판단 JSONL의 오프라인 기준 모델을 학습·평가한다.
+
+이 도구는 추천·주문·모의체결을 수행하지 않는다. 기본값은 결과를 출력만 하는
+dry-run이며, ``--record``가 있을 때만 홈페이지의 실험 이력 API에 결과를 기록한다.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from collections import Counter
+from typing import Any
+
+import requests
+from sklearn.feature_extraction import DictVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, balanced_accuracy_score
+
+
+SPLITS = ("train", "validation", "test")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="KQS 오프라인 기준 모델 실험")
+    parser.add_argument("--api-base", default=os.getenv("KQS_API_BASE", "http://127.0.0.1:18000"))
+    parser.add_argument("--token", default=os.getenv("KQS_API_TOKEN"), help="로그인 Bearer 토큰 (또는 KQS_API_TOKEN)")
+    parser.add_argument("--model", choices=("majority_class_baseline", "logistic_regression"), default="majority_class_baseline")
+    parser.add_argument("--version", default="baseline-v1", help="실험 기록에 남길 모델 버전")
+    parser.add_argument("--record", action="store_true", help="성공한 결과를 /api/kqs/training-experiments에 기록")
+    return parser.parse_args()
+
+
+def api_get(base: str, token: str, path: str) -> Any:
+    response = requests.get(f"{base.rstrip('/')}{path}", headers={"Authorization": f"Bearer {token}"}, timeout=30)
+    if not response.ok:
+        raise RuntimeError(f"GET {path} 실패 ({response.status_code}): {response.text[:400]}")
+    return response.json()
+
+
+def load_split(base: str, token: str, split: str) -> list[dict]:
+    response = requests.get(f"{base.rstrip('/')}/api/kqs/decisions/training-dataset?split={split}",
+                            headers={"Authorization": f"Bearer {token}"}, timeout=60)
+    if not response.ok:
+        raise RuntimeError(f"{split} 데이터셋 다운로드 실패 ({response.status_code}): {response.text[:400]}")
+    rows = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+    if not rows or rows[0].get("record_type") != "manifest":
+        raise RuntimeError(f"{split} 데이터셋 manifest가 올바르지 않습니다.")
+    return [row for row in rows[1:] if row.get("record_type") == "example"]
+
+
+def feature_row(item: dict) -> dict[str, Any]:
+    """결정 시점 피처만 사용한다. 미래 수익률·실현손익·메모는 절대 넣지 않는다."""
+    features = item.get("features") or {}
+    reasons = features.get("reasons") or []
+    return {"market": str(features.get("market") or "unknown"),
+            "signal_type": str(features.get("signal_type") or "unknown"),
+            "selection_outcome": str(features.get("selection_outcome") or "unknown"),
+            "execution_session": str(features.get("execution_session") or "unknown"),
+            "engine_id": str(features.get("engine_id") or "unknown"),
+            "selection_rank": float(features.get("selection_rank") or 0),
+            **{f"reason:{str(reason)}": 1 for reason in reasons[:30]},
+            **{f"evidence:{str(tag)}": 1 for tag in (features.get("evidence_tags") or [])[:30]}}
+
+
+def label_row(item: dict) -> str:
+    label = (item.get("labels") or {}).get("human_decision")
+    if not isinstance(label, str) or not label:
+        raise RuntimeError("human_decision 레이블이 없는 표본이 있습니다.")
+    return label
+
+
+def average_predicted_buy_return(rows: list[dict], predictions: list[str]) -> float | None:
+    returns = []
+    for row, prediction in zip(rows, predictions):
+        horizon = ((row.get("labels") or {}).get("forward_returns") or {}).get("20") or {}
+        value = horizon.get("return_pct")
+        if prediction == "buy" and horizon.get("observed") and isinstance(value, (int, float)):
+            returns.append(float(value))
+    return round(sum(returns) / len(returns), 4) if returns else None
+
+
+def metrics(rows: list[dict], predictions: list[str]) -> dict[str, int | float | None]:
+    labels = [label_row(row) for row in rows]
+    return {"sample_count": len(rows),
+            "accuracy": round(float(accuracy_score(labels, predictions)), 6) if rows else None,
+            "balanced_accuracy": round(float(balanced_accuracy_score(labels, predictions)), 6) if rows else None,
+            "average_return_pct": average_predicted_buy_return(rows, predictions)}
+
+
+def train_and_predict(model_name: str, train_rows: list[dict], datasets: dict[str, list[dict]]) -> tuple[dict[str, list[str]], dict]:
+    labels = [label_row(row) for row in train_rows]
+    if not labels:
+        raise RuntimeError("train 표본이 비어 있습니다.")
+    if model_name == "majority_class_baseline":
+        majority = Counter(labels).most_common(1)[0][0]
+        return ({name: [majority] * len(rows) for name, rows in datasets.items()},
+                {"classifier": "most_frequent_human_decision", "majority_label": majority})
+    if len(set(labels)) < 2:
+        raise RuntimeError("로지스틱 회귀에는 train 구간에 서로 다른 판단 레이블이 2개 이상 필요합니다.")
+    vectorizer = DictVectorizer(sparse=True)
+    matrix = vectorizer.fit_transform([feature_row(row) for row in train_rows])
+    classifier = LogisticRegression(max_iter=1_000, class_weight="balanced", random_state=42)
+    classifier.fit(matrix, labels)
+    predictions = {name: classifier.predict(vectorizer.transform([feature_row(row) for row in rows])).tolist()
+                   for name, rows in datasets.items()}
+    return predictions, {"classifier": "LogisticRegression", "max_iter": 1_000,
+                         "class_weight": "balanced", "random_state": 42,
+                         "feature_count": len(vectorizer.feature_names_)}
+
+
+def post_experiment(base: str, token: str, payload: dict) -> dict:
+    response = requests.post(f"{base.rstrip('/')}/api/kqs/training-experiments",
+                             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                             json=payload, timeout=30)
+    if not response.ok:
+        raise RuntimeError(f"실험 기록 실패 ({response.status_code}): {response.text[:400]}")
+    return response.json()
+
+
+def main() -> int:
+    args = parse_args()
+    if not args.token:
+        print("오류: --token 또는 KQS_API_TOKEN이 필요합니다.", file=sys.stderr)
+        return 2
+    try:
+        readiness = api_get(args.api_base, args.token, "/api/kqs/decisions/training-readiness")
+        if not readiness.get("ready"):
+            raise RuntimeError("학습 준비 기준 미충족: " + " ".join(readiness.get("reasons") or []))
+        datasets = {split: load_split(args.api_base, args.token, split) for split in SPLITS}
+        expected_counts = readiness.get("counts") or {}
+        for split, rows in datasets.items():
+            if len(rows) != expected_counts.get(split):
+                raise RuntimeError(f"{split} 표본 수가 준비도 응답과 다릅니다 ({len(rows)} != {expected_counts.get(split)}).")
+        predictions, config = train_and_predict(args.model, datasets["train"], datasets)
+        result = {"model_family": args.model, "model_version": args.version,
+                  "training_config": {"runner": "scripts/run_kqs_offline_baseline.py", **config},
+                  "train": metrics(datasets["train"], predictions["train"]),
+                  "validation": metrics(datasets["validation"], predictions["validation"]),
+                  "test": metrics(datasets["test"], predictions["test"]),
+                  "note": "81단계 오프라인 기준 모델. test 구간은 모델 선택에 사용하지 않은 1회 보고값입니다."}
+        if args.record:
+            saved = post_experiment(args.api_base, args.token, result)
+            result["recorded_experiment_id"] = saved.get("item", {}).get("experiment_id")
+        else:
+            result["recorded_experiment_id"] = None
+            result["next_action"] = "검토 후 같은 명령에 --record를 추가하면 연구 이력에 저장합니다."
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+    except (RuntimeError, requests.RequestException, ValueError) as error:
+        print(f"오류: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

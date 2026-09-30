@@ -1,0 +1,143 @@
+import pandas as pd
+import pytest
+
+from korea_quant.prospective_audit import (
+    PROSPECTIVE_START,
+    SAMPLE_FLOORS,
+    build_prospective_audit,
+    write_prospective_audit_report,
+)
+
+
+def _audit():
+    return pd.DataFrame(
+        [
+            {
+                "AuditId": "a", "AsOf": "2026-08-28", "Symbol": "000001", "Name": "closed",
+                "Market": "KOSPI", "SignalType": "swing", "SelectionOutcome": "selected",
+                "IsSelected": True,
+            },
+            {
+                "AuditId": "b", "AsOf": "2026-08-28", "Symbol": "000002", "Name": "cancelled",
+                "Market": "KOSDAQ", "SignalType": "swing", "SelectionOutcome": "selected",
+                "IsSelected": True,
+            },
+            {
+                "AuditId": "c", "AsOf": "2026-08-29", "Symbol": "000003", "Name": "open",
+                "Market": "KOSPI", "SignalType": "long_term", "SelectionOutcome": "selected",
+                "IsSelected": True,
+            },
+            {
+                "AuditId": "ignored", "AsOf": "2026-08-28", "Symbol": "000004", "Name": "capped",
+                "Market": "KOSPI", "SignalType": "swing", "SelectionOutcome": "daily_cap",
+                "IsSelected": False,
+            },
+        ]
+    )
+
+
+def _events():
+    return pd.DataFrame(
+        [
+            {"CandidateAuditId": "a", "Date": "2026-08-28", "Type": "BUY_SIGNAL", "NetReturnPct": None},
+            {"CandidateAuditId": "a", "Date": "2026-08-29", "Type": "BUY_FILLED", "NetReturnPct": None},
+            {"CandidateAuditId": "a", "Date": "2026-09-10", "Type": "SELL_FILLED", "NetReturnPct": 5.0},
+            {"CandidateAuditId": "b", "Date": "2026-08-28", "Type": "BUY_SIGNAL", "NetReturnPct": None},
+            {"CandidateAuditId": "b", "Date": "2026-08-29", "Type": "BUY_CANCELLED", "NetReturnPct": None},
+            {"CandidateAuditId": "c", "Date": "2026-08-29", "Type": "BUY_SIGNAL", "NetReturnPct": None},
+            {"CandidateAuditId": "c", "Date": "2026-09-01", "Type": "BUY_FILLED", "NetReturnPct": None},
+        ]
+    )
+
+
+def _positions():
+    return pd.DataFrame(
+        [{"CandidateAuditId": "c", "Status": "OPEN"}, {"CandidateAuditId": "legacy", "Status": "OPEN"}]
+    )
+
+
+def test_prospective_audit_links_only_selected_candidates_to_paper_outcomes(tmp_path):
+    report, summary = build_prospective_audit(_audit(), _events(), _positions(), "2026-08-28")
+
+    lifecycle = report.set_index("AuditId")["Lifecycle"].to_dict()
+    assert lifecycle == {"a": "closed", "b": "buy_cancelled", "c": "open_or_pending"}
+    assert report.set_index("AuditId").loc["a", "NetReturnPct"] == 5.0
+    assert report.set_index("AuditId").loc["c", "PositionStatus"] == "OPEN"
+    assert summary.selected_candidates == 3
+    assert summary.buy_filled == 2
+    assert summary.buy_cancelled == 1
+    assert summary.closed == 1
+    assert summary.open_or_pending == 1
+    assert summary.realised_win_rate == 1.0
+    assert summary.realised_mean_net_return == 5.0
+
+    html, csv = write_prospective_audit_report(
+        report, summary, tmp_path / "audit.html", tmp_path / "audit.csv"
+    )
+    assert "does not tune" in html.read_text(encoding="utf-8")
+    assert {"summary", "candidate"} <= set(pd.read_csv(csv)["RecordType"])
+
+
+def test_prospective_audit_splits_closed_trades_by_signal_type_and_market(tmp_path):
+    _report, summary = build_prospective_audit(_audit(), _events(), _positions(), "2026-08-28")
+
+    # D-33 gates swing and long_term on separate floors, so one scalar count is
+    # not enough; the split has to add back up to the closed total.
+    assert summary.closed_swing == 1
+    assert summary.closed_long_term == 0
+    assert summary.closed_swing + summary.closed_long_term == summary.closed
+    # Market split: the floors were measured on a mixed sample, so a degenerate
+    # KOSPI/KOSDAQ split has to be visible next to the counts.
+    assert summary.closed_kospi == 1
+    assert summary.closed_kosdaq == 0
+    assert summary.closed_kospi + summary.closed_kosdaq == summary.closed
+
+    row = summary.as_row()
+    assert row["Sample Floor swing"] == SAMPLE_FLOORS["swing"]
+    assert row["Sample Floor long_term"] == SAMPLE_FLOORS["long_term"]
+
+    html, _csv = write_prospective_audit_report(
+        _report, summary, tmp_path / "audit.html", tmp_path / "audit.csv"
+    )
+    # Floors are reference numbers only; the report must not render a verdict.
+    assert "reference only" in html.read_text(encoding="utf-8")
+
+
+def test_prospective_audit_counts_sessions_without_a_selection():
+    audit = pd.concat(
+        [
+            _audit(),
+            pd.DataFrame(
+                [
+                    {
+                        "AuditId": "gated", "AsOf": "2026-09-20", "Symbol": "000005",
+                        "Name": "gated", "Market": "KOSDAQ", "SignalType": "swing",
+                        "SelectionOutcome": "regime_gate_blocked", "IsSelected": False,
+                    },
+                    {
+                        "AuditId": "quiet", "AsOf": "2026-09-21", "Symbol": "000006",
+                        "Name": "quiet", "Market": "KOSPI", "SignalType": "swing",
+                        "SelectionOutcome": "not_entry_signal", "IsSelected": False,
+                    },
+                ]
+            ),
+        ],
+        ignore_index=True,
+    )
+
+    _report, summary = build_prospective_audit(audit, _events(), _positions(), "2026-08-28")
+
+    # Unselected rows stay out of the candidate table but still count as days
+    # the bot observed -- otherwise an outage is indistinguishable from a
+    # stretch of genuinely signal-free sessions.
+    assert summary.selected_candidates == 3
+    assert summary.observed_sessions == 4
+    assert summary.first_session == "2026-08-28"
+    assert summary.last_session == "2026-09-21"
+    assert summary.max_session_gap_days == 22
+    assert summary.regime_gate_blocked_sessions == 1
+
+
+def test_prospective_audit_rejects_pre_freeze_dates():
+    with pytest.raises(ValueError, match="no earlier"):
+        build_prospective_audit(_audit(), _events(), _positions(), PROSPECTIVE_START - pd.Timedelta(days=1))

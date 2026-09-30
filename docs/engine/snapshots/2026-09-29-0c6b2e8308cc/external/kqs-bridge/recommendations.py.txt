@@ -1,0 +1,84 @@
+"""Build the read-only KQS recommendation contract from the audit CSV."""
+from __future__ import annotations
+
+import csv
+import hashlib
+import json
+import subprocess
+from datetime import datetime, timedelta, timezone
+
+
+def _sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _git(repo, *args):
+    return subprocess.run(
+        ["git", "-C", str(repo), *args], check=True, capture_output=True, text=True, timeout=10,
+    ).stdout.strip()
+
+
+def _required(row, key):
+    value = str(row.get(key) or "").strip()
+    if not value:
+        raise ValueError(f"selected audit row is missing {key}")
+    return value
+
+
+def build_recommendations(repo, audit_csv):
+    with open(audit_csv, newline="", encoding="utf-8-sig") as handle:
+        rows = list(csv.DictReader(handle))
+    dates = sorted({str(row.get("AsOf") or "").strip() for row in rows if row.get("AsOf")})
+    if not dates:
+        raise ValueError("candidate audit has no AsOf date")
+    data_as_of = dates[-1]
+    selected = [row for row in rows if row.get("AsOf") == data_as_of
+                and row.get("IsSelected") == "True"
+                and row.get("ScanState") == "entry_due_next_session"]
+    selected.sort(key=lambda row: float(row.get("MarketCapRank") or 1e12))
+    if len(selected) > 3:
+        raise ValueError("selected entry signals exceed the v1 maximum of three")
+
+    signals = []
+    for rank, row in enumerate(selected, 1):
+        symbol = _required(row, "Symbol")
+        audit_hash = hashlib.sha256(json.dumps(
+            row, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8")).hexdigest()
+        evidence = (f"SelectionOutcome={_required(row, 'SelectionOutcome')}, "
+                    f"ScanState={_required(row, 'ScanState')}")
+        liquidity = (f"시가총액 순위 {row.get('MarketCapRank') or '-'}, "
+                     f"평균 거래대금 {row.get('AverageTradingValue') or '-'}")
+        signals.append({
+            "signal_id": _required(row, "AuditId"), "action": "entry", "side": "buy",
+            "symbol": symbol, "market": _required(row, "Market"), "name": _required(row, "Name"),
+            "signal_type": _required(row, "SignalType"), "selection_rank": rank,
+            "selection_outcome": _required(row, "SelectionOutcome"),
+            "execution_session": _required(row, "ExecutionTiming"),
+            "config_fingerprint": _required(row, "ConfigFingerprint"),
+            "audit_row_hash": audit_hash,
+            "reasons": [
+                {"code": "engine_selection", "label": "엔진 선정 조건 통과", "evidence": evidence},
+                {"code": "liquidity_context", "label": "유동성 검토 정보", "evidence": liquidity},
+            ],
+        })
+
+    now = datetime.now(timezone.utc)
+    git_sha = _git(repo, "rev-parse", "HEAD")
+    dirty = bool(_git(repo, "status", "--porcelain"))
+    dataset_hash = _sha256(audit_csv)
+    payload = {
+        "schema_version": "kqs-recommendations/v1", "generated_at": now.isoformat(),
+        "expires_at": (now + timedelta(hours=24)).isoformat(),
+        "engine": {"engine_id": "korea-quant-system", "run_id": f"{data_as_of}-{git_sha[:12]}-{dataset_hash[:12]}",
+                   "git_sha": git_sha, "dirty": dirty, "data_as_of": data_as_of,
+                   "dataset_hash": dataset_hash},
+        "signals": signals,
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    payload["integrity"] = {"payload_sha256": hashlib.sha256(encoded).hexdigest()}
+    return payload

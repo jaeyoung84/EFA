@@ -1,0 +1,6 @@
+[Unit]
+Description=KQS alert for failed unit %i
+
+[Service]
+Type=oneshot
+ExecStart=/opt/investing-app/infra/ops/kqs-alert.sh %i

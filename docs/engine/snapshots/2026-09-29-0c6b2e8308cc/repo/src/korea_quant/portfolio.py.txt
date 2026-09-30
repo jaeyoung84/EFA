@@ -1,0 +1,17 @@
+"""Portfolio-level research helpers."""
+from __future__ import annotations
+
+import pandas as pd
+
+
+def equal_weight_targets(entries: pd.DataFrame, scores: pd.DataFrame, top_n: int = 5) -> pd.DataFrame:
+    """Select at most top_n causal entry candidates with equal target weights."""
+    if top_n < 1 or not entries.index.equals(scores.index) or not entries.columns.equals(scores.columns):
+        raise ValueError("top_n and panel axes are invalid.")
+    weights = pd.DataFrame(float("nan"), index=entries.index, columns=entries.columns)
+    for day in entries.index:
+        selected = scores.loc[day, entries.loc[day].astype(bool)].dropna().nlargest(top_n)
+        if not selected.empty:
+            weights.loc[day] = 0.0
+            weights.loc[day, selected.index] = 1 / len(selected)
+    return weights

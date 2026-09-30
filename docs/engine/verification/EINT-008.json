@@ -1,0 +1,66 @@
+{
+  "change_id": "EINT-008",
+  "verified_at": "2026-09-29T07:13:12.284504+00:00",
+  "engine_revision_unchanged": {
+    "path": "engine/kqs/revisions/EINT-007A.json",
+    "sha256": "ebc166f5d0fd7c93b9b0fa294e34d0c6a439c22365bed9ae5c7a15533cc9e380"
+  },
+  "previous_verification_unchanged": {
+    "path": "docs/engine/verification/EINT-007A.json",
+    "sha256": "06990f1b4b719376e09246fb79831278b499bd098afb691c60f92d2db248075b"
+  },
+  "scope": "Homepage personal decision ledger: manual full/partial sells of holdings whose recommendation expired, FIFO lots, lot-level realized P&L.",
+  "defects_fixed": [
+    "sell required a currently valid recommendation signal_id; holdings became unsellable after expiry",
+    "sells larger than holdings were silently clamped",
+    "realized P&L paired whole buy/sell records regardless of quantity (partial sells and split buys wrong)"
+  ],
+  "api": {
+    "new": "POST /api/kqs/decisions/positions/{symbol_key}/sell",
+    "changed": [
+      "GET /api/kqs/decisions/positions (lots, expiry, data_issues)",
+      "POST /api/kqs/decisions sell: 409 above holdings",
+      "GET /api/kqs/decisions/outcomes realized: status/closed_quantity/allocations",
+      "GET /api/kqs/decisions/training-dataset schema kqs-human-decisions/v2, position exits excluded",
+      "GET /api/kqs/decisions/performance-report position_exit_count, partial_lot_count"
+    ]
+  },
+  "unchanged": [
+    "engine package and revision manifests",
+    "training time split and experiment fingerprint (20-day labels only)",
+    "engine automatic paper ledger (never merged)"
+  ],
+  "artifacts": {
+    "app/backend/routers/kqs.py": "35a8191e53cf4824d8be2c8bcc2277b37a29df4edea6d0d27e3cafc9d0ad715f",
+    "app/frontend/js/views/strategyList.js": "6996facccb22adbbb8e6e53d569a97dfd17aada5eafbf0ea2a40ab409e12ea9b",
+    "tests/test_kqs_bridge.py": "0217ebd6ae58ea22f147f6ea1e528cf3c4f6513e47805d7868c7d82ed45328c6",
+    "docs/KQS_HUMAN_DECISION_DATASET.md": "89802a2d44a0a8ef623c9374c4b39e3da3c163f59607b2d46e82431b919dea50",
+    "docs/engine/README.md": "d930b3dd10f5a4e616bae0bfabd13e04be8f806253e70fa72114c2031625e2bd"
+  },
+  "tests": [
+    {
+      "environment": "Python 3.14.4 testenv (backend)",
+      "command": "pytest tests",
+      "passed": 221
+    },
+    {
+      "environment": "Python 3.14.4 testenv (backend)",
+      "command": "pytest tests/test_kqs_bridge.py tests/test_kqs_contract.py",
+      "passed": 57,
+      "new": 6
+    },
+    {
+      "environment": "node:22-alpine container (image removed afterwards)",
+      "command": "node --check app/frontend/js/views/strategyList.js",
+      "passed": 1
+    }
+  ],
+  "orders_or_automatic_fills_created": 0,
+  "deployment_performed": false,
+  "committed_or_pushed": false,
+  "limits": [
+    "Pre-existing oversold sells are surfaced as data_issues, not rewritten.",
+    "Prices are user-entered; no market valuation.",
+    "Race protection is insert-then-recheck with rollback (single MongoDB)."
+  ]
+}

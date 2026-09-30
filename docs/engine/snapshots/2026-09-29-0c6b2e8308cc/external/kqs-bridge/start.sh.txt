@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# kqs-bridge 시작: 세션과 분리된 백그라운드(setsid + nohup). 이미 떠 있으면 그대로 둔다.
+# Windows 에서: wsl -d Ubuntu-26.04 -- bash -lc '/home/gram/kqs-bridge/start.sh'
+set -u
+DIR="$(cd "$(dirname "$0")" && pwd)"
+PIDFILE="$DIR/bridge.pid"
+LOG="$DIR/bridge.log"
+PORT="${KQS_BRIDGE_PORT:-18100}"
+BIND="${KQS_BRIDGE_BIND:-127.0.0.1}"
+
+if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+  echo "already running: pid $(cat "$PIDFILE")  http://$BIND:$PORT/"
+  exit 0
+fi
+rm -f "$PIDFILE"
+cd "$DIR" || exit 1
+setsid nohup python3 "$DIR/bridge.py" --bind "$BIND" --port "$PORT" >> "$LOG" 2>&1 < /dev/null &
+# pid 파일은 bridge.py 가 바인드 성공 후 직접 쓴다 — 최대 ~3초 대기
+i=0
+while [ "$i" -lt 10 ]; do
+  if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+    echo "started: pid $(cat "$PIDFILE")  http://$BIND:$PORT/  (log: $LOG)"
+    exit 0
+  fi
+  i=$((i+1)); sleep 0.3
+done
+echo "start FAILED — last log lines:"
+tail -n 5 "$LOG" 2>/dev/null
+exit 1

@@ -1,0 +1,498 @@
+"""Walk-forward optimization of bollinger-rsi's exit (sell-timing) parameters.
+
+Entry stays the strategy's fixed oversold rule (unchanged); only the exit
+rule -- the RSI recovery level, the Bollinger exit-band width, and an
+optional percentage stop-loss -- is grid-searched on a trailing training
+window, frozen, and applied to the following out-of-sample test window, then
+rolled forward. This is deliberately separate from ``reversion_validation``,
+which evaluates the strategy's fixed, shipped parameters with no refitting.
+
+Every simulated entry is retained. A fit ends at its training cutoff, so a
+position still open then is marked to that day's close (after estimated sell
+costs) and reported as ``open``. The optimiser therefore cannot select an
+exit using a recovery after the cutoff. Out-of-sample output likewise preserves
+open positions at its available data horizon; the acceptance summary reports
+them separately.
+"""
+
+from __future__ import annotations
+
+import itertools
+import json
+from dataclasses import asdict, dataclass, field
+from hashlib import sha256
+from html import escape
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+from korea_quant.eligibility import (
+    DEFAULT_MARKET_CAP_TIERS,
+    entry_eligibility,
+    validate_market_cap_tiers,
+    validate_market_history,
+)
+from korea_quant.strategy import _rsi
+from korea_quant.strategy_goals import (
+    METRIC_COLUMNS,
+    ExitOptimizationGoal,
+    format_metric,
+    trade_metrics,
+    validate_exit_optimization_goal,
+)
+
+# Changing how an entry is accounted for must invalidate resumable window files;
+# otherwise an old CSV can silently reintroduce the very censoring this module
+# is designed to prevent.
+SIMULATION_SCHEMA_VERSION = 3
+
+# Same metric block as the two validation harnesses, plus this module's own
+# identifying columns. Walk-forward windows are already labelled on the applied
+# trades, so the window-stability criterion works here unchanged.
+SUMMARY_COLUMNS = (
+    "Market", "Strategy", *METRIC_COLUMNS, "Minimum Trade Count", "Passes Goal",
+)
+
+
+@dataclass(frozen=True)
+class ExitGrid:
+    rsi_exit_candidates: tuple[float, ...] = (45.0, 50.0, 55.0, 60.0, 65.0)
+    exit_band_std_candidates: tuple[float, ...] = (0.0, 0.5, 1.0, 1.5, 2.0)
+    stop_loss_candidates: tuple[float | None, ...] = (None, 0.08, 0.12)
+
+    def combinations(self) -> list[tuple[float, float, float | None]]:
+        return list(
+            itertools.product(
+                self.rsi_exit_candidates, self.exit_band_std_candidates, self.stop_loss_candidates
+            )
+        )
+
+
+@dataclass(frozen=True)
+class ExitOptimizationConfig:
+    training_sessions: int = 252
+    testing_sessions: int = 63
+    market_cap_tiers: tuple[tuple[str, int], ...] = DEFAULT_MARKET_CAP_TIERS
+    liquidity_window: int = 20
+    minimum_average_trading_value: float = 5_000_000_000
+    minimum_history_sessions: int = 260
+    outlier_gap_threshold: float = 0.50
+    outlier_cooldown_sessions: int = 60
+    fee_rate: float = 0.00015
+    sell_tax_rate: float = 0.0018
+    slippage_rate: float = 0.0005
+    bollinger_window: int = 20
+    bollinger_std: float = 2.0
+    rsi_window: int = 14
+    rsi_oversold: float = 30.0
+    minimum_fit_trades: int = 20
+    # The training-window filter is deliberately NOT the acceptance goal. Which
+    # exit parameters survive a fit and which results are worth adopting are two
+    # different questions, and sharing one threshold meant that retuning the
+    # acceptance bar silently retuned the search. Kept at the value the search
+    # was calibrated with so this module's chosen parameters do not move when
+    # the acceptance criteria change.
+    minimum_fit_win_rate: float = 0.70
+    grid: ExitGrid = field(default_factory=ExitGrid)
+    goal: ExitOptimizationGoal = field(default_factory=ExitOptimizationGoal)
+    checkpoint_dir: Path | None = None
+
+
+@dataclass(frozen=True)
+class ExitOptimizationResult:
+    trades: pd.DataFrame
+    chosen_params: pd.DataFrame
+    summary: pd.DataFrame
+
+
+def run_exit_optimization(
+    history: pd.DataFrame, config: ExitOptimizationConfig | None = None
+) -> ExitOptimizationResult:
+    """Roll a trailing-window exit-parameter grid search forward across OOS windows."""
+
+    config = config or ExitOptimizationConfig()
+    _validate_config(config)
+    data = validate_market_history(history)
+    ranked = entry_eligibility(
+        data,
+        market_cap_tiers=config.market_cap_tiers,
+        liquidity_window=config.liquidity_window,
+        minimum_average_trading_value=config.minimum_average_trading_value,
+        minimum_history_sessions=config.minimum_history_sessions,
+        outlier_gap_threshold=config.outlier_gap_threshold,
+        outlier_cooldown_sessions=config.outlier_cooldown_sessions,
+    )
+    dates = pd.DatetimeIndex(ranked["Date"].drop_duplicates().sort_values())
+    if len(dates) <= config.training_sessions + config.testing_sessions:
+        raise ValueError("History must contain sessions after the training and testing windows.")
+
+    combos = config.grid.combinations()
+    precomputed = [
+        item
+        for _, group in ranked.groupby(["Market", "Symbol"], sort=True)
+        if (item := _precompute_symbol(group.sort_values("Date").set_index("Date"), config)) is not None
+    ]
+    checkpoint_dir = _prepare_checkpoint_dir(data, config)
+
+    trade_rows: list[pd.DataFrame] = []
+    param_rows = []
+    window_number = 0
+    for start_index in range(config.training_sessions, len(dates) - 1, config.testing_sessions):
+        test_end_index = min(start_index + config.testing_sessions, len(dates))
+        if test_end_index - start_index < 2:
+            continue
+        window_number += 1
+        train_start = dates[start_index - config.training_sessions]
+        train_end = dates[start_index - 1]
+        test_start = dates[start_index]
+        test_end = dates[test_end_index - 1]
+
+        checkpoint = _checkpoint_path(checkpoint_dir, window_number)
+        if checkpoint is not None and checkpoint.exists():
+            payload = json.loads(checkpoint.read_text(encoding="utf-8"))
+            chosen = _decode_combo(payload["chosen"])
+            window_trades = pd.read_csv(checkpoint.with_suffix(".csv"), parse_dates=["EntryDate", "ExitDate"])
+        else:
+            fit_frames = []
+            for item in precomputed:
+                symbol_trades = _simulate_symbol_combos(
+                    item, combos, train_start, config, simulation_end=train_end
+                )
+                if symbol_trades.empty:
+                    continue
+                fit_frames.append(symbol_trades)
+            fit_trades = pd.concat(fit_frames, ignore_index=True) if fit_frames else _empty_grid_trades()
+            chosen = _select_best_combo(fit_trades, combos, config)
+
+            apply_frames = []
+            for item in precomputed:
+                symbol_trades = _simulate_symbol_combos(item, [chosen], train_start, config)
+                if symbol_trades.empty:
+                    continue
+                mask = (
+                    (symbol_trades["RsiExit"] == chosen[0])
+                    & (symbol_trades["ExitBandStd"] == chosen[1])
+                    & (_stop_matches(symbol_trades["StopLoss"], chosen[2]))
+                    & (symbol_trades["EntryDate"] >= test_start)
+                    & (symbol_trades["EntryDate"] <= test_end)
+                )
+                subset = symbol_trades[mask]
+                if subset.empty:
+                    continue
+                enriched = subset.copy()
+                enriched["Market"] = item["market"]
+                enriched["Symbol"] = item["symbol"]
+                apply_frames.append(enriched)
+            window_trades = pd.concat(apply_frames, ignore_index=True) if apply_frames else _empty_applied_trades()
+            if checkpoint is not None:
+                checkpoint.write_text(json.dumps({"chosen": _encode_combo(chosen)}), encoding="utf-8")
+                window_trades.to_csv(checkpoint.with_suffix(".csv"), index=False)
+
+        window_trades = window_trades.assign(Segment="out_of_sample", Window=window_number)
+        trade_rows.append(window_trades)
+        param_rows.append(
+            {
+                "Window": window_number, "TrainStart": train_start, "TrainEnd": train_end,
+                "TestStart": test_start, "TestEnd": test_end,
+                "RsiExit": chosen[0], "ExitBandStd": chosen[1], "StopLoss": chosen[2],
+            }
+        )
+
+    trades = pd.concat(trade_rows, ignore_index=True) if trade_rows else _empty_applied_trades()
+    chosen_params = pd.DataFrame(param_rows)
+    summary = summarize_exit_optimization_trades(trades, config.goal)
+    return ExitOptimizationResult(trades, chosen_params, summary)
+
+
+def summarize_exit_optimization_trades(
+    trades: pd.DataFrame, goal: ExitOptimizationGoal | None = None
+) -> pd.DataFrame:
+    """Calculate costed closed-trade acceptance results by market.
+
+    Open positions carry a mark-to-market return for parameter selection but
+    are not realised trades, therefore cannot satisfy an acceptance goal.
+    Their count is reported explicitly rather than silently dropping them.
+    """
+
+    goal = goal or ExitOptimizationGoal()
+    validate_exit_optimization_goal(goal)
+    required = {"Market", "NetReturnPct"}
+    missing = required - set(trades.columns)
+    if missing:
+        raise ValueError(f"Trades are missing: {', '.join(sorted(missing))}")
+    rows = []
+    for market in ("KOSPI", "KOSDAQ", "ALL"):
+        scoped = trades if market == "ALL" else trades[trades["Market"] == market]
+        metrics = trade_metrics(scoped)
+        rows.append(
+            {
+                "Market": market, "Strategy": "bollinger-rsi-exit-optimized",
+                **metrics.as_row(),
+                "Minimum Trade Count": goal.minimum_trades,
+                "Passes Goal": goal.passes(metrics),
+            }
+        )
+    return pd.DataFrame(rows, columns=list(SUMMARY_COLUMNS))
+
+
+def write_exit_optimization_reports(
+    result: ExitOptimizationResult, html_output: Path, csv_output: Path
+) -> tuple[Path, Path]:
+    """Write an HTML acceptance table and a reproducible CSV."""
+
+    html_output.parent.mkdir(parents=True, exist_ok=True)
+    csv_output.parent.mkdir(parents=True, exist_ok=True)
+    summary = result.summary.copy()
+    display = summary.copy()
+    for column in display.columns:
+        display[column] = [format_metric(column, value) for value in display[column]]
+    display["Passes Goal"] = summary["Passes Goal"].map(lambda value: "PASS" if value else "FAIL")
+    headers = "".join(f"<th>{escape(str(column))}</th>" for column in display.columns)
+    rows = [
+        "<tr>" + "".join(f"<td>{escape(str(value))}</td>" for value in row) + "</tr>"
+        for row in display.itertuples(index=False, name=None)
+    ]
+    params_html = result.chosen_params.to_html(index=False, border=0) if not result.chosen_params.empty else ""
+    html_output.write_text(
+        f"""<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<title>Reversion exit optimization</title><style>
+body{{font-family:system-ui;margin:32px;max-width:1400px}}table{{border-collapse:collapse;width:100%;margin-bottom:24px}}
+th,td{{padding:8px;border:1px solid #ddd;text-align:right}}th:nth-child(-n+2),td:nth-child(-n+2){{text-align:left}}
+th{{background:#f5f5f5}}</style></head><body><h1>bollinger-rsi walk-forward exit optimization</h1>
+<p>Entry rule is fixed (unchanged). Exit parameters (RSI exit level, Bollinger exit-band width,
+optional stop-loss) are grid-searched on each trailing training window, frozen, and applied to
+the following out-of-sample test window. Positions open at the end of the available history are
+shown separately and excluded from the realised-trade goal. PASS reads win rate, profit factor, a
+positive median, and the share of windows that closed profitably; mean net return is reported but is
+not a criterion, because per-trade size ignores how long capital was tied up to earn it.
+Research only.</p>
+<table><thead><tr>{headers}</tr></thead><tbody>{''.join(rows)}</tbody></table>
+<h2>Chosen parameters per window</h2>{params_html}</body></html>""",
+        encoding="utf-8",
+    )
+    pd.concat(
+        [result.summary.assign(RecordType="summary"), result.trades.assign(RecordType="trade")],
+        ignore_index=True, sort=False,
+    ).to_csv(csv_output, index=False)
+    return html_output, csv_output
+
+
+def _precompute_symbol(group: pd.DataFrame, config: ExitOptimizationConfig) -> dict | None:
+    if not group["EntryAllowed"].any():
+        return None
+    market = str(group["Market"].iloc[-1])
+    symbol = str(group["Symbol"].iloc[-1])
+    dates = pd.DatetimeIndex(group.index)
+    close_series = pd.to_numeric(group["Close"], errors="coerce")
+    open_ = pd.to_numeric(group["Open"], errors="coerce").to_numpy()
+    middle = close_series.rolling(config.bollinger_window, min_periods=config.bollinger_window).mean()
+    std = close_series.rolling(config.bollinger_window, min_periods=config.bollinger_window).std(ddof=0)
+    rsi = _rsi(close_series, config.rsi_window)
+    close = close_series.to_numpy()
+    middle_v = middle.to_numpy()
+    std_v = std.to_numpy()
+    rsi_v = rsi.to_numpy()
+    lower_v = middle_v - config.bollinger_std * std_v
+    entry_raw = (close <= lower_v) & (rsi_v <= config.rsi_oversold)
+    allowed = group["EntryAllowed"].to_numpy()
+    return {
+        "market": market, "symbol": symbol, "dates": dates, "close": close, "open": open_,
+        "middle": middle_v, "std": std_v, "rsi": rsi_v, "entry_observed_raw": entry_raw, "allowed": allowed,
+    }
+
+
+def _simulate_symbol_combos(
+    item: dict, combos: list[tuple[float, float, float | None]], sim_start: pd.Timestamp,
+    config: ExitOptimizationConfig, simulation_end: pd.Timestamp | None = None,
+) -> pd.DataFrame:
+    """Simulate combos without reading after an optional as-of session.
+
+    ``simulation_end`` is inclusive for valuation, but signals on that final
+    session cannot trade until the next session. Open positions are retained and
+    marked at the final valid close no later than the cutoff.
+    """
+
+    dates = item["dates"]
+    start_idx = int(dates.searchsorted(sim_start))
+    total_sessions = len(dates)
+    end_idx = (
+        total_sessions - 1
+        if simulation_end is None
+        else int(dates.searchsorted(simulation_end, side="right") - 1)
+    )
+    if start_idx >= end_idx:
+        return _empty_grid_trades()
+
+    close, open_ = item["close"], item["open"]
+    middle, std, rsi = item["middle"], item["std"], item["rsi"]
+    entry_raw, allowed = item["entry_observed_raw"], item["allowed"]
+
+    combo_count = len(combos)
+    rsi_exit_arr = np.array([combo[0] for combo in combos])
+    band_arr = np.array([combo[1] for combo in combos])
+    stop_arr = np.array([combo[2] if combo[2] is not None else np.inf for combo in combos])
+
+    holding = np.zeros(combo_count, dtype=bool)
+    entry_price = np.zeros(combo_count)
+    entry_idx = np.zeros(combo_count, dtype=int)
+    records = []
+
+    for t in range(start_idx, end_idx):
+        if np.isnan(close[t]) or np.isnan(open_[t + 1]):
+            continue
+        holding_before = holding
+        can_enter_today = bool(entry_raw[t]) and bool(allowed[t])
+        if not np.isnan(middle[t]):
+            price_exit = close[t] >= (middle[t] + band_arr * std[t])
+        else:
+            price_exit = np.zeros(combo_count, dtype=bool)
+        rsi_exit_cond = (rsi[t] >= rsi_exit_arr) if not np.isnan(rsi[t]) else np.zeros(combo_count, dtype=bool)
+        with np.errstate(invalid="ignore"):
+            stop_cond = close[t] <= entry_price * (1 - stop_arr)
+        exit_cond = holding_before & (price_exit | rsi_exit_cond | stop_cond)
+        enter_cond = (~holding_before) & can_enter_today
+
+        if exit_cond.any():
+            exit_open = open_[t + 1]
+            proceeds = exit_open * (1 - config.slippage_rate) * (1 - config.fee_rate - config.sell_tax_rate)
+            for idx in np.nonzero(exit_cond)[0]:
+                net_return = proceeds / entry_price[idx] - 1.0
+                records.append(
+                    (
+                        rsi_exit_arr[idx], band_arr[idx], combos[idx][2], dates[entry_idx[idx]],
+                        dates[t + 1], net_return, "closed",
+                    )
+                )
+
+        holding = holding_before.copy()
+        holding[exit_cond] = False
+        if enter_cond.any():
+            entry_open = open_[t + 1]
+            cost = entry_open * (1 + config.slippage_rate) * (1 + config.fee_rate)
+            holding[enter_cond] = True
+            entry_price[enter_cond] = cost
+            entry_idx[enter_cond] = t + 1
+
+    final_valid = np.flatnonzero(~np.isnan(close[: end_idx + 1]))
+    if final_valid.size:
+        final_index = int(final_valid[-1])
+        mark_proceeds = close[final_index] * (1 - config.slippage_rate) * (
+            1 - config.fee_rate - config.sell_tax_rate
+        )
+        for idx in np.nonzero(holding)[0]:
+            records.append(
+                (
+                    rsi_exit_arr[idx], band_arr[idx], combos[idx][2], dates[entry_idx[idx]],
+                    dates[final_index], mark_proceeds / entry_price[idx] - 1.0, "open",
+                )
+            )
+
+    if not records:
+        return _empty_grid_trades()
+    return pd.DataFrame(
+        records,
+        columns=[
+            "RsiExit", "ExitBandStd", "StopLoss", "EntryDate", "ExitDate", "NetReturnPct", "Status",
+        ],
+    )
+
+
+def _select_best_combo(
+    fit_trades: pd.DataFrame, combos: list[tuple[float, float, float | None]], config: ExitOptimizationConfig
+) -> tuple[float, float, float | None]:
+    if fit_trades.empty:
+        return combos[0]
+    grouped = fit_trades.groupby(["RsiExit", "ExitBandStd", "StopLoss"], dropna=False)["NetReturnPct"]
+    stats = grouped.agg(count="count", mean="mean").reset_index()
+    stats["win_rate"] = grouped.apply(lambda values: (values > 0).mean()).to_numpy()
+    qualifying = stats[
+        (stats["count"] >= config.minimum_fit_trades)
+        & (stats["win_rate"] >= config.minimum_fit_win_rate)
+    ]
+    pool = qualifying if not qualifying.empty else stats
+    best = pool.sort_values("mean", ascending=False).iloc[0]
+    stop_loss = None if pd.isna(best["StopLoss"]) else float(best["StopLoss"])
+    return (float(best["RsiExit"]), float(best["ExitBandStd"]), stop_loss)
+
+
+def _stop_matches(column: pd.Series, stop_loss: float | None) -> pd.Series:
+    if stop_loss is None:
+        return column.isna()
+    return column == stop_loss
+
+
+def _encode_combo(combo: tuple[float, float, float | None]) -> list:
+    return [combo[0], combo[1], combo[2]]
+
+
+def _decode_combo(payload: list) -> tuple[float, float, float | None]:
+    return (float(payload[0]), float(payload[1]), None if payload[2] is None else float(payload[2]))
+
+
+def _prepare_checkpoint_dir(history: pd.DataFrame, config: ExitOptimizationConfig) -> Path | None:
+    if config.checkpoint_dir is None:
+        return None
+    directory = config.checkpoint_dir
+    directory.mkdir(parents=True, exist_ok=True)
+    payload = asdict(config)
+    payload["checkpoint_dir"] = None
+    payload["history_start"] = str(history["Date"].min())
+    payload["history_end"] = str(history["Date"].max())
+    payload["history_rows"] = len(history)
+    payload["simulation_schema_version"] = SIMULATION_SCHEMA_VERSION
+    signature = sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+    manifest = directory / "manifest.json"
+    if manifest.exists():
+        recorded = json.loads(manifest.read_text(encoding="utf-8"))
+        if recorded.get("signature") != signature:
+            raise ValueError(
+                "Checkpoint directory belongs to different optimization inputs. "
+                "Use a new directory or remove its prior checkpoints."
+            )
+    else:
+        manifest.write_text(json.dumps({"signature": signature}, indent=2), encoding="utf-8")
+    return directory
+
+
+def _checkpoint_path(directory: Path | None, window_number: int) -> Path | None:
+    if directory is None:
+        return None
+    return directory / f"window_{window_number:03d}.json"
+
+
+def _empty_grid_trades() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[
+            "RsiExit", "ExitBandStd", "StopLoss", "EntryDate", "ExitDate", "NetReturnPct", "Status",
+        ]
+    )
+
+
+def _empty_applied_trades() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[
+            "RsiExit", "ExitBandStd", "StopLoss", "EntryDate", "ExitDate", "NetReturnPct", "Status",
+            "Market", "Symbol",
+        ]
+    )
+
+
+def _validate_config(config: ExitOptimizationConfig) -> None:
+    if config.training_sessions < 1 or config.testing_sessions < 2:
+        raise ValueError("training_sessions must be positive and testing_sessions at least two.")
+    validate_market_cap_tiers(config.market_cap_tiers)
+    if config.liquidity_window < 2:
+        raise ValueError("liquidity_window must be at least two.")
+    if config.minimum_history_sessions < 2:
+        raise ValueError("minimum_history_sessions must be at least two.")
+    if config.minimum_average_trading_value < 0:
+        raise ValueError("minimum_average_trading_value cannot be negative.")
+    if config.outlier_gap_threshold <= 0 or config.outlier_cooldown_sessions < 1:
+        raise ValueError("Outlier threshold and cooldown must be positive.")
+    if config.minimum_fit_trades < 1:
+        raise ValueError("minimum_fit_trades must be positive.")
+    if not 0 <= config.rsi_oversold <= 100:
+        raise ValueError("rsi_oversold must be between zero and one hundred.")
+    if not config.grid.rsi_exit_candidates or not config.grid.exit_band_std_candidates or not config.grid.stop_loss_candidates:
+        raise ValueError("Grid candidates must be non-empty.")

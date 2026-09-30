@@ -1,0 +1,163 @@
+"""KQS 엔진 추천을 읽기 전용으로 검증하는 v1 계약.
+
+이 모듈은 주문·체결·포트폴리오를 전혀 만들지 않는다. 엔진이 만든 추천과 그 시점의
+근거만 검증·축약해 홈페이지가 안전하게 표시할 수 있게 한다.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+from datetime import datetime, timezone
+from typing import Any, Mapping
+
+
+RECOMMENDATION_SCHEMA_VERSION = "kqs-recommendations/v1"
+MAX_SELECTED_ENTRIES = 3
+
+
+class KqsContractError(ValueError):
+    """엔진 응답이 추천 계약 또는 최신성 조건을 만족하지 않을 때 사용한다."""
+
+
+def _parse_datetime(value: object, field: str) -> datetime:
+    if not isinstance(value, str) or not value.strip():
+        raise KqsContractError(f"{field} 값이 없습니다.")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise KqsContractError(f"{field}는 ISO-8601 시각이어야 합니다.") from exc
+    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+
+
+def _required_text(value: object, field: str, maximum: int = 500) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise KqsContractError(f"{field} 값이 없습니다.")
+    text = value.strip()
+    if len(text) > maximum:
+        raise KqsContractError(f"{field} 값이 너무 깁니다.")
+    return text
+
+
+def canonical_payload_digest(payload: Mapping[str, Any]) -> str:
+    """integrity 필드를 제외한 계약 본문의 재현 가능한 SHA-256을 계산한다."""
+    signed = {key: value for key, value in payload.items() if key != "integrity"}
+    encoded = json.dumps(signed, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def validate_recommendation_payload(payload: object, *, now: datetime | None = None) -> dict:
+    """엔진의 추천 payload를 검증하고 화면에 필요한 안전한 필드만 반환한다.
+
+    무결성 해시 불일치, 만료된 응답, dirty 엔진은 오류로 취급한다. 추천은 정보 표시와
+    사용자의 수동 판단을 위한 것이며, 이 함수의 반환값으로 주문을 만들 수 없다.
+    """
+    if not isinstance(payload, Mapping):
+        raise KqsContractError("추천 응답은 JSON 객체여야 합니다.")
+    if payload.get("schema_version") != RECOMMENDATION_SCHEMA_VERSION:
+        raise KqsContractError("지원하지 않는 추천 계약 버전입니다.")
+
+    integrity = payload.get("integrity")
+    if not isinstance(integrity, Mapping):
+        raise KqsContractError("추천 무결성 정보가 없습니다.")
+    declared_digest = _required_text(integrity.get("payload_sha256"), "integrity.payload_sha256", 64)
+    if declared_digest != canonical_payload_digest(payload):
+        raise KqsContractError("추천 payload 무결성 해시가 일치하지 않습니다.")
+
+    generated_at = _parse_datetime(payload.get("generated_at"), "generated_at")
+    expires_at = _parse_datetime(payload.get("expires_at"), "expires_at")
+    reference_now = now or datetime.now(timezone.utc)
+    reference_now = reference_now.replace(tzinfo=timezone.utc) if reference_now.tzinfo is None else reference_now.astimezone(timezone.utc)
+    if expires_at <= generated_at:
+        raise KqsContractError("expires_at은 generated_at 이후여야 합니다.")
+    if expires_at <= reference_now:
+        raise KqsContractError("만료된 엔진 추천은 사용할 수 없습니다.")
+
+    engine = payload.get("engine")
+    if not isinstance(engine, Mapping):
+        raise KqsContractError("엔진 메타데이터가 없습니다.")
+    if engine.get("dirty") is not False:
+        raise KqsContractError("dirty 상태 엔진의 추천은 사용할 수 없습니다.")
+    safe_engine = {
+        "engine_id": _required_text(engine.get("engine_id"), "engine.engine_id", 100),
+        "run_id": _required_text(engine.get("run_id"), "engine.run_id", 160),
+        "git_sha": _required_text(engine.get("git_sha"), "engine.git_sha", 80),
+        "data_as_of": _required_text(engine.get("data_as_of"), "engine.data_as_of", 32),
+        "dataset_hash": _required_text(engine.get("dataset_hash"), "engine.dataset_hash", 128),
+        "dirty": False,
+    }
+
+    raw_signals = payload.get("signals")
+    if not isinstance(raw_signals, list):
+        raise KqsContractError("signals는 배열이어야 합니다.")
+    if len(raw_signals) > 100:
+        raise KqsContractError("signals가 계약상 최대 크기를 넘었습니다.")
+
+    signals: list[dict] = []
+    selected_entries: list[dict] = []
+    signal_ids: set[str] = set()
+    entry_symbols: set[str] = set()
+    for item in raw_signals:
+        if not isinstance(item, Mapping):
+            raise KqsContractError("signals 항목은 객체여야 합니다.")
+        signal_id = _required_text(item.get("signal_id"), "signal_id", 160)
+        if signal_id in signal_ids:
+            raise KqsContractError("signal_id가 중복되었습니다.")
+        signal_ids.add(signal_id)
+        action = item.get("action")
+        side = item.get("side")
+        if action not in {"entry", "exit"} or side not in {"buy", "sell"}:
+            raise KqsContractError("signal action/side 조합이 올바르지 않습니다.")
+        if (action, side) not in {("entry", "buy"), ("exit", "sell")}:
+            raise KqsContractError("진입은 buy, 청산은 sell 신호만 허용합니다.")
+
+        reasons = item.get("reasons")
+        if not isinstance(reasons, list) or not reasons or len(reasons) > 10:
+            raise KqsContractError("각 신호에는 1~10개의 설명 근거가 필요합니다.")
+        safe_reasons = []
+        for reason in reasons:
+            if not isinstance(reason, Mapping):
+                raise KqsContractError("설명 근거 형식이 올바르지 않습니다.")
+            safe_reasons.append({
+                "code": _required_text(reason.get("code"), "reason.code", 80),
+                "label": _required_text(reason.get("label"), "reason.label", 160),
+                "evidence": _required_text(reason.get("evidence"), "reason.evidence", 500),
+            })
+        safe = {
+            "signal_id": signal_id,
+            "action": action,
+            "side": side,
+            "symbol": _required_text(item.get("symbol"), "symbol", 40).upper(),
+            "market": _required_text(item.get("market"), "market", 40).upper(),
+            "name": _required_text(item.get("name"), "name", 160),
+            "signal_type": _required_text(item.get("signal_type"), "signal_type", 80),
+            "selection_outcome": _required_text(item.get("selection_outcome"), "selection_outcome", 80),
+            "execution_session": _required_text(item.get("execution_session"), "execution_session", 80),
+            "config_fingerprint": _required_text(item.get("config_fingerprint"), "config_fingerprint", 160),
+            "audit_row_hash": _required_text(item.get("audit_row_hash"), "audit_row_hash", 128),
+            "reasons": safe_reasons,
+        }
+        rank = item.get("selection_rank")
+        if action == "entry" and safe["selection_outcome"] == "selected":
+            if not isinstance(rank, int) or not 1 <= rank <= MAX_SELECTED_ENTRIES:
+                raise KqsContractError("선정된 진입 신호의 selection_rank는 1~3 정수여야 합니다.")
+            if safe["symbol"] in entry_symbols:
+                raise KqsContractError("선정 진입 신호에 같은 종목이 중복되었습니다.")
+            entry_symbols.add(safe["symbol"])
+            safe["selection_rank"] = rank
+            selected_entries.append(safe)
+        else:
+            safe["selection_rank"] = rank if isinstance(rank, int) else None
+        signals.append(safe)
+    if len(selected_entries) > MAX_SELECTED_ENTRIES:
+        raise KqsContractError("하루 선정 진입 신호는 최대 3개여야 합니다.")
+
+    return {
+        "schema_version": RECOMMENDATION_SCHEMA_VERSION,
+        "generated_at": generated_at.isoformat(),
+        "expires_at": expires_at.isoformat(),
+        "engine": safe_engine,
+        "signals": signals,
+        "selected_entry_count": len(selected_entries),
+        "read_only": True,
+        "disclaimer": "엔진 추천과 근거를 표시하기 위한 읽기 전용 데이터입니다. 홈페이지는 자동 모의체결·실거래 주문을 만들지 않습니다.",
+    }

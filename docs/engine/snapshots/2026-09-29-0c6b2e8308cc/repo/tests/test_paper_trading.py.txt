@@ -1,0 +1,210 @@
+import pandas as pd
+import pytest
+
+from korea_quant.paper_trading import (
+    EVENT_COLUMNS,
+    POSITION_COLUMNS,
+    PaperCostConfig,
+    advance_pending_positions,
+    append_unique_events,
+    make_event,
+    migrate_legacy_positions,
+    normalize_symbol,
+    paper_returns,
+)
+
+
+def _position(**updates):
+    values = {
+        "SignalDate": "2024-01-02",
+        "Symbol": "5930",
+        "Name": "삼성전자",
+        "Market": "KOSPI",
+        "SignalPrice": 100.0,
+        "Status": "PENDING_ENTRY",
+        "EntryDate": pd.NA,
+        "EntryPrice": pd.NA,
+        "ExitSignalDate": pd.NA,
+    }
+    values.update(updates)
+    return pd.DataFrame([values], columns=POSITION_COLUMNS)
+
+
+def _history():
+    opens = [100.0, 110.0, 120.0]
+    return pd.DataFrame(
+        {
+            "Date": pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"]),
+            "Symbol": ["005930"] * 3,
+            "Open": opens,
+            "High": [value + 1 for value in opens],
+            "Low": [value - 1 for value in opens],
+            "Close": opens,
+            "Volume": [1_000] * 3,
+        }
+    )
+
+
+def test_migrate_legacy_positions_adds_new_columns_to_an_existing_positions_file(tmp_path):
+    # A positions file written before SignalType existed should be picked up
+    # as an already-migrated file (and gain the new column as NA), not be
+    # misclassified as the old pre-paper-trading recommendation-only log.
+    path = tmp_path / "positions.csv"
+    pd.DataFrame(
+        [
+            {
+                "SignalDate": "2024-01-02",
+                "Symbol": "005930",
+                "Name": "삼성전자",
+                "Market": "KOSPI",
+                "SignalPrice": 100,
+                "Status": "OPEN",
+                "EntryDate": "2024-01-03",
+                "EntryPrice": 100,
+                "ExitSignalDate": pd.NA,
+            }
+        ]
+    ).to_csv(path, index=False)
+
+    result = migrate_legacy_positions(path)
+
+    assert list(result.columns) == POSITION_COLUMNS
+    assert result.iloc[0]["Status"] == "OPEN"
+    assert result.iloc[0]["SignalType"] == "legacy_confluence"
+
+
+def test_normalize_symbol_preserves_krx_leading_zeroes():
+    assert normalize_symbol("5930") == "005930"
+    assert normalize_symbol(5930.0) == "005930"
+
+
+def test_event_log_is_idempotent_by_date_type_and_symbol():
+    event = make_event(
+        date="2024-01-02",
+        event_type="BUY_SIGNAL",
+        symbol="5930",
+        name="삼성전자",
+        market="KOSPI",
+    )
+    log = append_unique_events(pd.DataFrame(columns=EVENT_COLUMNS), [event, event])
+    log = append_unique_events(log, [event])
+    assert len(log) == 1
+    assert log.iloc[0]["EventId"] == "2024-01-02|BUY_SIGNAL|005930"
+
+
+def test_pending_entry_fills_only_at_first_later_session_open():
+    positions, events = advance_pending_positions(_position(), _history(), PaperCostConfig())
+    assert positions.iloc[0]["Status"] == "OPEN"
+    assert positions.iloc[0]["EntryDate"] == "2024-01-03"
+    assert positions.iloc[0]["EntryPrice"] == 110.0
+    assert events[0]["Type"] == "BUY_FILLED"
+    assert events[0]["ExecutionPrice"] == 110.0
+
+
+def test_pending_entry_skips_a_locked_limit_up_session():
+    # 2024-01-03 opens and stays pinned at the +29.5% limit from the prior
+    # close, so a real buy order could not have filled that day.
+    history = pd.DataFrame(
+        {
+            "Date": pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"]),
+            "Symbol": ["005930"] * 3,
+            "Open": [100.0, 129.5, 140.0],
+            "High": [101.0, 129.5, 141.0],
+            "Low": [99.0, 129.5, 139.0],
+            "Close": [100.0, 129.5, 140.0],
+            "Volume": [1_000] * 3,
+        }
+    )
+    positions, events = advance_pending_positions(_position(), history, PaperCostConfig())
+    assert positions.empty
+    assert events[0]["Type"] == "BUY_CANCELLED"
+    assert events[0]["Date"] == "2024-01-03"
+    assert pd.isna(events[0]["ExecutionPrice"])
+
+
+def test_pending_exit_skips_a_locked_limit_down_session():
+    # 2024-01-03 opens and stays pinned at the -29.5% limit from the prior
+    # close, so a real sell order could not have filled that day.
+    history = pd.DataFrame(
+        {
+            "Date": pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"]),
+            "Symbol": ["005930"] * 3,
+            "Open": [100.0, 70.5, 60.0],
+            "High": [101.0, 70.5, 61.0],
+            "Low": [99.0, 70.5, 59.0],
+            "Close": [100.0, 70.5, 60.0],
+            "Volume": [1_000] * 3,
+        }
+    )
+    positions = _position(
+        Status="PENDING_EXIT",
+        EntryDate="2024-01-02",
+        EntryPrice=100.0,
+        ExitSignalDate="2024-01-02",
+    )
+    remaining, events = advance_pending_positions(positions, history, PaperCostConfig())
+    assert remaining.empty
+    assert events[0]["Type"] == "SELL_FILLED"
+    assert events[0]["ExecutionPrice"] == 60.0
+
+
+def test_pending_entry_skips_a_halted_session_with_a_stale_nonzero_open():
+    # A halt is identified by zero volume even if the open price happens to
+    # be a stale nonzero value (e.g. carried over by an upstream data fix).
+    history = pd.DataFrame(
+        {
+            "Date": pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"]),
+            "Symbol": ["005930"] * 3,
+            "Open": [100.0, 100.0, 110.0],
+            "High": [101.0, 100.0, 111.0],
+            "Low": [99.0, 100.0, 109.0],
+            "Close": [100.0, 100.0, 110.0],
+            "Volume": [1_000, 0, 1_000],
+        }
+    )
+    positions, events = advance_pending_positions(_position(), history, PaperCostConfig())
+    assert positions.empty
+    assert events[0]["Type"] == "BUY_CANCELLED"
+    assert events[0]["Date"] == "2024-01-03"
+
+
+def test_pending_exit_closes_at_next_open_with_all_costs():
+    positions = _position(
+        Status="PENDING_EXIT",
+        EntryDate="2024-01-03",
+        EntryPrice=110.0,
+        ExitSignalDate="2024-01-03",
+    )
+    costs = PaperCostConfig(fee_rate=0.001, sell_tax_rate=0.002, slippage_rate=0.003)
+    remaining, events = advance_pending_positions(positions, _history(), costs)
+    gross, net = paper_returns(110.0, 120.0, costs)
+    assert remaining.empty
+    assert events[0]["Type"] == "SELL_FILLED"
+    assert events[0]["ExecutionPrice"] == 120.0
+    assert events[0]["GrossReturnPct"] == pytest.approx(gross)
+    assert events[0]["NetReturnPct"] == pytest.approx(net)
+    assert net < gross
+
+
+def test_candidate_audit_id_propagates_to_buy_and_sell_events():
+    audit_id = "2026-09-08|config|005930|swing"
+    open_positions, buy_events = advance_pending_positions(
+        _position(CandidateAuditId=audit_id), _history(), PaperCostConfig()
+    )
+    assert open_positions.iloc[0]["CandidateAuditId"] == audit_id
+    assert buy_events[0]["CandidateAuditId"] == audit_id
+
+    exit_positions, sell_events = advance_pending_positions(
+        _position(
+            CandidateAuditId=audit_id,
+            Status="PENDING_EXIT",
+            EntryDate="2024-01-02",
+            EntryPrice=100.0,
+            ExitSignalDate="2024-01-02",
+        ),
+        _history(),
+        PaperCostConfig(),
+    )
+    assert exit_positions.empty
+    assert sell_events[0]["Type"] == "SELL_FILLED"
+    assert sell_events[0]["CandidateAuditId"] == audit_id

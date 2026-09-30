@@ -1,0 +1,64 @@
+"""Command line entry point for historical candidate-ranking validation."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+import pandas as pd
+
+from korea_quant.candidate_validation import (
+    CandidateValidationConfig,
+    build_ranked_candidate_events,
+    evaluate_ranked_events,
+    write_candidate_validation_report,
+)
+from korea_quant.krx import KrxDailyStore
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Validate historical common-signal ranking returns.")
+    parser.add_argument("--krx-db", type=Path, required=True)
+    parser.add_argument("--start", required=True)
+    parser.add_argument("--end", default=None)
+    parser.add_argument("--benchmark", default="069500")
+    parser.add_argument("--top-n", type=int, default=10)
+    parser.add_argument("--minimum-trading-value", type=float, default=5_000_000_000)
+    parser.add_argument("--minimum-signals", type=int, default=2)
+    parser.add_argument("--require-volume", action="store_true")
+    parser.add_argument("--fee", type=float, default=0.00015)
+    parser.add_argument("--slippage", type=float, default=0.0005)
+    parser.add_argument(
+        "--events-csv", type=Path, default=None,
+        help="Reuse a prior event file to compare rank cutoffs without regenerating signals.",
+    )
+    parser.add_argument("--output", type=Path, default=Path("reports/candidate_ranking_validation.html"))
+    args = parser.parse_args()
+    store = KrxDailyStore(args.krx_db)
+    history = store.market_history(args.start, args.end, ("KOSPI", "KOSDAQ"))
+    config = CandidateValidationConfig(
+        top_n=args.top_n,
+        minimum_average_trading_value=args.minimum_trading_value,
+        fee_rate=args.fee,
+        slippage_rate=args.slippage,
+        minimum_signals=args.minimum_signals,
+        require_volume=args.require_volume,
+    )
+    try:
+        if args.events_csv:
+            events = pd.read_csv(args.events_csv, parse_dates=["execution_date"])
+        else:
+            benchmark = store.daily_prices(args.benchmark, args.start, args.end)["Close"]
+            events = build_ranked_candidate_events(history, benchmark, config)
+        summary = evaluate_ranked_events(events, history, config)
+    except ValueError as exc:
+        raise SystemExit(f"Cannot validate candidate ranking: {exc}") from exc
+    report = write_candidate_validation_report(summary, events, args.output)
+    summary.to_csv(args.output.with_suffix(".csv"), index=False)
+    if not args.events_csv:
+        events.to_csv(args.output.with_name(f"{args.output.stem}_events.csv"), index=False)
+    print(f"Candidate ranking validation: {report.resolve()}")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,39 @@
+import pandas as pd
+from test_backtest_report import FakePortfolio
+
+from korea_quant.backtest import (
+    BacktestConfig,
+    build_report,
+    summarize_reports,
+    write_summary_reports,
+)
+
+
+def _report(multiplier):
+    portfolio = FakePortfolio()
+    portfolio._value = portfolio._value * multiplier
+    benchmark = pd.Series([100, 102, 101, 108], index=portfolio.value().index)
+    return build_report(portfolio, benchmark, BacktestConfig())
+
+
+def test_summary_has_one_row_per_symbol_and_all_metrics():
+    reports = {"005930": _report(1), "000660": _report(2)}
+    summary = summarize_reports(reports)
+
+    assert summary["Symbol"].tolist() == ["005930", "000660"]
+    assert set(reports["005930"].metrics) <= set(summary.columns)
+
+
+def test_summary_writes_html_links_and_csv(tmp_path):
+    summary = summarize_reports({"005930": _report(1), "000660": _report(2)})
+    html, csv = write_summary_reports(
+        summary,
+        tmp_path / "summary.html",
+        tmp_path / "summary.csv",
+        {"005930": tmp_path / "005930.html", "000660": tmp_path / "000660.html"},
+    )
+
+    content = html.read_text(encoding="utf-8")
+    exported = pd.read_csv(csv, dtype={"Symbol": str})
+    assert 'href="005930.html"' in content
+    assert exported["Symbol"].tolist() == ["005930", "000660"]

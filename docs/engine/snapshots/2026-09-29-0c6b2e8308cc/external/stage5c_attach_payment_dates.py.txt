@@ -1,0 +1,81 @@
+"""Stage 5C: derive the 실지급일 column that §9's capital-ledger layer requires.
+
+Stage 5A's normalize_distributions parses 실지급일 and then discards it, so the
+hash-locked `distributions_normalized.csv` cannot support §9. This script adds
+the column back by joining the already-hash-locked raw 분배 xls on 지급기준일.
+
+It does NOT re-run the Stage 5A collection script and does NOT modify any
+existing locked-window artifact: the augmented frame is written to a new file,
+leaving `distributions_normalized.csv` byte-identical to its hash-locked form
+(사전등록 §8).
+
+Prints counts and dates only, never distribution amounts.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import pandas as pd
+
+sys.path.insert(0, "src")
+
+BASE = Path("data/locked_window/index_tsmom_v1")
+SOURCE = BASE / "distributions_normalized.csv"
+TARGET = BASE / "distributions_with_payment_date.csv"
+DIST_XLS = Path("/mnt/c/Users/gram/Downloads/상품별_분배_현황_20260908.xls")
+SYMBOL = "069500"
+
+
+def main() -> None:
+    normalized = pd.read_csv(SOURCE, parse_dates=["record_date", "ex_dividend_date"])
+    prices = pd.read_csv(BASE / "price_merged.csv", parse_dates=["일자"])
+    trading_days = sorted(prices["일자"].dt.date.unique())
+    print(f"기존 산출물: {len(normalized)}건, 거래일 {len(trading_days)}일")
+
+    raw = pd.read_excel(DIST_XLS, engine="xlrd", header=2)
+    code = raw["상품코드"].astype(str).str.strip().str.replace(r"\.0$", "", regex=True).str.zfill(6)
+    xls = raw[code == SYMBOL].copy()
+    xls["record_date"] = pd.to_datetime(xls["지급기준일"].astype(str), format="%Y%m%d")
+    xls["payment_raw"] = pd.to_datetime(xls["실지급일"].astype(str), format="%Y%m%d")
+
+    lookup = xls[["record_date", "payment_raw"]].drop_duplicates()
+    if lookup["record_date"].duplicated().any():
+        raise SystemExit("원본 xls에 동일 지급기준일이 서로 다른 실지급일로 중복 존재합니다.")
+
+    merged = normalized.merge(lookup, on="record_date", how="left", validate="one_to_one")
+    missing = int(merged["payment_raw"].isna().sum())
+    if missing:
+        raise SystemExit(f"실지급일을 찾지 못한 분배 {missing}건 — 조인 실패.")
+
+    # 실지급일이 휴장일이면 현금은 다음 거래일에 반영된 것으로 본다.
+    def snap(stamp: pd.Timestamp):
+        later = [d for d in trading_days if d >= stamp.date()]
+        return pd.Timestamp(later[0]) if later else pd.NaT
+
+    merged["payment_date"] = merged["payment_raw"].apply(snap)
+    beyond = merged[merged["payment_date"].isna()]
+    print(f"실지급일이 잠금구간 종료 후라 제외되는 건수: {len(beyond)}")
+    if len(beyond):
+        print(f"  제외 건의 배당락일: {[d.date().isoformat() for d in beyond['ex_dividend_date']]}")
+
+    kept = merged.dropna(subset=["payment_date"]).copy()
+    snapped = int((kept["payment_date"] != kept["payment_raw"]).sum())
+    same_day = int((kept["payment_date"] == kept["ex_dividend_date"]).sum())
+    print(f"실지급일이 휴장일이라 다음 거래일로 이동한 건수: {snapped}")
+    print(f"실지급일 == 배당락일 인 건수: {same_day} (0이면 두 레이어가 실제로 분리됨)")
+
+    out = kept[["record_date", "ex_dividend_date", "payment_date", "amount"]].sort_values(
+        "record_date"
+    )
+    out.to_csv(TARGET, index=False, date_format="%Y-%m-%d")
+    print(f"기록: {TARGET} ({len(out)}건)")
+
+    # 원본 산출물이 변경되지 않았음을 확인한다.
+    check = pd.read_csv(SOURCE)
+    print(f"원본 산출물 무변경 확인: 행수={len(check)} 컬럼={list(check.columns)}")
+
+
+if __name__ == "__main__":
+    main()

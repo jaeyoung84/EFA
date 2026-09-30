@@ -1,0 +1,337 @@
+"""
+test_run_forward_v3.py — run_forward.py(전향 관측 절차) 단위 테스트 — 2026-09-13 (v3: v2→v3 이름만 변경; 기반 v2 sha256 앞16 ecf9358b536aaa92, 커밋 2bfed1d)
+픽스처 전용. 실DB 접근 없음(main() 은 호출하지 않는다). 검증 대상:
+  · 해시 잠금 파싱·대조(리셋 규칙)   · forced_close 제외   · deployment 입력 변환(분수 규약)
+  · 하한 100건 미달 시 판정 거부      · 시한 경과 시 미도달 확정   · 도달 시 PASS/FAIL/INCONCLUSIVE
+  · 반환 dict 는 건수·불리언·문자열만(수익률·CAGR 수치 비노출)
+실행: .venv/bin/python -m pytest research/daily_trend_pullback_v3 -p no:cacheprovider
+"""
+
+import hashlib
+import sqlite3
+
+import numpy as np
+import pandas as pd
+import pytest
+
+import run as _run
+import run_forward as fwd
+from strategy_validation_v3 import TRADE_COLUMNS, attach_costs, net_return_pct
+
+
+# ──────────────────────────────────────────────
+# 픽스처
+# ──────────────────────────────────────────────
+
+def _row(ticker, entry_date, exit_date, mult, exit_reason, ep=10000.0, shares=100):
+    return pd.Series({
+        "ticker": ticker, "sector": "Unknown",
+        "entry_date": pd.Timestamp(entry_date), "exit_date": pd.Timestamp(exit_date),
+        "entry_price": ep, "exit_price": ep * mult, "stop_price": ep * 0.93,
+        "shares": shares,
+        "entry_cost": np.nan, "exit_cost": np.nan, "pnl_net": np.nan, "r_multiple": np.nan,
+        "exit_reason": exit_reason, "holding_days": 5, "score": 0.5,
+    })
+
+
+def _trades(n_win, n_loss, start, end, win_mult=1.15, loss_mult=0.95, n_forced=0):
+    """승·패 교대(Bresenham)로 start~end 영업일 축에 균등 배치. 비용 부착 완료 프레임."""
+    days = pd.bdate_range(start=start, end=end)
+    n = n_win + n_loss + n_forced
+    step = max(len(days) // (n + 1), 1)
+    kinds, w, l = [], 0, 0
+    while w < n_win or l < n_loss:
+        if w < n_win and (l >= n_loss or w * n_loss <= l * n_win):
+            kinds.append("W"); w += 1
+        else:
+            kinds.append("L"); l += 1
+    kinds += ["F"] * n_forced
+    rows = []
+    for i, k in enumerate(kinds):
+        d = days[min((i + 1) * step, len(days) - 1)]
+        mult, reason = {
+            "W": (win_mult, "trailing"), "L": (loss_mult, "stop"), "F": (1.0, "forced_close"),
+        }[k]
+        rows.append(_row(f"{k}{i:03d}", d - pd.Timedelta(days=5), d, mult, reason))
+    return attach_costs(pd.DataFrame(rows, columns=TRADE_COLUMNS).reset_index(drop=True))
+
+
+FWD_START, FWD_END = "2026-09-09", "2027-10-29"          # 약 14개월 전향 창(픽스처)
+OK_LOCK  = {f: True for f in fwd.HASH_LOCK_FILES}
+BAD_LOCK = {**OK_LOCK, "strategy_validation_v3.py": False}
+
+
+# ──────────────────────────────────────────────
+# 1. 상수·부작용 없음
+# ──────────────────────────────────────────────
+
+class TestConstants:
+    def test_declared_constants(self):
+        assert fwd.FORWARD_START == "2026-09-09"          # 관측 #2 창(~2026-09-08) 다음 날
+        assert fwd.DEADLINE == "2028-09-08"
+        assert fwd.MIN_CLOSED_TRADES == 100
+        assert fwd.BAND_QUANTILE == 0.05
+        assert fwd.BACKTEST_START == "2022-01-01" and fwd.BACKTEST_END == "2026-09-08"
+        assert set(fwd.HASH_LOCK_FILES) == {
+            "strategy_validation_v3.py", "data_loader.py", "run.py", "run_forward.py"}
+
+    def test_import_has_no_sqlite_side_effect(self):
+        # ro 강제는 main() 안에서만 — import 만으로 sqlite3.connect 가 바뀌지 않는다
+        assert sqlite3.connect is not _run._readonly_sqlite_connect
+
+    def test_prereg_path_is_sibling(self):
+        assert fwd.PREREG_PATH.name == "PREREGISTRATION_v3.md"
+        assert fwd.PREREG_PATH.parent == fwd._HERE
+
+
+# ──────────────────────────────────────────────
+# 2. 해시 잠금 (리셋 규칙)
+# ──────────────────────────────────────────────
+
+class TestHashLock:
+    def _write(self, d, name, text):
+        p = d / name
+        p.write_text(text, encoding="utf-8")
+        return p
+
+    def test_expected_hashes_parses_only_64hex_rows(self, tmp_path):
+        h = "a" * 64
+        doc = self._write(tmp_path, "P.md",
+            "| 파일 | sha256 |\n|---|---|\n"
+            f"| run.py | {h} |\n"
+            f"| `data_loader.py` | {'b' * 64} |\n"
+            "| notes.md | zzz |\n"
+            f"| run_forward.py | {'c' * 63} |\n")      # 63자리 → 무시
+        got = fwd.expected_hashes(doc)
+        assert got == {"run.py": h, "data_loader.py": "b" * 64}
+
+    def test_expected_hashes_missing_doc_is_empty(self, tmp_path):
+        assert fwd.expected_hashes(tmp_path / "none.md") == {}
+
+    def test_verify_hash_lock_true_when_all_match(self, tmp_path):
+        rows = []
+        for f in fwd.HASH_LOCK_FILES:
+            p = self._write(tmp_path, f, f"# {f}\n")
+            rows.append(f"| {f} | {hashlib.sha256(p.read_bytes()).hexdigest()} |")
+        doc = self._write(tmp_path, "P.md", "\n".join(rows) + "\n")
+        got = fwd.verify_hash_lock(doc, tmp_path)
+        assert set(got) == set(fwd.HASH_LOCK_FILES) and all(got.values())
+
+    def test_verify_hash_lock_false_on_change_or_absence(self, tmp_path):
+        rows = []
+        for f in fwd.HASH_LOCK_FILES:
+            p = self._write(tmp_path, f, f"# {f}\n")
+            rows.append(f"| {f} | {hashlib.sha256(p.read_bytes()).hexdigest()} |")
+        doc = self._write(tmp_path, "P.md", "\n".join(rows[:-1]) + "\n")   # run_forward.py 행 누락
+        (tmp_path / "run.py").write_text("# changed\n", encoding="utf-8")   # run.py 변경
+        got = fwd.verify_hash_lock(doc, tmp_path)
+        assert got["run.py"] is False and got["run_forward.py"] is False
+        assert got["strategy_validation_v3.py"] is True and got["data_loader.py"] is True
+
+    def test_real_files_hash_matches_sha256_file(self):
+        for f in fwd.HASH_LOCK_FILES:
+            p = fwd._HERE / f
+            assert p.exists()
+            assert fwd.sha256_file(p) == hashlib.sha256(p.read_bytes()).hexdigest()
+
+
+# ──────────────────────────────────────────────
+# 3. 입력 변환
+# ──────────────────────────────────────────────
+
+class TestFrames:
+    def test_closed_only_drops_forced_close(self):
+        t = _trades(4, 2, FWD_START, FWD_END, n_forced=3)
+        c = fwd.closed_only(t)
+        assert len(t) == 9 and len(c) == 6
+        assert "forced_close" not in set(c["exit_reason"])
+        assert list(c.columns) == list(t.columns)
+
+    def test_closed_only_empty(self):
+        for e in (None, pd.DataFrame(columns=TRADE_COLUMNS)):
+            c = fwd.closed_only(e)
+            assert c.empty and list(c.columns) == TRADE_COLUMNS
+
+    def test_deployment_frame_uses_fraction_returns(self):
+        t = _trades(3, 2, FWD_START, FWD_END)
+        f = fwd.deployment_frame(t)
+        assert list(f.columns) == ["Entry Timestamp", "Exit Timestamp", "NetReturnPct", "Symbol", "Status"]
+        assert (f["Status"] == "closed").all()
+        assert f["Symbol"].map(type).eq(str).all()
+        assert np.allclose(f["NetReturnPct"].to_numpy(), net_return_pct(t).to_numpy() / 100.0)
+        assert np.abs(f["NetReturnPct"]).max() < 0.5            # 분수 규약(퍼센트였다면 ≥ 4)
+        assert (f["Exit Timestamp"] > f["Entry Timestamp"]).all()
+
+    def test_deployment_frame_accepted_by_capital_metrics(self):
+        from korea_quant.capital_metrics import DeploymentConfig, deployment_metrics, can_measure_deployment
+        t = _trades(30, 10, FWD_START, FWD_END)
+        f = fwd.deployment_frame(t)
+        assert can_measure_deployment(f)
+        m = deployment_metrics(f, DeploymentConfig())
+        assert m.deployed_trades > 0 and np.isfinite(m.cagr)
+
+    def test_trades_hash_is_16_hex_and_column_order_bound(self):
+        t = _trades(3, 2, FWD_START, FWD_END)
+        h = fwd.trades_hash(t)
+        assert len(h) == 16 and all(ch in "0123456789abcdef" for ch in h)
+        assert fwd.trades_hash(t[TRADE_COLUMNS[::-1]]) == h          # 열 순서 무관(TRADE_COLUMNS 로 고정)
+
+
+# ──────────────────────────────────────────────
+# 4. 동일 길이 과거창 밴드 (판정 시점 산출)
+# ──────────────────────────────────────────────
+
+class TestBand:
+    def test_window_count_is_deterministic(self):
+        bt = _trades(40, 10, "2024-01-01", "2025-01-31")
+        one = fwd.same_length_window_cagrs(bt, 366, bt_start="2024-01-01", bt_end="2024-12-31")
+        two = fwd.same_length_window_cagrs(bt, 366, bt_start="2024-01-01", bt_end="2025-01-31")
+        assert len(one) == 1 and len(two) == 2
+        assert all(isinstance(x, float) and np.isfinite(x) for x in two)
+
+    def test_windows_without_trades_are_skipped(self):
+        bt = _trades(20, 5, "2024-09-01", "2024-12-31")                 # 뒤쪽 4개월에만 거래
+        got = fwd.same_length_window_cagrs(bt, 120, bt_start="2024-01-01", bt_end="2024-12-31")
+        assert 0 < len(got) < 9                                           # 창 안에 거래가 없는 앞쪽 창은 제외
+
+    def test_forced_close_excluded_from_band(self):
+        bt = _trades(20, 5, "2024-01-01", "2024-12-31", n_forced=50)
+        a = fwd.same_length_window_cagrs(bt, 366, bt_start="2024-01-01", bt_end="2024-12-31")
+        b = fwd.same_length_window_cagrs(fwd.closed_only(bt), 366, bt_start="2024-01-01", bt_end="2024-12-31")
+        assert a == b
+
+
+# ──────────────────────────────────────────────
+# 5. 판정 게이트
+# ──────────────────────────────────────────────
+
+class TestJudgeGates:
+    def test_below_floor_is_not_evidence(self):
+        t = _trades(60, 20, FWD_START, FWD_END)                            # 80 < 100
+        out = fwd.judge_forward(t, FWD_START, FWD_END, backtest_trades=None, hash_lock=OK_LOCK, today="2027-11-01")
+        assert out["closed_trades"] == 80 and out["floor_reached"] is False
+        assert out["deadline_passed"] is False and out["hash_lock_ok"] is True
+        assert out["verdict"] == "증거 아님(표본 미달)"
+        assert "cagr_low_positive" not in out and "trend_goal_pass" not in out
+
+    def test_forced_close_does_not_count_toward_floor(self):
+        t = _trades(60, 20, FWD_START, FWD_END, n_forced=40)               # raw 120, closed 80
+        out = fwd.judge_forward(t, FWD_START, FWD_END, None, OK_LOCK, today="2027-11-01")
+        assert out["closed_trades"] == 80 and out["floor_reached"] is False
+
+    def test_deadline_passed_below_floor_is_final(self):
+        t = _trades(60, 20, FWD_START, FWD_END)
+        out = fwd.judge_forward(t, FWD_START, FWD_END, None, OK_LOCK, today="2028-09-09")
+        assert out["deadline_passed"] is True
+        assert out["verdict"] == "미도달 확정(시한 경과)"
+
+    def test_hash_mismatch_blocks_judgment_even_at_floor(self):
+        t = _trades(90, 20, FWD_START, FWD_END)                            # 110 ≥ 100
+        out = fwd.judge_forward(t, FWD_START, FWD_END, None, BAD_LOCK, today="2027-11-01")
+        assert out["floor_reached"] is True and out["hash_lock_ok"] is False
+        assert out["verdict"] == "리셋(코드 해시 불일치)"
+        assert "cagr_low_positive" not in out
+
+    def test_missing_lock_is_treated_as_mismatch(self):
+        t = _trades(90, 20, FWD_START, FWD_END)
+        out = fwd.judge_forward(t, FWD_START, FWD_END, None, None, today="2027-11-01")
+        assert out["hash_lock_ok"] is False and out["verdict"] == "리셋(코드 해시 불일치)"
+
+    def test_empty_forward_sample(self):
+        out = fwd.judge_forward(pd.DataFrame(columns=TRADE_COLUMNS), FWD_START, FWD_END, None, OK_LOCK, today="2027-01-01")
+        assert out["closed_trades"] == 0 and out["verdict"] == "증거 아님(표본 미달)"
+
+
+class TestJudgeAtFloor:
+    def test_without_backtest_is_inconclusive(self):
+        t = _trades(90, 20, FWD_START, FWD_END)
+        out = fwd.judge_forward(t, FWD_START, FWD_END, None, OK_LOCK, today="2027-11-01")
+        assert out["floor_reached"] is True
+        assert out["within_backtest_band"] is None and out["band_windows"] == 0
+        assert out["verdict"] == "INCONCLUSIVE(밴드 미산출)"
+        assert isinstance(out["deployed_trades"], int) and out["deployed_trades"] > 0
+        assert out["cagr_low_positive"] is True and out["trend_goal_pass"] is True
+        assert out["immediate_reject"] is False
+
+    def test_strong_forward_sample_passes_against_backtest_band(self):
+        t  = _trades(90, 20, FWD_START, FWD_END)                                 # 전향: 승률 82%·payoff≈2.8
+        bt = _trades(200, 60, fwd.BACKTEST_START, fwd.BACKTEST_END)              # 관측 #2 대용: 같은 분포, 더 낮은 밀도
+        out = fwd.judge_forward(t, FWD_START, FWD_END, bt, OK_LOCK, today="2027-11-01")
+        assert out["band_windows"] > 0
+        assert out["cagr_low_positive"] is True and out["within_backtest_band"] is True
+        assert out["trend_goal_pass"] is True and out["immediate_reject"] is False
+        assert out["verdict"] == "PASS"
+
+    def test_losing_forward_sample_fails(self):
+        t  = _trades(20, 90, FWD_START, FWD_END, win_mult=1.05)                  # 승률 18%·payoff≈1
+        bt = _trades(200, 60, fwd.BACKTEST_START, fwd.BACKTEST_END)
+        out = fwd.judge_forward(t, FWD_START, FWD_END, bt, OK_LOCK, today="2027-11-01")
+        assert out["floor_reached"] is True
+        assert out["cagr_low_positive"] is False
+        assert out["trend_goal_pass"] is False and out["immediate_reject"] is True
+        assert out["verdict"] == "FAIL"
+
+    def test_band_miss_alone_fails(self):
+        # 전향 창은 흑자이나 관측 #2 대용 분포(훨씬 강함)의 5%ile 에 못 미치는 경우 → FAIL(백테스트 분포 미재현)
+        t  = _trades(56, 54, FWD_START, FWD_END, win_mult=1.12, loss_mult=0.96)
+        bt = _trades(240, 40, fwd.BACKTEST_START, fwd.BACKTEST_END, win_mult=1.25, loss_mult=0.97)
+        out = fwd.judge_forward(t, FWD_START, FWD_END, bt, OK_LOCK, today="2027-11-01")
+        assert out["floor_reached"] is True and out["band_windows"] > 0
+        assert out["cagr_low_positive"] is True
+        assert out["within_backtest_band"] is False
+        assert out["verdict"] == "FAIL"
+
+    def test_dict_exposes_only_counts_bools_strings(self):
+        t  = _trades(90, 20, FWD_START, FWD_END)
+        bt = _trades(200, 60, fwd.BACKTEST_START, fwd.BACKTEST_END)
+        out = fwd.judge_forward(t, FWD_START, FWD_END, bt, OK_LOCK, today="2027-11-01")
+        for k, v in out.items():
+            assert type(v) in (bool, int, str) or v is None, k
+        assert not any(isinstance(v, float) for v in out.values())            # CAGR·PF 수치 비노출
+
+    def test_hash_lock_dict_keys_all_required(self):
+        # 파일 하나라도 False 면 전체 잠금 실패
+        t = _trades(90, 20, FWD_START, FWD_END)
+        for f in fwd.HASH_LOCK_FILES:
+            lock = {**OK_LOCK, f: False}
+            out = fwd.judge_forward(t, FWD_START, FWD_END, None, lock, today="2027-11-01")
+            assert out["verdict"] == "리셋(코드 해시 불일치)", f
+
+
+# ──────────────────────────────────────────────
+# 6. v2: main() 배선 — 두 run_period 호출 모두 benchmarks·market_map 전달 (실DB 무접촉: 전부 가짜)
+# ──────────────────────────────────────────────
+
+class TestMainWiringV2:
+    def test_main_passes_benchmarks_and_market_map_to_both_run_period_calls(self, monkeypatch):
+        axis = pd.bdate_range("2022-01-03", "2027-01-29")
+        def mk():
+            return pd.DataFrame({"Open": 1.0, "High": 1.0, "Low": 1.0, "Close": 1.0,
+                                 "Volume": 1, "Turnover": 1.0}, index=axis)
+        bench = {"KOSPI": mk(), "KOSDAQ": mk()}
+        mmap  = {"000001": "KOSPI", "000002": "KOSDAQ"}
+        calls, ends = [], []
+        monkeypatch.setattr(sqlite3, "connect", sqlite3.connect)            # main() 의 ro 강제 원복 보장
+        monkeypatch.setattr(fwd, "verify_hash_lock", lambda *a, **k: dict(OK_LOCK))
+        monkeypatch.setattr(_run, "load_benchmarks", lambda end_date: (ends.append(end_date), bench)[1])
+        monkeypatch.setattr(_run, "load_universe_and_markets", lambda: (list(mmap), mmap))
+        monkeypatch.setattr(fwd, "load_ohlcv_from_sqlite", lambda *a, **k: {})
+        monkeypatch.setattr(fwd, "check_data_coverage", lambda *a, **k: None)
+        def fake_run_period(ohlcv, market_df, start, end, cfg, **kw):
+            calls.append((start, end, kw))
+            return None, pd.DataFrame(columns=TRADE_COLUMNS), {}
+        monkeypatch.setattr(fwd, "run_period", fake_run_period)
+        out = fwd.main(forward_end="2027-01-29", compute_band=True)
+        assert ends == ["2027-01-29"]
+        assert len(calls) == 2
+        assert calls[0][0] == pd.Timestamp(fwd.FORWARD_START)
+        assert calls[1][0] == pd.Timestamp(fwd.BACKTEST_START) and calls[1][1] == pd.Timestamp(fwd.BACKTEST_END)
+        for _, _, kw in calls:
+            assert kw["benchmarks"] is bench and kw["market_map"] is mmap
+            assert kw["compute_pb_effectiveness"] is False
+        assert out["closed_trades"] == 0 and out["verdict"] == "증거 아님(표본 미달)"
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(pytest.main([__file__, "-v", "--tb=short", "-p", "no:cacheprovider"]))

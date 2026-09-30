@@ -1,0 +1,133 @@
+"""Run every daily strategy under one cost and date configuration."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+from html import escape
+from pathlib import Path
+
+import pandas as pd
+
+from korea_quant.backtest import (
+    BacktestConfig,
+    BacktestReport,
+    build_report,
+    run_baseline,
+    write_reports,
+)
+from korea_quant.strategy import STRATEGIES
+
+
+@dataclass(frozen=True)
+class StrategyRun:
+    report: BacktestReport
+    signals: pd.DataFrame
+
+
+def run_all_strategies(
+    prices: pd.DataFrame,
+    config: BacktestConfig,
+    strategies: tuple[str, ...] = STRATEGIES,
+    market_close: pd.Series | None = None,
+) -> dict[str, StrategyRun]:
+    """Execute all requested strategies against identical prices and costs."""
+
+    if not strategies:
+        raise ValueError("At least one strategy is required.")
+    unknown = set(strategies) - set(STRATEGIES)
+    if unknown:
+        raise ValueError(f"Unknown strategies: {', '.join(sorted(unknown))}")
+    results: dict[str, StrategyRun] = {}
+    for strategy in strategies:
+        strategy_config = replace(config, strategy=strategy)
+        if market_close is None:
+            portfolio, signals = run_baseline(prices, strategy_config)
+        else:
+            portfolio, signals = run_baseline(
+                prices, strategy_config, market_close=market_close
+            )
+        report = build_report(portfolio, prices["Close"], strategy_config)
+        results[strategy] = StrategyRun(report, signals)
+    return results
+
+
+def comparison_summary(results: dict[str, StrategyRun]) -> pd.DataFrame:
+    """Build a common metric table with observed entry and exit counts."""
+
+    if not results:
+        raise ValueError("Comparison results cannot be empty.")
+    rows = []
+    for strategy, result in results.items():
+        rows.append(
+            {
+                "Strategy": strategy,
+                **result.report.metrics,
+                "Entry Signals": int(result.signals["entries"].sum()),
+                "Exit Signals": int(result.signals["exits"].sum()),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def write_comparison_reports(
+    results: dict[str, StrategyRun],
+    prices: pd.DataFrame,
+    output_dir: Path,
+    symbol: str,
+    name: str | None = None,
+) -> tuple[Path, Path]:
+    """Write strategy details and a linked cross-strategy summary."""
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    detail_paths: dict[str, Path] = {}
+    for strategy, result in results.items():
+        detail_html = output_dir / f"{strategy}.html"
+        write_reports(
+            result.report,
+            detail_html,
+            detail_html.with_suffix(".csv"),
+            prices=prices,
+            signals=result.signals,
+            title=f"{symbol} {name or ''} — {strategy} comparison".strip(),
+        )
+        detail_paths[strategy] = detail_html
+
+    summary = comparison_summary(results)
+    summary_csv = output_dir / "summary.csv"
+    summary_html = output_dir / "summary.html"
+    summary.to_csv(summary_csv, index=False)
+    display = summary.copy()
+    percentage_columns = {
+        "CAGR", "MDD", "Total Return", "Benchmark Return", "Win Rate",
+        "Fee Rate", "Slippage Rate",
+    }
+    for column in percentage_columns & set(display.columns):
+        display[column] = display[column].map(lambda value: f"{value:.2%}")
+    if "Sharpe Ratio" in display:
+        display["Sharpe Ratio"] = display["Sharpe Ratio"].map(lambda value: f"{value:.2f}")
+    for column in ("Trade Count", "Entry Signals", "Exit Signals"):
+        if column in display:
+            display[column] = display[column].map(lambda value: f"{int(value):,}")
+    if "Total Fees" in display:
+        display["Total Fees"] = display["Total Fees"].map(lambda value: f"{value:,.0f} KRW")
+
+    headers = "".join(f"<th>{escape(str(column))}</th>" for column in display.columns)
+    table_rows = []
+    for _, row in display.iterrows():
+        cells = []
+        for column, value in row.items():
+            text = escape(str(value))
+            if column == "Strategy":
+                text = f'<a href="{detail_paths[str(value)].name}">{text}</a>'
+            cells.append(f"<td>{text}</td>")
+        table_rows.append(f"<tr>{''.join(cells)}</tr>")
+    html = f'''<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<title>{escape(symbol)} strategy comparison</title><style>body{{font-family:system-ui;margin:32px}}
+table{{border-collapse:collapse;width:100%}}th,td{{padding:9px;border:1px solid #ddd;text-align:right}}
+th:first-child,td:first-child{{text-align:left}}th{{background:#f5f5f5;position:sticky;top:0}}</style>
+</head><body><h1>{escape(symbol)} {escape(name or '')} — Strategy Comparison</h1>
+<p>All strategies use identical dates, initial cash, fees and slippage. Signals observed at close
+execute no earlier than the next session open. Research evidence only.</p>
+<table><thead><tr>{headers}</tr></thead><tbody>{''.join(table_rows)}</tbody></table></body></html>'''
+    summary_html.write_text(html, encoding="utf-8")
+    return summary_html, summary_csv

@@ -1,0 +1,333 @@
+"""Causal, broker-disabled paper execution and event logging."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+import pandas as pd
+
+from korea_quant.backtest import build_trade_block_masks
+
+LEGACY_SIGNAL_TYPE = "legacy_confluence"
+
+EVENT_COLUMNS = [
+    "EventId",
+    "Date",
+    "Type",
+    "Symbol",
+    "Name",
+    "Market",
+    "SignalType",
+    "CandidateAuditId",
+    "ReferencePrice",
+    "ExecutionPrice",
+    "Reasons",
+    "RSScore",
+    "GrossReturnPct",
+    "NetReturnPct",
+    "FeeRate",
+    "SellTaxRate",
+    "SlippageRate",
+]
+POSITION_COLUMNS = [
+    "SignalDate",
+    "Symbol",
+    "Name",
+    "Market",
+    "SignalType",
+    "CandidateAuditId",
+    "SignalPrice",
+    "Status",
+    "EntryDate",
+    "EntryPrice",
+    "ExitSignalDate",
+]
+
+
+@dataclass(frozen=True)
+class PaperCostConfig:
+    fee_rate: float = 0.00015
+    sell_tax_rate: float = 0.0018
+    slippage_rate: float = 0.0005
+    price_limit_ratio: float = 0.295
+
+    def __post_init__(self) -> None:
+        if min(self.fee_rate, self.sell_tax_rate, self.slippage_rate) < 0:
+            raise ValueError("Paper costs cannot be negative.")
+        if self.fee_rate + self.sell_tax_rate >= 1:
+            raise ValueError("Paper sell costs must be below one.")
+        if self.price_limit_ratio <= 0:
+            raise ValueError("price_limit_ratio must be positive.")
+
+
+def normalize_symbol(value: object) -> str:
+    """Return a zero-padded KRX short code without CSV numeric coercion artifacts."""
+    text = str(value).strip()
+    if text.endswith(".0") and text[:-2].isdigit():
+        text = text[:-2]
+    return text.zfill(6)
+
+
+def load_csv_state(path: Path, columns: list[str]) -> pd.DataFrame:
+    """Load a state CSV with stable symbols and add newly introduced columns."""
+    if not path.exists():
+        return pd.DataFrame(columns=columns)
+    frame = pd.read_csv(path, dtype={"Symbol": "string"})
+    for column in columns:
+        if column not in frame:
+            frame[column] = pd.NA
+    frame = frame.reindex(columns=columns)
+    if "Symbol" in frame:
+        frame["Symbol"] = frame["Symbol"].map(normalize_symbol)
+    for column in ("SignalDate", "EntryDate", "ExitSignalDate", "Status"):
+        if column in frame:
+            frame[column] = frame[column].astype("object")
+    return frame
+
+
+def migrate_legacy_positions(path: Path) -> pd.DataFrame:
+    """Load positions while preserving old recommendation-only rows as legacy."""
+    if not path.exists():
+        return pd.DataFrame(columns=POSITION_COLUMNS)
+    original = pd.read_csv(path, dtype={"Symbol": "string"})
+    # Check against a stable core subset rather than the full (evolving)
+    # POSITION_COLUMNS, so adding a new column here doesn't misclassify an
+    # already-migrated file as the old pre-paper-trading recommendation log.
+    stable_core = {"SignalDate", "Symbol", "Name", "Market", "Status", "EntryDate", "EntryPrice"}
+    if stable_core <= set(original.columns):
+        loaded = load_csv_state(path, POSITION_COLUMNS)
+        actionable = loaded["Status"].isin(["PENDING_ENTRY", "OPEN", "PENDING_EXIT"])
+        missing_type = loaded["SignalType"].isna() | loaded["SignalType"].astype(str).str.strip().eq("")
+        loaded.loc[actionable & missing_type, "SignalType"] = LEGACY_SIGNAL_TYPE
+        return loaded
+    required = {"Date", "Symbol", "Name", "Market", "Entry_Price"}
+    if not required <= set(original.columns):
+        raise ValueError("Position CSV has an unsupported schema.")
+    migrated = pd.DataFrame(
+        {
+            "SignalDate": original["Date"],
+            "Symbol": original["Symbol"].map(normalize_symbol),
+            "Name": original["Name"],
+            "Market": original["Market"],
+            "SignalType": "unknown",
+            "SignalPrice": original["Entry_Price"],
+            "Status": "LEGACY_REFERENCE",
+            "EntryDate": pd.NA,
+            "EntryPrice": pd.NA,
+            "ExitSignalDate": pd.NA,
+        }
+    )
+    return migrated.reindex(columns=POSITION_COLUMNS)
+
+
+def make_event(
+    *,
+    date: object,
+    event_type: str,
+    symbol: object,
+    name: object,
+    market: object,
+    candidate_audit_id: str | None = None,
+    signal_type: str | None = None,
+    reference_price: float | None = None,
+    execution_price: float | None = None,
+    reasons: str = "",
+    rs_score: float | None = None,
+    gross_return_pct: float | None = None,
+    net_return_pct: float | None = None,
+    costs: PaperCostConfig | None = None,
+) -> dict[str, object]:
+    date_text = pd.Timestamp(date).date().isoformat()
+    symbol_text = normalize_symbol(symbol)
+    costs = costs or PaperCostConfig()
+    return {
+        "EventId": f"{date_text}|{event_type}|{symbol_text}",
+        "Date": date_text,
+        "Type": event_type,
+        "Symbol": symbol_text,
+        "Name": name,
+        "CandidateAuditId": candidate_audit_id,
+        "Market": market,
+        "SignalType": signal_type,
+        "ReferencePrice": reference_price,
+        "ExecutionPrice": execution_price,
+        "Reasons": reasons,
+        "RSScore": rs_score,
+        "GrossReturnPct": gross_return_pct,
+        "NetReturnPct": net_return_pct,
+        "FeeRate": costs.fee_rate,
+        "SellTaxRate": costs.sell_tax_rate,
+        "SlippageRate": costs.slippage_rate,
+    }
+
+
+def append_unique_events(event_log: pd.DataFrame, events: list[dict[str, object]]) -> pd.DataFrame:
+    """Append events once using date, event type, and symbol as the stable key."""
+    if not events:
+        return event_log.reindex(columns=EVENT_COLUMNS)
+    incoming = pd.DataFrame(events, columns=EVENT_COLUMNS)
+    combined = pd.concat([event_log.reindex(columns=EVENT_COLUMNS), incoming], ignore_index=True)
+    combined["Symbol"] = combined["Symbol"].map(normalize_symbol)
+    combined["EventId"] = (
+        combined["Date"].astype(str) + "|" + combined["Type"].astype(str) + "|" + combined["Symbol"]
+    )
+    return combined.drop_duplicates("EventId", keep="first").reset_index(drop=True)
+
+
+def advance_pending_positions(
+    positions: pd.DataFrame,
+    history: pd.DataFrame,
+    costs: PaperCostConfig,
+) -> tuple[pd.DataFrame, list[dict[str, object]]]:
+    """Fill pending paper orders at the first later session open."""
+    if positions.empty:
+        return positions.reindex(columns=POSITION_COLUMNS), []
+    prepared = _prepared_history(history, costs.price_limit_ratio)
+    remaining: list[dict[str, object]] = []
+    events: list[dict[str, object]] = []
+    for position in positions.reindex(columns=POSITION_COLUMNS).to_dict("records"):
+        symbol = normalize_symbol(position["Symbol"])
+        position["Symbol"] = symbol
+        rows = prepared[prepared["Symbol"] == symbol]
+        status = position["Status"]
+        if status == "PENDING_ENTRY":
+            next_session = _first_observed_row_after(rows, position["SignalDate"])
+            if next_session is not None:
+                fillable = (
+                    pd.notna(next_session["Open"])
+                    and float(next_session["Open"]) > 0
+                    and not bool(next_session["cant_buy"])
+                )
+                if not fillable:
+                    events.append(
+                        make_event(
+                            date=next_session["Date"],
+                            event_type="BUY_CANCELLED",
+                            symbol=symbol,
+                            name=position["Name"],
+                            market=position["Market"],
+                            signal_type=position.get("SignalType"),
+                            candidate_audit_id=position.get("CandidateAuditId"),
+                            reference_price=float(position["SignalPrice"]),
+                            reasons="다음 거래일 거래정지·상한가 잠김으로 모의매수 취소",
+                            costs=costs,
+                        )
+                    )
+                    continue
+                position["Status"] = "OPEN"
+                position["EntryDate"] = next_session["Date"].date().isoformat()
+                position["EntryPrice"] = float(next_session["Open"])
+                events.append(
+                    make_event(
+                        date=next_session["Date"],
+                        event_type="BUY_FILLED",
+                        symbol=symbol,
+                        name=position["Name"],
+                        market=position["Market"],
+                        signal_type=position.get("SignalType"),
+                        candidate_audit_id=position.get("CandidateAuditId"),
+                        reference_price=float(position["SignalPrice"]),
+                        execution_price=float(next_session["Open"]),
+                        reasons="다음 거래일 시가 모의체결",
+                        costs=costs,
+                    )
+                )
+        elif status == "PENDING_EXIT":
+            fill = _first_row_after(rows, position["ExitSignalDate"], "cant_sell")
+            if fill is not None:
+                entry = float(position["EntryPrice"])
+                exit_ = float(fill["Open"])
+                gross, net = paper_returns(entry, exit_, costs)
+                events.append(
+                    make_event(
+                        date=fill["Date"],
+                        event_type="SELL_FILLED",
+                        symbol=symbol,
+                        name=position["Name"],
+                        market=position["Market"],
+                        candidate_audit_id=position.get("CandidateAuditId"),
+                        signal_type=position.get("SignalType"),
+                        reference_price=None,
+                        execution_price=exit_,
+                        reasons="다음 거래일 시가 모의체결",
+                        gross_return_pct=gross,
+                        net_return_pct=net,
+                        costs=costs,
+                    )
+                )
+                continue
+        remaining.append(position)
+    result = pd.DataFrame(remaining, columns=POSITION_COLUMNS)
+    for column in ("SignalDate", "EntryDate", "ExitSignalDate", "Status"):
+        result[column] = result[column].astype("object")
+    return result, events
+
+
+def paper_returns(
+    entry_open: float, exit_open: float, costs: PaperCostConfig
+) -> tuple[float, float]:
+    """Return gross and fee/tax/slippage-inclusive percentage returns."""
+    gross = (exit_open / entry_open - 1) * 100
+    entry_cash = entry_open * (1 + costs.slippage_rate) * (1 + costs.fee_rate)
+    exit_cash = exit_open * (1 - costs.slippage_rate) * (1 - costs.fee_rate - costs.sell_tax_rate)
+    net = (exit_cash / entry_cash - 1) * 100
+    return gross, net
+
+
+def write_csv_atomic(frame: pd.DataFrame, path: Path) -> None:
+    """Replace a CSV only after the complete new file has been written."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    frame.to_csv(temporary, index=False, encoding="utf-8-sig")
+    temporary.replace(path)
+
+
+def _prepared_history(history: pd.DataFrame, price_limit_ratio: float) -> pd.DataFrame:
+    """Attach halt/price-limit-lock fill blocks using the same rule as the backtest engine."""
+    required = {"Date", "Symbol", "Open", "High", "Low", "Close", "Volume"}
+    missing = required - set(history.columns)
+    if missing:
+        raise ValueError(f"Paper history is missing: {', '.join(sorted(missing))}")
+    prepared = history.copy()
+    prepared["Date"] = pd.to_datetime(prepared["Date"])
+    prepared["Symbol"] = prepared["Symbol"].map(normalize_symbol)
+    for column in ("Open", "High", "Low", "Close", "Volume"):
+        prepared[column] = pd.to_numeric(prepared[column], errors="coerce")
+    prepared = prepared.sort_values(["Symbol", "Date"])
+
+    blocks = []
+    for symbol, group in prepared.groupby("Symbol", sort=False):
+        indexed = group.set_index("Date")
+        cant_buy, cant_sell = build_trade_block_masks(indexed, price_limit_ratio)
+        # cant_buy/cant_sell are indexed by Date (from `indexed`); reattach them by
+        # position since `group` still carries the original integer row labels.
+        blocks.append(
+            pd.DataFrame(
+                {"cant_buy": cant_buy.to_numpy(), "cant_sell": cant_sell.to_numpy()},
+                index=group.index,
+            )
+        )
+    block_masks = (
+        pd.concat(blocks).sort_index()
+        if blocks
+        else pd.DataFrame(columns=["cant_buy", "cant_sell"])
+    )
+    return prepared.join(block_masks)
+
+
+def _first_observed_row_after(rows: pd.DataFrame, date_value: object) -> pd.Series | None:
+    later = rows[rows["Date"] > pd.Timestamp(date_value)]
+    return None if later.empty else later.iloc[0]
+
+
+def _first_row_after(rows: pd.DataFrame, date_value: object, block_column: str) -> pd.Series | None:
+    """Return the first fillable session after ``date_value``.
+
+    A halted or price-limit-locked session (per ``block_column``) is skipped,
+    the same way the backtest engine delays a blocked order to the next
+    available session instead of pretending it filled.
+    """
+    later = rows[rows["Date"] > pd.Timestamp(date_value)]
+    later = later[later["Open"].notna() & (later["Open"] > 0) & ~later[block_column].astype(bool)]
+    return None if later.empty else later.iloc[0]

@@ -1,0 +1,371 @@
+import argparse
+import hashlib
+import json
+from dataclasses import asdict
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import pandas as pd
+
+from korea_quant.eligibility import (
+    DEFAULT_MARKET_BENCHMARKS,
+    DEFAULT_MARKET_CAP_TIERS,
+    build_market_benchmarks,
+    build_market_cap_tiers,
+)
+from korea_quant.krx import KrxDailyStore
+from korea_quant.paper_trading import (
+    EVENT_COLUMNS,
+    LEGACY_SIGNAL_TYPE,
+    POSITION_COLUMNS,
+    PaperCostConfig,
+    advance_pending_positions,
+    append_unique_events,
+    load_csv_state,
+    make_event,
+    migrate_legacy_positions,
+    normalize_symbol,
+    write_csv_atomic,
+)
+from korea_quant.reversion_scanner import (
+    SIGNAL_DESCRIPTIONS,
+    ReversionScannerConfig,
+    native_exit_observed,
+    reversion_rule_parameters,
+    scan_reversion_candidates,
+)
+
+EXIT_REASON = {
+    "swing": "볼린저 밴드 중단선 회귀 또는 RSI 50선 회복",
+    "long_term": "RSI 과매수(70 이상) + OBV 약화",
+    LEGACY_SIGNAL_TYPE: "기존 confluence 포지션의 EMA30 이탈",
+}
+CATEGORY_LABEL = {"swing": "스윙 (평균 보유 약 3주)", "long_term": "장기보유 (평균 보유 약 9개월)"}
+POSITION_LABEL = {**CATEGORY_LABEL, LEGACY_SIGNAL_TYPE: "기존 confluence 포지션"}
+
+AUDIT_COLUMNS = (
+    "AuditId", "AsOf", "ExecutionTiming", "Symbol", "NormalizedSymbol", "Name", "Market",
+    "ScanState", "SignalType", "MarketCapRank", "MarketCapTier", "AverageTradingValue",
+    "SelectionOutcome", "IsSelected", "ConfigFingerprint",
+)
+
+
+def candidate_audit_fingerprint(config: dict[str, object]) -> str:
+    """Return a stable identifier for the settings behind one candidate snapshot."""
+
+    payload = json.dumps(config, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
+def build_candidate_audit(
+    scan: pd.DataFrame,
+    tracked_symbols: set[str],
+    selected: pd.DataFrame,
+    config_fingerprint: str,
+) -> pd.DataFrame:
+    """Record every scanned name and the same exclusion path the CLI used.
+
+    ``selected`` is the already-finalized global 0..3 pool. This function only
+    explains that decision; it never changes candidate ordering or selection.
+    """
+
+    required = {
+        "as_of", "execution_timing", "symbol", "name", "market", "state", "signal_type",
+        "market_cap_rank", "market_cap_tier", "average_trading_value",
+    }
+    missing = required - set(scan.columns)
+    if missing:
+        raise ValueError(f"Candidate audit scan is missing: {', '.join(sorted(missing))}")
+    if "_normalized_symbol" not in selected.columns:
+        raise ValueError("Selected candidates must retain _normalized_symbol for audit.")
+
+    audit = scan.copy()
+    audit["_normalized_symbol"] = audit["symbol"].map(normalize_symbol)
+    selected_indexes = set(selected.index)
+    entry = audit["state"].eq("entry_due_next_session")
+    supported = audit["signal_type"].isin(CATEGORY_LABEL)
+    tracked = audit["_normalized_symbol"].isin(tracked_symbols)
+    eligible = entry & supported & ~tracked
+    first_for_symbol = ~audit.loc[eligible, "_normalized_symbol"].duplicated(keep="first")
+    unique_indexes = set(audit.loc[eligible].index[first_for_symbol])
+
+    audit["SelectionOutcome"] = "not_entry_signal"
+    # A real signal fired but the D-19 regime gate suppressed the entry. Kept
+    # distinct from "not_entry_signal" so the prospective audit (D-29/D-30)
+    # can tell "the strategy had nothing to say" apart from "we said no on
+    # purpose" while the gate stays closed for an extended stretch.
+    audit.loc[audit["state"].eq("regime_gate_blocked"), "SelectionOutcome"] = "regime_gate_blocked"
+    audit.loc[entry & ~supported, "SelectionOutcome"] = "unsupported_signal_type"
+    audit.loc[entry & supported & tracked, "SelectionOutcome"] = "already_tracked"
+    audit.loc[list(unique_indexes), "SelectionOutcome"] = "daily_cap"
+    audit.loc[eligible & ~audit.index.isin(unique_indexes), "SelectionOutcome"] = "duplicate_symbol"
+    audit.loc[list(selected_indexes), "SelectionOutcome"] = "selected"
+    if not selected_indexes <= unique_indexes:
+        raise ValueError("Selected candidates do not match the CLI's eligible candidate pool.")
+
+    signal = audit["signal_type"].fillna("-").astype(str)
+    audit_id = (
+        audit["as_of"].astype(str) + "|" + config_fingerprint + "|"
+        + audit["_normalized_symbol"] + "|" + signal
+    )
+    return pd.DataFrame(
+        {
+            "AuditId": audit_id,
+            "AsOf": audit["as_of"],
+            "ExecutionTiming": audit["execution_timing"],
+            "Symbol": audit["symbol"],
+            "NormalizedSymbol": audit["_normalized_symbol"],
+            "Name": audit["name"],
+            "Market": audit["market"],
+            "ScanState": audit["state"],
+            "SignalType": audit["signal_type"],
+            "MarketCapRank": audit["market_cap_rank"],
+            "MarketCapTier": audit["market_cap_tier"],
+            "AverageTradingValue": audit["average_trading_value"],
+            "SelectionOutcome": audit["SelectionOutcome"],
+            "IsSelected": audit.index.isin(selected_indexes),
+            "ConfigFingerprint": config_fingerprint,
+        },
+        columns=AUDIT_COLUMNS,
+    )
+
+
+def append_candidate_audit(existing: pd.DataFrame, incoming: pd.DataFrame) -> pd.DataFrame:
+    """Append an idempotent, immutable snapshot without rewriting prior observations."""
+
+    data = pd.concat(
+        [existing.reindex(columns=AUDIT_COLUMNS), incoming.reindex(columns=AUDIT_COLUMNS)],
+        ignore_index=True,
+    )
+    return data.drop_duplicates(subset="AuditId", keep="first").reset_index(drop=True)
+
+
+def main():
+    default_tiers = dict(DEFAULT_MARKET_CAP_TIERS)
+    default_benchmarks = dict(DEFAULT_MARKET_BENCHMARKS)
+    parser = argparse.ArgumentParser(description="오후 6시 반전 전략 종목 추천 & 빅데이터 로깅 봇")
+    parser.add_argument("--krx-db", type=Path, required=True, help="KRX SQLite DB 경로")
+    parser.add_argument(
+        "--max-picks", type=int, default=3,
+        help="당일 추천 종목 수 상한(스윙+장기보유 합산, 최대 3). 신호가 적으면 그보다 적게 추천한다.",
+    )
+    parser.add_argument("--minimum-average-trading-value", type=float, default=5_000_000_000)
+    parser.add_argument(
+        "--kospi-tier", type=int, default=default_tiers["KOSPI"], help="코스피 시가총액 상위 N위 이내만 후보로 고려"
+    )
+    parser.add_argument(
+        "--kosdaq-tier", type=int, default=default_tiers["KOSDAQ"], help="코스닥 시가총액 상위 N위 이내만 후보로 고려"
+    )
+    parser.add_argument("--fee-rate", type=float, default=0.00015)
+    parser.add_argument("--sell-tax-rate", type=float, default=0.0018)
+    parser.add_argument("--slippage-rate", type=float, default=0.0005)
+    parser.add_argument(
+        "--market-filter-window", type=int, default=200,
+        help="벤치마크 SMA 레짐 필터 세션 수. 0이면 비활성화. 기본값 200은 D-8/D-14 검증값이며 "
+        "D-17/D-18 재시뮬레이션 후 사용자 승인으로 2026-09-07 라이브 기본값으로 전환됨.",
+    )
+    parser.add_argument(
+        "--market-filter-mode", choices=("bullish", "bearish"), default="bearish",
+        help="반전 전략은 약세에서 매수하므로 기본값은 bearish(벤치마크가 SMA 아래일 때만 진입 허용).",
+    )
+    parser.add_argument("--kospi-benchmark", default=default_benchmarks["KOSPI"])
+    parser.add_argument("--kosdaq-benchmark", default=default_benchmarks["KOSDAQ"])
+    args = parser.parse_args()
+    if not 1 <= args.max_picks <= 3:
+        parser.error("--max-picks must be between 1 and 3 (TOP3 초과 종목선출 금지)")
+
+    # 빅데이터 저장용 파일 경로
+    data_dir = Path("data")
+    data_dir.mkdir(exist_ok=True)
+    log_file = data_dir / "bot_trade_log.csv"
+    active_file = data_dir / "bot_active_positions.csv"
+    candidate_audit_file = data_dir / "bot_candidate_audit.csv"
+
+    costs = PaperCostConfig(args.fee_rate, args.sell_tax_rate, args.slippage_rate)
+    trade_log = load_csv_state(log_file, EVENT_COLUMNS)
+    active_positions = migrate_legacy_positions(active_file)
+    candidate_audit = load_csv_state(candidate_audit_file, AUDIT_COLUMNS)
+    scan_config = ReversionScannerConfig(
+        minimum_average_trading_value=args.minimum_average_trading_value,
+        market_cap_tiers=build_market_cap_tiers(args.kospi_tier, args.kosdaq_tier),
+        market_filter_window=args.market_filter_window,
+        market_filter_inverted=args.market_filter_mode == "bearish",
+    )
+    # D-33: the fingerprint is the prospective sample's reset marker, so it has
+    # to cover every knob that could change which trades enter the sample --
+    # the whole scanner config (not the handful of CLI flags it is built from)
+    # plus the signal functions' own rule defaults, which no config records.
+    audit_fingerprint = candidate_audit_fingerprint(
+        {
+            "max_picks": args.max_picks,
+            "scanner": asdict(scan_config),
+            "market_benchmarks": {"KOSPI": args.kospi_benchmark, "KOSDAQ": args.kosdaq_benchmark},
+            "rules": reversion_rule_parameters(),
+        }
+    )
+    store = KrxDailyStore(args.krx_db)
+    now = datetime.now(ZoneInfo("Asia/Seoul"))
+    today_str = now.date().isoformat()
+    start_date = (pd.Timestamp(now.date()) - pd.DateOffset(years=2)).date().isoformat()
+
+    print(f"데이터 로딩 및 스캔 중... ({today_str} 실행)")
+    history = store.market_history(start_date, today_str, scan_config.markets)
+    benchmark_close = None
+    if args.market_filter_window > 0:
+        benchmark_close = store.benchmark_closes(
+            build_market_benchmarks(args.kospi_benchmark, args.kosdaq_benchmark), today_str
+        )
+
+    active_positions, execution_events = advance_pending_positions(active_positions, history, costs)
+    signal_events: list[dict[str, object]] = []
+
+    # 모의체결이 완료된 포지션만 신호별 고유 청산 조건을 계산한다.
+    open_positions = active_positions["Status"].eq("OPEN")
+    if open_positions.any():
+        print("\n==================================================")
+        print("🔍 [모의체결 포지션 매도 모니터링]")
+        print("==================================================")
+        for position_index, pos in active_positions[open_positions].iterrows():
+            sym = normalize_symbol(pos["Symbol"])
+            signal_type = str(pos.get("SignalType"))
+            sym_history = history[history["Symbol"] == sym].sort_values("Date")
+            if sym_history.empty:
+                continue
+            if signal_type not in {"swing", "long_term", LEGACY_SIGNAL_TYPE}:
+                print(f"⚠️ [SKIP] {pos['Name']} ({sym}) - 알 수 없는 SignalType({signal_type}), 청산 판단 보류")
+                continue
+
+            prices = sym_history.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]]
+            last_close = float(prices["Close"].iloc[-1])
+            signal_date = pd.Timestamp(sym_history["Date"].iloc[-1]).date().isoformat()
+            if signal_type == LEGACY_SIGNAL_TYPE:
+                ema30 = prices["Close"].ewm(span=30, adjust=False, min_periods=30).mean().iloc[-1]
+                exit_observed = pd.notna(ema30) and last_close < float(ema30)
+            else:
+                data = prices["Close"] if signal_type == "swing" else prices
+                exit_observed = native_exit_observed(data, signal_type)
+
+            if exit_observed:
+                print(f"🚨 [SELL_SIGNAL] {pos['Name']} ({sym}) [{POSITION_LABEL.get(signal_type, signal_type)}] - {EXIT_REASON.get(signal_type, '')}")
+                signal_events.append(
+                    make_event(
+                        date=signal_date,
+                        event_type="SELL_SIGNAL",
+                        symbol=sym,
+                        name=pos["Name"],
+                        market=pos["Market"],
+                        signal_type=signal_type,
+                        candidate_audit_id=pos.get("CandidateAuditId"),
+                        reference_price=last_close,
+                        reasons=EXIT_REASON.get(signal_type, ""),
+                        costs=costs,
+                    )
+                )
+                active_positions.at[position_index, "Status"] = "PENDING_EXIT"
+                active_positions.at[position_index, "ExitSignalDate"] = signal_date
+            else:
+                print(f"✅ [HOLD 유지] {pos['Name']} ({sym}) [{POSITION_LABEL.get(signal_type, signal_type)}] - 종가 {last_close:,.0f}")
+
+    legacy_count = int(active_positions["Status"].eq("LEGACY_REFERENCE").sum())
+    if legacy_count:
+        print(f"⚠️ 기존 추천가 전용 포지션 {legacy_count}건은 모의체결 수익률에서 제외합니다.")
+
+    # ---------------------------------------------------------
+    # 2. 신규 매수(BUY) 종목 스캔 -- 스윙(bollinger-rsi)과 장기보유(rsi-obv)를 구분
+    # ---------------------------------------------------------
+    try:
+        scan = scan_reversion_candidates(history, scan_config, benchmark_close)
+    except ValueError as exc:
+        print(f"스캔 오류 발생: {exc}")
+        trade_log = append_unique_events(trade_log, execution_events + signal_events)
+        write_csv_atomic(trade_log, log_file)
+        write_csv_atomic(active_positions, active_file)
+        return
+
+    as_of = scan["as_of"].iloc[0]
+    tracked = active_positions["Status"].isin(["PENDING_ENTRY", "OPEN", "PENDING_EXIT"])
+    tracked_symbols = set(active_positions.loc[tracked, "Symbol"])
+    buy_events: list[dict[str, object]] = []
+
+    print("\n==================================================")
+    print(f"🎯 [{as_of} 종가 기준 다음 거래일 매수 후보 (최대 {args.max_picks}종목, 스윙+장기보유 합산)]")
+    # 최적화된 신호가 몇 건이든 하루 추천은 최대 3종목(스윙+장기보유 합산)을 넘지 않는다.
+    # 카테고리별로 따로 top-n을 채우면 최대 6종목까지 나갈 수 있어 이 상한이 깨진다.
+    pool = scan[
+        (scan["state"] == "entry_due_next_session") & (scan["signal_type"].isin(CATEGORY_LABEL))
+    ].copy()
+    pool["_normalized_symbol"] = pool["symbol"].map(normalize_symbol)
+    pool = pool.loc[~pool["_normalized_symbol"].isin(tracked_symbols)]
+    # A symbol can fire both signal types the same day; that must cost one
+    # slot, not two, against the global 3-pick cap.
+    pool = pool.drop_duplicates(subset="_normalized_symbol", keep="first").head(args.max_picks)
+    # Capture the fully scanned universe and the exact existing selection path.
+    audit_rows = build_candidate_audit(scan, tracked_symbols, pool, audit_fingerprint)
+    candidate_audit = append_candidate_audit(candidate_audit, audit_rows)
+    pool = pool.assign(_candidate_audit_id=audit_rows.loc[pool.index, "AuditId"])
+    print(f"\n--- 추천 : {len(pool)}건 ---")
+    if pool.empty:
+        print("  당일 신호 없음 - 추천 종목 없음")
+    for i, (_, row) in enumerate(pool.iterrows(), 1):
+        sym = normalize_symbol(row["symbol"])
+        signal_type = row["signal_type"]
+        label = CATEGORY_LABEL[signal_type]
+        reasons = [
+            f"{row['market']} 시가총액 상위 {int(row['market_cap_rank'])}위 (상위 {int(row['market_cap_tier'])} 이내)",
+            f"20일 평균 거래대금 {row['average_trading_value'] / 100_000_000:,.0f}억",
+            SIGNAL_DESCRIPTIONS[signal_type],
+        ]
+        reason_str = " / ".join(reasons)
+        print(f"  {i}. [{label}] {row['name']} ({sym}) - 종가 {row['close']:,.0f}원")
+        for r in reasons:
+            print(f"       ✓ {r}")
+
+        buy_events.append(
+            make_event(
+                date=as_of,
+                event_type="BUY_SIGNAL",
+                symbol=sym,
+                name=row["name"],
+                market=row["market"],
+                signal_type=signal_type,
+                candidate_audit_id=row["_candidate_audit_id"],
+                reference_price=float(row["close"]),
+                reasons=reason_str,
+                costs=costs,
+            )
+        )
+        new_position = pd.DataFrame(
+            [
+                {
+                    "SignalDate": as_of,
+                    "Symbol": sym,
+                    "Name": row["name"],
+                    "Market": row["market"],
+                    "SignalType": signal_type,
+                    "CandidateAuditId": row["_candidate_audit_id"],
+                    "SignalPrice": float(row["close"]),
+                    "Status": "PENDING_ENTRY",
+                    "EntryDate": pd.NA,
+                    "EntryPrice": pd.NA,
+                    "ExitSignalDate": pd.NA,
+                }
+            ],
+            columns=POSITION_COLUMNS,
+        )
+        active_positions = pd.concat([active_positions, new_position], ignore_index=True)
+        tracked_symbols.add(sym)
+
+    trade_log = append_unique_events(trade_log, execution_events + signal_events + buy_events)
+    write_csv_atomic(trade_log, log_file)
+    write_csv_atomic(active_positions.reindex(columns=POSITION_COLUMNS), active_file)
+    write_csv_atomic(candidate_audit, candidate_audit_file)
+
+    print("\n==================================================")
+    print("💾 신호와 다음 거래일 시가 모의체결이 'data/bot_trade_log.csv'에 저장되었습니다.")
+    print("실제 증권사 주문은 실행하지 않으며, NetReturnPct에는 설정한 비용이 포함됩니다.")
+    print("==================================================\n")
+
+
+if __name__ == "__main__":
+    main()

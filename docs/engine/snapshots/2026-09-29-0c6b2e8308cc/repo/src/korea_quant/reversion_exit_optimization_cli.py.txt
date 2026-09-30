@@ -1,0 +1,77 @@
+"""CLI for walk-forward optimization of bollinger-rsi's exit parameters."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+from korea_quant.eligibility import DEFAULT_MARKET_CAP_TIERS, build_market_cap_tiers
+from korea_quant.krx import KrxDailyStore
+from korea_quant.reversion_exit_optimization import (
+    ExitGrid,
+    ExitOptimizationConfig,
+    ExitOptimizationGoal,
+    run_exit_optimization,
+    write_exit_optimization_reports,
+)
+
+
+def main() -> None:
+    default_tiers = dict(DEFAULT_MARKET_CAP_TIERS)
+    parser = argparse.ArgumentParser(description="Walk-forward optimize bollinger-rsi's exit parameters.")
+    parser.add_argument("--krx-db", type=Path, required=True)
+    parser.add_argument("--start", required=True)
+    parser.add_argument("--end", default=None)
+    parser.add_argument("--training-sessions", type=int, default=252)
+    parser.add_argument("--testing-sessions", type=int, default=63)
+    parser.add_argument("--kospi-tier", type=int, default=default_tiers["KOSPI"])
+    parser.add_argument("--kosdaq-tier", type=int, default=default_tiers["KOSDAQ"])
+    parser.add_argument("--minimum-average-trading-value", type=float, default=5_000_000_000)
+    parser.add_argument("--fee-rate", type=float, default=0.00015)
+    parser.add_argument("--sell-tax-rate", type=float, default=0.0018)
+    parser.add_argument("--slippage-rate", type=float, default=0.0005)
+    parser.add_argument("--minimum-win-rate", type=float, default=0.60)
+    parser.add_argument("--minimum-profit-factor", type=float, default=1.30)
+    parser.add_argument("--minimum-median-net-return", type=float, default=0.0)
+    parser.add_argument(
+        "--minimum-profitable-window-share", type=float, default=0.60,
+        help="Share of out-of-sample windows that must close net profitable.",
+    )
+    parser.add_argument("--minimum-trades", type=int, default=100)
+    parser.add_argument(
+        "--minimum-fit-win-rate", type=float, default=0.70,
+        help="Training-window filter for combo selection, not the acceptance goal.",
+    )
+    parser.add_argument("--checkpoint-dir", type=Path, default=None)
+    parser.add_argument("--report", type=Path, default=Path("reports/reversion_exit_optimization.html"))
+    args = parser.parse_args()
+
+    history = KrxDailyStore(args.krx_db).market_history(args.start, args.end)
+    config = ExitOptimizationConfig(
+        training_sessions=args.training_sessions,
+        testing_sessions=args.testing_sessions,
+        market_cap_tiers=build_market_cap_tiers(args.kospi_tier, args.kosdaq_tier),
+        minimum_average_trading_value=args.minimum_average_trading_value,
+        fee_rate=args.fee_rate,
+        sell_tax_rate=args.sell_tax_rate,
+        slippage_rate=args.slippage_rate,
+        checkpoint_dir=args.checkpoint_dir or args.report.with_suffix("").with_name(
+            f"{args.report.stem}_checkpoints"
+        ),
+        grid=ExitGrid(),
+        minimum_fit_win_rate=args.minimum_fit_win_rate,
+        goal=ExitOptimizationGoal(
+            minimum_win_rate=args.minimum_win_rate,
+            minimum_profit_factor=args.minimum_profit_factor,
+            minimum_median_net_return=args.minimum_median_net_return,
+            minimum_profitable_window_share=args.minimum_profitable_window_share,
+            minimum_trades=args.minimum_trades,
+        ),
+    )
+    result = run_exit_optimization(history, config)
+    html, csv = write_exit_optimization_reports(result, args.report, args.report.with_suffix(".csv"))
+    print(f"Exit optimization: {html.resolve()} | {csv.resolve()}")
+
+
+if __name__ == "__main__":
+    main()

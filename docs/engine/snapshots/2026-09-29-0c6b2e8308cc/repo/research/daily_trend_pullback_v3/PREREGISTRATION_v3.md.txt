@@ -1,0 +1,185 @@
+# PREREGISTRATION — Daily Trend Pullback 변형 v3.0-rc1 "눌림의 질" (관측 #4 + 전향 관측)
+
+- 작성일: 2026-09-13 (실DB 관측 #4 실행 전 작성·해시 잠금. §2.3 건수 사전점검만 잠금 전에 1회 — 손익·체결 없음)
+- 작성 주체: Claude Opus 5 (사용자 지시 2026-09-13 "다시 처음부터 진행한다 지금 가지고있는 DB을 가지고 전수 테스트 다시진행해 모든 결정은 너가 진행한다" + 정정 "지금하는 테스트만 기준이지 전에 한 종목을 전수 테스트 하라는게 아니야"; 로그 `/home/gram/pullback_track_log.md` §11)
+- 기반: 변형 v2.0-rc1 = `research/daily_trend_pullback_v2/` (커밋 `2bfed1d`, DECISIONS D-40), 브랜치 `claude/reversion-exit-redesign`
+- 네임스페이스: `research/daily_trend_pullback_v3/` — v2·v1·T-0 파일은 건드리지 않는다(별개 변형·별개 사전등록, D-26 1항). v2 규칙 라인은 D-40 으로 종결(재조정·재실행 없음).
+- 형식: D-36(`PREREGISTRATION_D36_index_tsmom_v1.hashlock.md`) 방식 — 사전등록 → 해시 잠금 → 1회 실행 → 창 소비 → 감사 기록.
+- 라이브 배선 없음. 이 문서의 어떤 결과도 라이브 기본값을 바꾸지 않는다(사용자 별도 결정). 커밋도 별도 승인.
+- 결정 주체: 임계값·규칙·판정 틀·순서는 사용자 위임에 따라 작성 주체가 고정했다. 사용자가 후속으로 지시한 "테스트한 변형 전부 성과 기준 순위화 → 실 모의투자로 최종 후보 결정"은 **본 문서 범위 밖**(§5)이다.
+
+---
+
+## 1. 왜 이 변형인가 — 정직한 탐색 이력 (D-36 항목 "honest exploration history")
+
+1. 같은 창(2022-01-01~2026-09-08)에서 이미 세 번 관측했다: 관측 #1 = T-0 v0.4-rc1(646거래, 불통과, D-38) → 관측 #2 = v1.0-rc1(347거래, 불통과 힌트, D-37 즉시기각 True, D-39) → 관측 #3 = v2.0-rc1(397거래, 불통과 힌트, 즉시기각 True, R3 True, D-40).
+   세 관측으로 소거된 원인 후보: C-2(10EMA 청산, v1), C-3(확장 랭킹, v1), C-5(시장별 국면 게이트, v2). 남은 후보 = **진입 정의(T-0 이후 한 번도 바뀌지 않은 블록)** · C-8 구간 특성.
+2. **출처의 정직한 공개**: v3 가설은 작성 주체가 독자적으로 만든 것이 아니다. 사용자가 외부 AI(Investing.com AI) 출력을 검토용으로 붙여 넣었고, 작성 주체가 그 출력을 심사했다.
+   심사에서 기각한 것: 1ATR/1.5ATR 손절 혼선(청산 블록 무관), "학술 문헌" 근거 주장(인용 불가, 채택 안 함), 루프-벡터 불일치 코드(`range(11,n)` 경계·prior<3 봉 처리), 개별 조건별 분해 관측 제안(관측 횟수 낭비).
+   살아남은 것은 하나 — **"눌림의 질"(⑩ 회복일 정의 · ⑪ 눌림 구간 거래량 위축 · ⑫ 회복일 거래량 확장 · ⑬ 회복일 캔들 강도)** — 이며 그것도 "성과가 좋아진다"는 주장이 아니라 "현행 눌림 정의가 약하다"는 설계 지적으로만 채택했다. 실DB 로 v3 건수·성과를 산출하기 전에 본 문서를 쓴다.
+3. 왜 진입 블록의 **눌림 정의**인가 — 근거는 성과가 아니라 설계다:
+   - T-0·v1·v2 는 모두 `EMA10_TOUCH5`(최근 5봉 안에 종가<EMA10 이 한 번이라도 있음)를 "눌림"으로 쓴다. 이 정의는 (a) 회복 후 2~4봉이 지난 늦은 진입도 통과시키고, (b) 눌림 구간이 대량 거래(분산 매물)였는지 보지 않으며, (c) 회복일 자체의 강도(거래량·캔들)를 보지 않는다.
+   - v3 는 눌림을 "직전 연속 하회 k봉(1≤k≤7) 뒤 오늘 처음 EMA10 위로 복귀한 날"로 다시 정의하고(⑩), 그 눌림이 **거래량 위축**(⑪)이었고 회복이 **거래량 확장**(⑫)·**강한 캔들**(⑬)이었을 때만 통과시킨다.
+   - 나머지 전 블록(추세 조건·랭킹·청산·비용·자금관리·시장별 게이트·유니버스)은 v2 와 바이트 동일이다. 바뀌는 것은 "눌림" 한 조건의 정의와 그 임계값 상수뿐이다.
+4. **방향은 사전에 예측하지 않는다.** 정의상 v3 통과 신호는 v2 통과 신호의 부분집합이다(⑩ 은 "어제 종가<EMA10"을 요구하므로 TOUCH5 를 함의). 따라서 거래 수는 줄고 무포지션 일수는 늘 가능성이 높으나, 관측 #4 가 보는 것은 "눌림의 질이 기대값 부호(D-37 즉시기각선)를 바꾸는가"이지 "좋아지는가"가 아니다.
+5. 관측 #1·#2·#3 의 결과를 본 뒤 만든 규칙이므로 관측 #4 의 결과 등급 상한은 **힌트**(①b)다. 독립 표본은 없다(로그 §1.7). 적용 여부의 실제 판단은 §6 전향 관측에서만 한다(D-26 3항).
+   다중 관측은 `declared_observations = 4` 로 정직하게 반영한다(R1 Bonferroni 분위 = 0.05/(2·4) = 0.00625).
+6. **탐색된 파라미터는 없다.** k 범위 [1, 7], 눌림 직전 창 10봉(최소 3봉), 임계값 2세트(1차 0.70/1.20/0.55 · 완화 0.75/1.10/0.50)는 외부 제안의 범위에서 실DB 를 보기 전에 고정했다. 두 세트 중 하나를 고르는 규칙(§2.3)은 **신호 건수만** 쓰며 손익·체결·게이트를 계산하지 않는다. 세 번째 세트·다른 축의 조정은 없다.
+   ⑩~⑬ 은 **복합 가설 1개**로 취급한다 — 개별 조건별로 관측을 쪼개지 않는다(관측 횟수 보존).
+7. 사전에 규정한 것: 관측 #4 는 1회만 실행하고 창을 소비한다(4회째). 결과를 보고 임계값·k 범위·창·규칙을 바꿔 재실행하지 않는다. 바꾸고 싶으면 새 변형(v4)·새 사전등록·새 관측 번호(#5)다.
+
+## 2. 규칙 명세 (변경 블록 V3-1~V3-5; 그 외 전 블록 v2.0-rc1 과 동일)
+
+### 2.1 무변경 (v2 그대로)
+- 진입 기본 조건: `base = WEEKLY_TREND & EMA5>EMA10 & Close>EMA10 & RSI∈[50,70] & ADX>20 & MACD_HIST≥0 & AVG_TURNOVER20≥min_turnover & DAILY_RET<max_daily_return & ATR notna & ATR>0` — 식·순서·컬럼 전부 동일(`full` 만 V3-3).
+- 랭킹(V1-3): `RANK_WEIGHTS = {"dist_ema10": 0.40, "adx": 0.30, "rsi": 0.30}`, score = 0.40·(1 − dist_ema10_rank) + 0.30·adx_rank + 0.30·(1 − rsi_rank).
+- 청산(V1-4): stop > holding_limit > trailing, `VALID_EXIT_REASONS = {stop, holding_limit, trailing, forced_close}`. ema_cross 없음.
+- 자금관리(`FIXED_CONFIG`): max_positions 5, max_weight 0.20, risk_per_trade 0.005, atr_multiple 1.5, holding_limit 15, trailing_atr_multiple 2.0, min_turnover 5,000,000,000, max_daily_return 0.08.
+- 시장별 국면 게이트(V2-2·V2-3): KOSPI 종목 ← 069500, KOSDAQ 종목 ← 229200, Close > SMA50(market_sma 50, market_min_coverage 0.95, market_sma_warn_ratio 0.80), 이전 종목 구간 매핑. `market_df`(캘린더·coverage·full_validation 입력) 069500.
+- 비용: fee 1.5 / tax 18.0 / slip 5.0 bps → ENTRY_COST_BPS 6.5, EXIT_COST_BPS 24.5. `attach_costs` 산식 무변경.
+- 검증: R1 = 보수 하한 PF > 1.00(블록 부트스트랩 block_sizes [30,60,120], n_bootstrap 4000, α 0.05, Bonferroni 분위 α/(2·n_obs)), R3 = MDD ≤ 0.20, 검정력 라벨(declared_win_rate 0.40 = MDE 가정), PF_DEP_MIN_MARGIN 0.05, tail_dep_threshold 0.50.
+- 신호일 t → 체결 next_date 시가(A-1·E-3 포함). TrendGoal(V1-6)·D-37 즉시기각선 동일. V2-4 진단(gate_day_counts·trades_by_market) 동일.
+- 데이터: DB `data/krx_daily.sqlite3` 읽기 전용(`mode=ro`), DB_START 2016-08-29(warmup 300), 창 2022-01-01~2026-09-08, 초기자본 100,000,000, 유니버스 = KOSPI+KOSDAQ ∩ 6자리 숫자 심볼 − {069500, 229200}(3,161 기대, 시장 매핑 1,027/2,120/이전 14 기대).
+
+### 2.2 변경 (블록 diff)
+| 번호 | 블록 | 내용 | 교정 대상 |
+|---|---|---|---|
+| V3-1 | `CONFIG["declared_observations"]` | 3 → **4** (관측 #1 = T-0, #2 = v1, #3 = v2, #4 = 본 변형). Bonferroni 분위 = 0.05/(2·4) = 0.00625 | 다중 관측 정직 반영 |
+| V3-2 | `_compute_pullback_stats(df)` (신규, `_compute_indicators` 끝에서 호출) | 종가<EMA10 연속 봉수 `PB_STREAK`(= 어제까지의 연속 하회 봉수 k, 오늘 제외). **⑩ `IS_RECOVERY`** = 오늘 Close>EMA10 ∧ 1 ≤ k ≤ 7. **⑪ `PVR`** = 눌림 k봉(어제부터 k봉) 평균 거래량 / 눌림 직전 10봉(최소 3봉) 평균 거래량. **⑫ `EVR`** = 오늘 거래량 / 눌림 k봉 평균 거래량. **⑬ `CANDLE_STRENGTH`** = (Close−Low)/(High−Low), High==Low → NaN. IS_RECOVERY 가 아니거나 분모 ≤ 0 이면 PVR·EVR = NaN. 기존 `EMA10_TOUCH5` 컬럼은 진단용으로 남기되 진입에 쓰지 않는다 | 진입 정의(눌림) |
+| V3-3 | `_compute_entry_signals` / `_entry_signal` (E-8 단일 소스 유지) | `full = base & IS_RECOVERY & (PVR ≤ pvr_max) & (EVR ≥ evr_min) & (CANDLE_STRENGTH ≥ cs_min)`. NaN 은 어느 조건이든 실패(False). 임계값은 `config` → `CONFIG` 순으로 읽고(`pvr_max`·`evr_min`·`cs_min`, `FIXED_CONFIG` 에도 복제), 값은 모듈 상수 `PB_THRESHOLD_SETS[PB_THRESHOLD_SET]` 에서 온다. `PB_THRESHOLD_SETS = {"primary": (0.70, 1.20, 0.55), "relaxed": (0.75, 1.10, 0.50)}`, `PB_THRESHOLD_SET` 는 §2.3 규칙으로 1회 확정. k 범위·창은 `CONFIG["pb_streak_min"]=1, ["pb_streak_max"]=7, ["pb_prior_window"]=10, ["pb_prior_min"]=3` | 진입 정의(눌림) |
+| V3-4 | 진단(건수만, 판정 미사용) | `_pullback_filter_effectiveness` 가 ㉮ 출력(형식 동일) 뒤에 `[V3 눌림의 질 진단]` 을 덧붙인다: 창 안 `base ∧ IS_RECOVERY` 건수, ⑩∧⑪ / ⑩∧⑫ / ⑩∧⑬ 각 건수, v3 full 건수, v2 정의(`base ∧ EMA10_TOUCH5`) 건수(대조용), k 분포(k=1..7, >7). 후보 dict 에 pb_streak·pvr·evr·candle_strength 를 진단 키로 보존(랭킹 미사용) | — |
+| V3-5 | `run.py` / `run_forward.py` / `run_full_system` 머리 | 모듈명 `strategy_validation_v3`, `PREREG_PATH = PREREGISTRATION_v3.md`, `HASH_LOCK_FILES` 의 v3 이름, 머리 출력 "VARIANT v3.0-rc1 (기반 v2.0-rc1) — 관측 #4" + V3 줄. 로더·STEP 순서·`benchmarks`·`market_map` 배선은 v2 와 동일 | — |
+
+- **불변량(배선 점검, 판정 아님)**: ㉮ 기본 신호 건수는 게이트 이전 단계에서 계산되고 base 블록이 바이트 동일이므로 관측 #1·#2·#3 과 같은 **81,470** 이어야 한다. 다르면 배선 오류로 취급하고 결과를 해석하지 않는다. ㉮ "눌림목 통과" 건수는 정의 변경으로 20,605 와 **달라지는 것이 설계상 정상**이며 v3 통과 ≤ 20,605 여야 한다(부분집합). V3-4 의 v2 정의 대조 건수는 20,605 여야 한다.
+- 유효 k 는 사실상 1~3 이다: base 에 EMA5>EMA10 ∧ MACD_HIST≥0 이 남아 있어 긴 하회 뒤 회복일에는 EMA5 가 EMA10 아래일 가능성이 높다. k 상한 7 은 정의의 상한이지 탐색 결과가 아니다.
+- 외부 제안의 코드는 그대로 쓰지 않는다. 루프 구현의 경계(`range(11, n)`)·prior<3 봉 처리 불일치는 **벡터 의미**(prior 창 min_periods 3, 미달 시 NaN → 실패)로 통일하고, 단위 테스트의 루프 기준 구현도 같은 의미로 쓴다.
+
+### 2.3 임계값 세트 선택 규칙 — 건수 사전점검 (해시 잠금 전 1회, 손익·체결 없음)
+- 목적: 1차 세트(0.70/1.20/0.55)가 신호를 너무 많이 죽여 관측 #4 가 표본 부족(F-a)으로 무의미해지는 것을 막는다. 성과 기준이 아니라 **실행 가능성 하한**이다.
+- 절차: 스크립트 `/home/gram/pullback_v3_precheck.py`(저장소 밖)가 v3 `run.py` 의 로더(`load_universe_and_markets`·`load_ohlcv_from_sqlite`, mode=ro)와 `_attach_warmup`·`_compute_indicators`·`_compute_entry_signals` 만 import 한다. `run_period`·게이트·체결·손익·`full_validation` 은 호출하지 않는다. 산출 = 창(2022-01-01~2026-09-08, 합집합 날짜축) 안의 건수만:
+  ㉮ 기본 신호 건수(81,470 기대) · v2 정의 통과 건수(20,605 기대) · **N_full(1차)** · **N_full(완화)** · 세트별 ⑩/⑩∧⑪/⑩∧⑫/⑩∧⑬ 건수 · k 분포 · 실행 시점 `strategy_validation_v3.py` sha256.
+- 규칙(사전 고정, 이 문서 작성 시점에 어떤 건수도 산출되지 않았다):
+  1. `PB_PRECHECK_FLOOR = 2,000`. N_full(1차) ≥ 2,000 → `PB_THRESHOLD_SET = "primary"`.
+  2. 아니면 N_full(완화) ≥ 2,000 → `"relaxed"`.
+  3. 둘 다 미만 → `"relaxed"` 로 실행하되 진단 플래그 **F-h(신호 희소)** 를 켠다. 세 번째 세트·k 범위·창 조정은 하지 않는다.
+  - 하한 근거: 2,000 ≈ v2 통과 20,605 의 10% ≈ 창 1,145 거래일당 1.75건. 슬롯 5·평균 보유 ~11일이면 창의 체결 용량은 ~500건이라 2,000 이면 게이트·랭킹 후에도 F-a(30건)를 넘기기에 충분하고, 그 아래면 슬롯이 비어 관측이 표본 부족으로 흐른다.
+- 확정 방법: `PB_THRESHOLD_SET` 상수를 **최대 1회** 바꾼다(기본 `"primary"`). 바꾸면 파일 diff 는 그 한 줄이어야 하고 사전점검 시점 sha256 과 확정 후 sha256 을 둘 다 §2.3 결과에 기록한다. 그 뒤 §7 해시 잠금 → 관측 #4. 관측 #4 결과를 본 뒤 세트를 바꾸는 것은 금지(바꾸면 v4).
+- **사전점검 결과(잠금 전 추기, 2026-09-13 11:35 KST, `/home/gram/pullback_v3_precheck_summary.txt`, 소요 139s, mode=ro, DB 크기 1,388,085,248·mtime 2026-09-10 08:49 불변)**:
+  - 유니버스 3,161 / 시장 매핑 3,161 / 로드 3,161 / 창 합집합 거래일 1,145 (관측 #1~#3 과 동일).
+  - 기본 신호(base) **81,470**(기대 일치) · v2 정의 통과(touch5_v2) **20,605**(기대 일치) — 두 세트 동일(세트와 무관한 열).
+  - ⑩ recovery 4,286 (base 대비 5.3%, touch5_v2 대비 20.8%); k 분포(recovery 기준) 1:3,205 / 2:857 / 3:182 / 4:38 / 5:3 / 6:0 / 7:1; base 중 k>7: 4.
+  - 1차(0.70/1.20/0.55): ⑩∧⑪ 2,913 · ⑩∧⑫ 1,913 · ⑩∧⑬ 3,023 · **N_full 895**.
+  - 완화(0.75/1.10/0.50): ⑩∧⑪ 3,073 · ⑩∧⑫ 2,139 · ⑩∧⑬ 3,277 · **N_full 1,192**.
+  - full ⊆ touch5_v2 · full ⊆ recovery: 두 세트 모두 OK (v3 full ⊆ v2 full 불변식 성립).
+  - 규칙 적용: N_full(1차) 895 < 2,000 → 규칙 1 불성립; N_full(완화) 1,192 < 2,000 → 규칙 2 불성립 → **규칙 3: `PB_THRESHOLD_SET = "relaxed"` 로 실행 + 진단 플래그 F-h(신호 희소) 켬**. 세 번째 세트·k 범위·창 조정 없음(사전 고정대로).
+  - `strategy_validation_v3.py` sha256 — 사전점검 시점 `6e8b7bfc3e3dd681b691b4a22bccc39567b02886e94f45b325c3b1feb3466ca1` → 확정 후 `d568623fe1015721a9fbf1e2d1c89b606f790f816a31998a9ae15a236e8e49a2`; diff = 98행 1줄(`PB_THRESHOLD_SET  = "primary"` → `"relaxed"`), 1,903행 유지. 확정 후 pytest 188 passed / 0 skipped(변경 전과 동일 건수; `test_config_matches_chosen_threshold_set` 가 CONFIG == relaxed 세트를 검사).
+  - 해석(건수만): 완화 세트에서도 N_full 은 v2 통과의 5.8%. 병목은 ⑩(회복 첫날이 base 의 EMA5>EMA10·RSI≥50·MACD_HIST≥0 과 동시에 성립하는 날이 드묾)이고 ⑫(EVR)가 그 다음이다. 체결 용량(~500건)에 대한 실제 표본 충분성은 관측 #4 의 F-a(거래<30)로 판정하며, 여기서 세트를 더 완화하지 않는다(규칙 3).
+
+## 3. 관측 #4 판정 틀 (실DB 1회, 창 2022-01-01 ~ 2026-09-08)
+
+### 3.1 입력
+- DB `data/krx_daily.sqlite3`(daily_prices, 2016-08-29 ~ 2026-09-09 보유), DB_START 2016-08-29(warmup 300일), 초기자본 100,000,000, 벤치마크 069500(KOSPI)·229200(KOSDAQ), market_df 069500.
+- 진입점 `run.py`(v3). 실행 래퍼 `/home/gram/pullback_v3_obs4.py`(§4). 대조 기준 = 관측 #3 요약 `/home/gram/pullback_v2_obs3_summary.txt`.
+
+### 3.2 산출 항목 (요약에 실리는 것 = 건수·분포·플래그·해시만)
+- 해시 잠금 결과(코드 4파일·래퍼), 유니버스 수(3,161 기대), 시장 매핑 수(1,027/2,120/이전 14 기대), 벤치마크 2개 행수·기간·날짜축 동일 여부
+- V2-4: 창 안 게이트 일수(days, on_KOSPI, on_KOSDAQ, on_all, on_none, only_KOSPI, only_KOSDAQ — 관측 #3 과 동일 기대: 1,145/668/595/503/385/165/92), 진입일 기준 시장별 거래 건수
+- **V3-4**: 창 안 회복 신호 건수, ⑩∧⑪/⑩∧⑫/⑩∧⑬ 건수, v3 full 건수, v2 정의 대조 건수(20,605 기대), k 분포
+- validate_equity_frame / validate_trade_frame 통과 여부
+- equity 행수·기간·무포지션 일수, trades 건수·종목수·기간, exit_reason 분포, holding_days 분포(건수), forced_close 건수, 승/패 건수, 연도별 건수, 폴드 수·판정 분포
+- full_validation 플래그: 원시_거래_수, 실효_표본_수, [강제] 검정력_상태, 최대_낙폭_지속_거래일, 미회복_종료, 손절_거래_수, R1_보수_하한>1.00, R3_MDD≤20%, 최종_통과, [주의] 결과_등급, 관측_횟수(=4)
+- trend_goal_check: closed_trades, window_count, immediate_reject, trend_goal_pass, criteria(5개 불리언)
+- ㉮ 눌림목 필터: 기본 신호 건수(81,470 불변량)·통과 건수(v3 정의)·권고 발생 여부
+- 해시: trades(TRADE_COLUMNS CSV sha256 앞16), equity(CSV sha256 앞16)
+- PF·MDD·수익률·CAGR·가격 수치는 `.log` 에만 남고 요약·로그 문서·DECISIONS 에 싣지 않는다(성과 수치 열람 = 사용자 보류).
+
+### 3.3 사전 규정 실패 조건 (관측 #4)
+| 조건 | 내용 | 성격 |
+|---|---|---|
+| F-a | 거래 수 < 30 | 판정 |
+| F-b | R1(보수 하한 PF > 1.00, Bonferroni 0.00625 분위) False | 판정 |
+| F-c | R3(MDD ≤ 20%) False | 판정 |
+| F-d | TrendGoal 미통과 (5개 기준 중 하나라도 False) | 판정 |
+| F-d' | D-37 즉시기각선(비용후 평균수익 ≤ 0) 해당 | 판정 |
+| F-e | holding_limit 청산 비중 > 50% | 진단 |
+| F-f | ㉮ 통과율 20~80% 밖 (권고 발생) — v3 는 정의상 통과율이 낮아 **발생이 예상**되며 조건 완화 근거로 쓰지 않는다 | 권고 |
+| F-g | 시장별 거래 건수 중 어느 한 시장이 0건 | 진단 |
+| F-h | §2.3 사전점검에서 선택 세트의 N_full < 2,000 (신호 희소) | 진단 |
+
+- 판정 조건(F-a~F-d') 하나라도 해당 → "불통과 힌트". 전부 미해당 → "힌트"(전향 관측 진행 근거). **어느 쪽이든 PASS 는 아니다**(①b, 독립 표본 없음).
+- 래퍼의 플래그 판정식은 `not bool(x)` 로 쓴다(관측 #3 래퍼의 `is not True` 가 `numpy.bool_` 에 대해 라벨 오류를 냈던 것의 교정 — 판정 로직이 아니라 출력 라벨).
+- 검정력 라벨은 관측 #1~#3 처럼 "검정력 부족"으로 나올 가능성이 높다. 실패 조건이 아니라 등급 상한(힌트)의 근거다.
+- "불통과 힌트"라도 규칙을 고쳐 이 창에서 재실행하지 않는다. 창은 소비된다(4회째).
+
+### 3.4 관측 #3 대조 (비교 분석)
+- 같은 DB·같은 창·같은 비용·같은 자금관리·같은 랭킹·같은 청산·같은 게이트에서 **눌림 정의(V3-2·V3-3)만** 다르다. 대조는 건수·분포·플래그 줄 단위(래퍼)로 한다:
+  거래 수, 시장별 거래 건수, exit_reason 분포, 승/패 건수, holding_days 분포, 무포지션 일수, R1/R3/최종_통과 플래그, TrendGoal 5기준, 즉시기각 여부, ㉮ 기본 건수(동일 기대)·통과 건수(감소 기대), 게이트 일수(동일 기대).
+- 해석 틀(사전 고정):
+  (i) 즉시기각 True 유지 → **눌림의 질(⑩~⑬)은 기대값 부호의 원인이 아니다.** 진입 정의 후보 중 "눌림 정의"가 소거되고, 남는 후보는 추세 조건 자체(EMA5/EMA10·RSI 밴드·ADX·MACD_HIST)·C-8 구간 특성이다(사용자 결정 사안).
+  (ii) 즉시기각 False 로 전환 → 눌림의 질이 부호를 바꾼 힌트이나 표본 내 결과이므로 §6 전향 관측으로만 검증.
+  (iii) F-a 해당(거래 < 30) → 표본 부족으로 (i)/(ii) 어느 쪽도 해석하지 않는다(판정은 "불통과 힌트"로 기록).
+  (iv) F-g 해당 → 게이트 퇴화이므로 해석 보류.
+- 해시(trades/equity)는 규칙이 다르므로 상이한 것이 정상이다. 관측 #3 해시(dd6aeef95b64ddd7 / 4ba5cc00d60d489d), 관측 #2(b4feeacd358e5e48 / 135f9916ffee2426), 관측 #1(d6d1778e6a49bda7 / 013e2d14359ff6cb)은 기록용.
+
+## 4. 실행 프로토콜 (D-36 3.5A 방식)
+0. §2.3 건수 사전점검을 1회 실행하고 `PB_THRESHOLD_SET` 을 확정한다(손익·체결 없음). 결과를 §2.3 에 추기한다.
+1. 이 문서 §7 해시 표를 잠근다(sha256sum, 2026-09-13). `run_forward.verify_hash_lock()` 이 코드 4파일을, 래퍼가 자기 자신을 대조한다. 불일치 → 실행 전 종료(exit 2).
+2. 래퍼 `/home/gram/pullback_v3_obs4.py` 를 `.venv/bin/python` 으로 1회 실행. sqlite3.connect 를 `file:…?mode=ro` 로 이중 강제(래퍼 + run.main).
+3. 실행 전후 v3 7파일·v2 7파일·v1 7파일·t0 4파일 sha256 불변, DB mtime/size 불변을 요약에 기록(WAL `-shm` 접촉은 데이터 쓰기 아님, D-38 공개).
+4. 원출력 → `/home/gram/pullback_v3_obs4.log`(수치 포함, 열람 보류). 요약 → `/home/gram/pullback_v3_obs4_summary.txt`(건수·플래그·해시만).
+5. 실행 횟수 = 1. 창 소비. 실행 후 §8 부록에 실행 결과(건수·플래그·해시·요약 파일 sha256·Git SHA)를 추기한다(부록 추기로 문서 해시가 바뀌므로, 실행 전 문서 sha256 은 요약 파일 첫 부분에 별도 기록됨).
+6. 실행 중 예외 → 원인 기록 후 코드 수정은 허용하되, **결과를 본 뒤의 규칙 수정은 금지**. 예외 수정 후 재실행은 "실행 횟수 2"로 기록하고 해시 표를 갱신한다.
+
+## 5. 관측 #4 가 결정하지 않는 것
+- 라이브 배선(적용) 여부 — 사용자 결정. 관측 #4 "힌트"는 전향 관측을 시작할 근거일 뿐이다.
+- 커밋 — v3 산출물 커밋은 별도 사용자 승인(작업 마지막에 요청).
+- D-9 20% 연환산 목표 — 판정 기준 아님(D-33).
+- 성과 수치 열람 — 사용자 보류. 본 문서·요약·DECISIONS 는 부호·건수·플래그만.
+- **변형 순위화·실 모의투자 후보 선정**(사용자 2026-09-13 후속 지시) — 성과 수치 열람을 전제하는 별도 단계라 본 문서에서 정의하지 않는다. 착수 시 별도 기록·승인. 관측 #4 는 그 단계의 입력 후보 하나를 만들 뿐이다.
+- v2·v1·T-0 규칙 라인의 재개 — D-38/D-39/D-40 으로 종결.
+
+## 6. 전향 관측 계획 (`run_forward.py`, D-26 3항 · D-33 방식) — 지금은 실행하지 않는다
+| 항목 | 값 | 근거 |
+|---|---|---|
+| FORWARD_START | 2026-09-09 | 관측 #4 창 종료(2026-09-08) 다음 거래일; DB 는 2026-09-09 까지 보유(1일은 표본 아님) |
+| 표본 하한 | closed trade **100건** (forced_close 제외) | D-33 swing 하한 준용. 미달 시 PASS/FAIL 없음("증거 아님") |
+| 시한 | **2028-09-08** (FORWARD_START + 2년) | D-33 시한 방식. 미도달 자체가 결론("미도달 확정") |
+| 규칙 | 전향 창에서도 V3-2·V3-3·V2-2·V2-3 그대로(`load_benchmarks`·`load_universe_and_markets` → `run_period(benchmarks, market_map)`, 단위 테스트로 배선 고정). `PB_THRESHOLD_SET` 은 §2.3 확정값 고정 | 규칙 동일성 |
+| 판정 (a) | 자본가중 combined CAGR: `capital_metrics.deployment_metrics()` + `DeploymentConfig()` 기본값. **cagr_low(5%ile) > 0** | D-33 개정 2 단일 지표 |
+| 판정 (b) | 동일 길이 과거창 밴드: 관측 창 길이 L(달력일)로 관측 #4 창(2022-01-01~2026-09-08)을 월 단위로 훑은 CAGR 분포의 **5%ile 이상**. 밴드 재료 = 같은 코드로 관측 #4 창 재계산, trades 해시가 §8 관측 #4 해시와 같아야 유효 | D-33 개정 2 |
+| 판정 (c) | `trend_goal_check`(전향 창): TrendGoal 통과 ∧ 즉시기각 미해당 | D-37 선례 |
+| 결론 | PASS = (a)∧(b)∧(c). 하나라도 실패 = FAIL. (b) 산출 불가 = INCONCLUSIVE | D-36 14항 |
+| 리셋 | §7 코드 4파일 해시 ≠ 현재 파일 해시 → 이전 표본은 다른 전략의 표본, 카운터 0, 판정 차단 | D-33 개정 3 |
+| 기술 통계 | 실현 승률·평균 순수익은 기술만, 판정 입력 아님 | D-26 |
+| 표본 구성 공개 | 유니버스 = KOSPI+KOSDAQ 전체(H-16). `trades_by_market` 으로 거래별 KOSPI/KOSDAQ 건수 공개 | D-33 |
+| 출력 규약 | `judge_forward()` 반환 = 건수·불리언·문자열만(CAGR·PF 수치 없음, 단위 테스트로 고정) | 성과 수치 보류 |
+| 착수 조건 | 관측 #4 가 §3.3 판정 조건 전부 미해당("힌트")일 때만, 사용자 결정으로 착수. 즉시기각 True 면 D-37 선례대로 미착수 | D-37 |
+| 운용 | 달력 시간 경과 후 `.venv/bin/python research/daily_trend_pullback_v3/run_forward.py`(ro). 하한 미달 동안은 건수만 기록. 판정은 1회 | — |
+
+## 7. 해시 잠금 (sha256, 2026-09-13 §2.3 사전점검·세트 확정 후, 관측 #4 실행 전) — `run_forward.expected_hashes()` 가 이 표를 읽는다
+| 파일 | sha256 |
+|---|---|
+| strategy_validation_v3.py | d568623fe1015721a9fbf1e2d1c89b606f790f816a31998a9ae15a236e8e49a2 |
+| data_loader.py | ff1f239c95de9c2451bad1137278599835f4f34439eb411fbbd565ba3845f464 |
+| run.py | 92a2dd5fdea957109416ef3b3ed68875e77c1b09e7d1dd603df168ef259854e2 |
+| run_forward.py | 30031c90a2c3191ff8ff9b715f35bda4c8df75f19e323524ae416ad46bfb0e76 |
+| test_strategy_validation_v3.py | 70ea8cddfce8fba407450d99cb102f7d9c00ec5ee8d948878e66f0dceb6aeb9c |
+| test_run_forward_v3.py | 5776d1878980a0b519252b2d3a638c60865fa723d430afc4a129e9ba7c53b829 |
+| pullback_v3_obs4.py | 0491137d3368f738516e0ae33516f7e9d70f7fef6c0322d8b7fa8912c51d4103 |
+
+- 잠금 대상(리셋 규칙 적용) = 위 4개 코드 파일(strategy_validation_v3.py, data_loader.py, run.py, run_forward.py). 테스트 2파일과 래퍼는 감사용.
+- 래퍼 경로: `/home/gram/pullback_v3_obs4.py`(저장소 밖). 기반 v2 sha256(커밋 `2bfed1d`): strategy_validation_v2 `73f6af2f238d2c7d…`, data_loader `ff1f239c95de9c24…`(v3 에 바이트 동일 복제), run `8d466b8c0408eeb1…`, run_forward `3a2a76d17b7d2f2a…`, test_strategy_validation_v2 `46beba6225a3ff5e…`, test_run_forward_v2 `ecf9358b536aaa92…`, PREREGISTRATION_v2.md `475fc6b6275af573…`.
+- Git: HEAD `2bfed1d` (`claude/reversion-exit-redesign`, 미푸시). `research/daily_trend_pullback_v3/` 는 잠금 시점에 미추적(`??`)·미커밋 — 커밋은 관측 #4 후 사용자 승인 시 경로 지정으로만. 기반 v2·v1·t0 디렉터리와 DECISIONS.md 는 git status 무변경. 위 표의 sha256 은 블롭 해시가 아닌 작업 트리 파일 해시.
+- 단위 테스트(실행 전, 픽스처 전용): 2026-09-13 세트 확정 후 `pytest research/daily_trend_pullback_v3 -p no:cacheprovider` → **188 passed / 0 skipped / 4 warnings**(24.3s). 세트 확정 전 동일 188/0. 픽스처 `make_ohlcv` 거래량·고가 블록 수정(테스트 파일 sha 70ea8cdd… ← fc3e8fea…) 전에는 176 passed / 12 skipped(⑩~⑬ 전부 거짓 → 체결 0건)였고, 수정 후 12건 전부 실행. v2 기준 166/1.
+
+## 8. 부록 — 실행 기록 (실행 후 추기; 건수·플래그·해시만)
+- 실행: 2026-09-13 11:54:11~11:57:16 KST(총 183.8s, `run.main` 128.3s), `/home/gram/run_v3_obs4.sh`(산출물 존재 시 재실행 거부) → `pullback_v3_obs4.py`, python 3.14.4 / pandas 3.0.5, EXIT=0, **실행 횟수 = 1**(창 소비, 4회째). 예외 없음(§4-6 미적용, 예외 훅 미발동).
+- 실행 전 본 문서 sha256(래퍼 기록): `edd6291243b67c0b7ef99a09821874197112cde547a9b5afd7404d88c5d76859`(176행). 해시 잠금 4/4 True, 래퍼 자기 해시 True(`0491137d3368f738…`). §2.3 사전점검 파싱 일치(relaxed, N_full 895/1,192, 하한 2,000; strategy 6e8b7bfc… → d568623f…).
+- 입력 동일성(관측 #3 과 전부 동일): 유니버스 3,161 · 매핑 KOSPI 1,027/KOSDAQ 2,120/이전 14 · 벤치마크 각 2,459행 동일 날짜축 · 게이트 일수 on_KOSPI 668/on_KOSDAQ 595/on_all 503/on_none 385/only_KOSPI 165/only_KOSDAQ 92 · 에쿼티 1,145거래일(2022-01-03~2026-09-08).
+- 신호(사전점검과 전부 동일): base 81,470 · **v3 full 1,192**(= §2.3 N_full(relaxed)) · touch5_v2 20,605 · recovery 4,286 · ⑩∧⑪ 3,073 · ⑩∧⑫ 2,139 · ⑩∧⑬ 3,277 · k 분포 1:3,205/2:857/3:182/4:38/5:3/6:0/7:1/>7:4. ㉮ 통과 == v3_full. F-f 권고 발생(예상대로).
+- 거래: **306건** / 265종목(관측 #3 397/354), entry 2022-01-04~2026-08-28, exit 2022-01-06~2026-09-08. exit_reason stop 134 · holding_limit 101 · trailing 70 · forced_close 1(기간종료형 1). holding_days 1~15 평균 10.18(#3 10.97), ==1 건수 9(전부 stop). 승/패 87/219 = 28.4%(#3 141/256 = 35.5%), r_multiple<−2 1건. 연도별 2022:39 / 2023:87 / 2024:57 / 2025:90 / 2026:33. 시장별 KOSDAQ 177 · KOSPI 129(#3 204/193). 무포지션 일수 322(#3 200), positions max 5, cash<0 일수 0. 검증기 equity/trades 오류 0. fold_report 10폴드 전부 "진단 전용 [힌트]".
+- 판정 플래그: R1 False · R3 False(#3 True) · 검정력 부족(n_eff 112 / 필요 808) · 최종_통과 False · 결과_등급 불통과 · 관측_횟수 4 · 최대 낙폭 지속 1,143거래일·미회복 종료. TrendGoal: trades≥30 True, payoff/PF/expectancy/window_share False, **immediate_reject True**.
+- §3.3 실패 조건: F-a False · **F-b True · F-c True · F-d True · F-d' True** · F-e False(holding_limit 101/306 = 33%) · F-f True(권고, 예상) · F-g False · F-h True(진단). → 판정 조건 4건 해당 = **불통과 힌트**(상한 ①b). PASS 아님.
+- §3.4 해석 틀: 거래 306 ≥ 30(iii 아님) · F-g 미해당(iv 아님) · 즉시기각 True 유지 → **(i) 눌림의 질(⑩~⑬)은 기대값 부호의 원인이 아니다.** 눌림 정의 후보 소거; 남는 후보 = 추세 조건 자체·C-8 구간 특성(사용자 결정 사안). 규칙 수정·재실행 없음(§3.3 마지막 항).
+- 해시: trades `5032c4707365fa25` · equity `09052e530a8591d4`(관측 #3 dd6aeef95b64ddd7/4ba5cc00d60d489d 와 상이 = 정상). 요약 `/home/gram/pullback_v3_obs4_summary.txt` 76행 sha256 `7d23d3bab1a02b141579d0fa52da3af2dea2be8dde9adc62b40d3c80cf2d89b4`. 원출력 `/home/gram/pullback_v3_obs4.log` 미열람(PF/MDD 포함).
+- 실행 후: v3·v2·v1·t0 25파일 무수정 True, DB mtime/size 불변 True(1,388,085,248 / 2026-09-10 08:49). Git HEAD `2bfed1d`, v3 디렉터리 미커밋(status 32). 본 부록 추기로 문서 sha256 은 실행 전 값과 달라짐(§4-5); 규칙·세트·코드 무변경(§7 표 유효).

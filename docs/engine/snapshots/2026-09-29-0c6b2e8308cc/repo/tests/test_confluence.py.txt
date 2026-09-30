@@ -1,0 +1,105 @@
+import pandas as pd
+import pytest
+
+from korea_quant.backtest import BacktestConfig
+from korea_quant.confluence import ConfluenceConfig, generate_confluence_signals
+
+
+def _prices():
+    index = pd.bdate_range("2024-01-01", periods=8)
+    close = pd.Series(range(100, 108), index=index)
+    return pd.DataFrame(
+        {"Open": close, "High": close + 1, "Low": close - 1, "Close": close, "Volume": 1_000},
+        index=index,
+    )
+
+
+def test_confluence_requires_two_signals_with_a_trend_component(monkeypatch):
+    prices = _prices()
+
+    def fake_generate(_prices, config):
+        entries = pd.Series(False, index=prices.index)
+        if config.strategy in {"ema30-resistance", "candle-volume"}:
+            entries.iloc[3] = True
+        return pd.DataFrame({"entries": entries, "exits": False}, index=prices.index)
+
+    monkeypatch.setattr("korea_quant.confluence.generate_signals", fake_generate)
+    signals = generate_confluence_signals(
+        prices, BacktestConfig(), ConfluenceConfig(minimum_signals=2)
+    )
+
+    assert signals.loc[prices.index[3], "confluence_count"] == 2
+    assert signals.loc[prices.index[3], "confluence_trend_count"] == 1
+    assert signals.loc[prices.index[3], "entries"]
+    assert signals.loc[prices.index[3], "signal_ema30_resistance"]
+    assert signals.loc[prices.index[3], "signal_candle_volume"]
+
+
+def test_confluence_can_require_volume_confirmation(monkeypatch):
+    prices = _prices()
+
+    def fake_generate(_prices, config):
+        entries = pd.Series(False, index=prices.index)
+        if config.strategy in {"ema30-resistance", "donchian-atr"}:
+            entries.iloc[3] = True
+        return pd.DataFrame({"entries": entries, "exits": False}, index=prices.index)
+
+    monkeypatch.setattr("korea_quant.confluence.generate_signals", fake_generate)
+    signals = generate_confluence_signals(
+        prices, BacktestConfig(), ConfluenceConfig(minimum_signals=2, require_volume=True)
+    )
+
+    assert signals.loc[prices.index[3], "confluence_count"] == 2
+    assert signals.loc[prices.index[3], "confluence_volume_count"] == 0
+    assert not signals.loc[prices.index[3], "entries"]
+
+
+def test_confluence_rejects_invalid_minimum_signal_count():
+    with pytest.raises(ValueError, match="minimum_signals"):
+        generate_confluence_signals(_prices(), BacktestConfig(), ConfluenceConfig(minimum_signals=0))
+
+
+def test_confluence_normalizes_halt_day_zero_prices_before_generating_component_signals(
+    monkeypatch,
+):
+    prices = _prices()
+    halt_day = prices.index[3]
+    prices.loc[halt_day, ["Open", "High", "Low", "Volume"]] = 0
+    expected_close = prices.loc[halt_day, "Close"]
+
+    captured: list[pd.DataFrame] = []
+
+    def fake_generate(component_prices, _config):
+        captured.append(component_prices)
+        return pd.DataFrame({"entries": False, "exits": False}, index=component_prices.index)
+
+    monkeypatch.setattr("korea_quant.confluence.generate_signals", fake_generate)
+    generate_confluence_signals(prices, BacktestConfig(), ConfluenceConfig(minimum_signals=2))
+
+    halt_row = captured[0].loc[halt_day]
+    assert halt_row["Open"] == expected_close
+    assert halt_row["High"] == expected_close
+    assert halt_row["Low"] == expected_close
+
+
+def test_confluence_blocks_entries_within_outlier_gap_cooldown(monkeypatch):
+    prices = _prices().astype(float)
+    # Simulate a corporate-action-sized price gap right before the component
+    # strategies would otherwise agree on an entry.
+    prices.loc[prices.index[2], ["Open", "High", "Low", "Close"]] *= 1.8
+
+    def fake_generate(component_prices, config):
+        entries = pd.Series(False, index=component_prices.index)
+        if config.strategy in {"ema30-resistance", "candle-volume"}:
+            entries.iloc[3] = True
+        return pd.DataFrame(
+            {"entries": entries, "exits": False}, index=component_prices.index
+        )
+
+    monkeypatch.setattr("korea_quant.confluence.generate_signals", fake_generate)
+    signals = generate_confluence_signals(
+        prices, BacktestConfig(), ConfluenceConfig(minimum_signals=2)
+    )
+
+    assert signals.loc[prices.index[3], "confluence_count"] == 2
+    assert not signals.loc[prices.index[3], "entries"]

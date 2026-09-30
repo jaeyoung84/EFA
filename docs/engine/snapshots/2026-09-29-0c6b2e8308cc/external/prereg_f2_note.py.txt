@@ -1,0 +1,22 @@
+"""#F2 줄 아래 운영 부기 1줄 추가(append-only, LF 보존). --check = 드라이런."""
+import hashlib, sys
+from pathlib import Path
+
+CHECK = "--check" in sys.argv
+NOTE = ("  - 운영 부기(D-44, 2026-09-16): 위 #F2 는 `scripts/run_daily_pipeline.sh` [4/4] 자동 단계의 첫 실행(09-15 봉, "
+        "수동 `force` 기동). 이후 §9 추기 주기 = 월 1회(매월 첫 평일 이후 `pullback_forward_append.py`) + 이벤트 즉시"
+        "(완결 100건 도달·시한 경과·해시 불일치·RUN_ERROR). 일별 결과 전량은 누적 러너 로그(append-only)에 있음.\n")
+for ver in ("v2", "v4"):
+    p = Path(f"/home/gram/korea-quant-system/research/daily_trend_pullback_{ver}/PREREGISTRATION_{ver}.md")
+    raw = p.read_bytes(); assert b"\r\n" not in raw and raw.endswith(b"\n")
+    src = raw.decode("utf-8")
+    last = src.rstrip("\n").splitlines()[-1]
+    assert last.startswith("- **#F2 ("), last[:40]
+    assert "운영 부기(D-44" not in src
+    print(f"[{ver}] lines {src.count(chr(10))} sha16 {hashlib.sha256(raw).hexdigest()[:16]} -> +1")
+    if not CHECK:
+        with p.open("ab") as fh:
+            fh.write(NOTE.encode("utf-8"))
+        after = p.read_bytes(); assert b"\r\n" not in after
+        print(f"[{ver}] written lines {after.count(b'\n')} sha16 {hashlib.sha256(after).hexdigest()[:16]}")
+print("(dry run)" if CHECK else "done")

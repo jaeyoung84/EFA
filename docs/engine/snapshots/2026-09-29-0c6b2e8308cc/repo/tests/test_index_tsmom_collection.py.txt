@@ -1,0 +1,195 @@
+from datetime import date
+
+import pandas as pd
+import pytest
+
+from korea_quant.index_tsmom_collection import (
+    DataQualityError,
+    approximate_ex_dividend_date,
+    attach_cd91_with_carry_forward,
+    check_price_continuity,
+    merge_price_files,
+    normalize_distributions,
+)
+
+
+def _write_price_csv(path, rows):
+    pd.DataFrame(rows, columns=["일자", "시가", "고가", "저가", "종가", "거래량"]).to_csv(
+        path, index=False, encoding="cp949"
+    )
+
+
+def test_merge_price_files_concatenates_and_sorts(tmp_path):
+    first = tmp_path / "a.csv"
+    second = tmp_path / "b.csv"
+    _write_price_csv(first, [["2020/01/03", 100, 105, 99, 104, 1000]])
+    _write_price_csv(second, [["2020/01/02", 98, 101, 97, 100, 900]])
+
+    merged = merge_price_files([first, second])
+
+    assert list(merged["일자"].dt.strftime("%Y-%m-%d")) == ["2020-01-02", "2020-01-03"]
+
+
+def test_merge_price_files_allows_agreeing_overlap(tmp_path):
+    first = tmp_path / "a.csv"
+    second = tmp_path / "b.csv"
+    _write_price_csv(first, [["2020/01/02", 98, 101, 97, 100, 900]])
+    _write_price_csv(second, [["2020/01/02", 98, 101, 97, 100, 900]])
+
+    merged = merge_price_files([first, second])
+
+    assert len(merged) == 1
+
+
+def test_merge_price_files_rejects_conflicting_overlap(tmp_path):
+    first = tmp_path / "a.csv"
+    second = tmp_path / "b.csv"
+    _write_price_csv(first, [["2020/01/02", 98, 101, 97, 100, 900]])
+    _write_price_csv(second, [["2020/01/02", 98, 101, 97, 999, 900]])
+
+    with pytest.raises(DataQualityError, match="disagree"):
+        merge_price_files([first, second])
+
+
+def test_merge_price_files_requires_date_column(tmp_path):
+    bad = tmp_path / "bad.csv"
+    pd.DataFrame({"date": ["2020-01-01"]}).to_csv(bad, index=False, encoding="cp949")
+
+    with pytest.raises(DataQualityError, match="일자"):
+        merge_price_files([bad])
+
+
+def test_check_price_continuity_flags_only_large_gaps():
+    dates = pd.to_datetime(["2020-01-02", "2020-01-03", "2020-01-20"])
+
+    gaps = check_price_continuity(dates, max_calendar_gap_days=10)
+
+    assert gaps == [(date(2020, 1, 3), date(2020, 1, 20))]
+
+
+def test_check_price_continuity_ignores_normal_weekend_gap():
+    dates = pd.to_datetime(["2020-01-02", "2020-01-03", "2020-01-06"])
+
+    gaps = check_price_continuity(dates, max_calendar_gap_days=10)
+
+    assert gaps == []
+
+
+def test_approximate_ex_dividend_date_uses_previous_trading_day():
+    trading_days = pd.to_datetime(["2020-01-02", "2020-01-03", "2020-01-06", "2020-01-07"])
+
+    result = approximate_ex_dividend_date(date(2020, 1, 6), trading_days)
+
+    assert result == date(2020, 1, 3)
+
+
+def test_approximate_ex_dividend_date_handles_record_date_on_a_holiday():
+    # Record date 2020-01-04/05 (weekend) is not itself a trading day; the rule
+    # steps back to the trading day on/before it (2020-01-03), then one more.
+    trading_days = pd.to_datetime(["2020-01-02", "2020-01-03", "2020-01-06", "2020-01-07"])
+
+    result = approximate_ex_dividend_date(date(2020, 1, 5), trading_days)
+
+    assert result == date(2020, 1, 2)
+
+
+def test_approximate_ex_dividend_date_raises_when_no_prior_trading_day():
+    trading_days = pd.to_datetime(["2020-01-02", "2020-01-03"])
+
+    with pytest.raises(DataQualityError):
+        approximate_ex_dividend_date(date(2020, 1, 2), trading_days)
+
+
+def test_normalize_distributions_filters_symbol_and_computes_ex_div(monkeypatch, tmp_path):
+    fake_raw = pd.DataFrame(
+        {
+            "종목코드": ["69500", "999999"],
+            "지급기준일": ["20200106", "20200106"],
+            "주당분배금": [50, 9999],
+        }
+    )
+
+    def fake_read_excel(path, engine=None, header=None):
+        return fake_raw
+
+    monkeypatch.setattr(pd, "read_excel", fake_read_excel)
+
+    trading_days = pd.to_datetime(["2020-01-02", "2020-01-03", "2020-01-06", "2020-01-07"])
+    result = normalize_distributions(
+        tmp_path / "dist.xls", symbol="069500", trading_days=trading_days
+    )
+
+    assert len(result) == 1
+    assert result.loc[0, "record_date"] == date(2020, 1, 6)
+    assert result.loc[0, "ex_dividend_date"] == date(2020, 1, 3)
+    assert result.loc[0, "amount"] == 50
+
+
+def test_normalize_distributions_drops_rows_outside_trading_day_window(monkeypatch, tmp_path):
+    fake_raw = pd.DataFrame(
+        {
+            "종목코드": ["69500", "69500"],
+            "지급기준일": ["20200106", "20260731"],
+            "주당분배금": [50, 999],
+        }
+    )
+
+    def fake_read_excel(path, engine=None, header=None):
+        return fake_raw
+
+    monkeypatch.setattr(pd, "read_excel", fake_read_excel)
+
+    trading_days = pd.to_datetime(["2020-01-02", "2020-01-03", "2020-01-06", "2020-01-07"])
+    result = normalize_distributions(
+        tmp_path / "dist.xls", symbol="069500", trading_days=trading_days
+    )
+
+    assert len(result) == 1
+    assert result.loc[0, "record_date"] == date(2020, 1, 6)
+
+
+def test_normalize_distributions_requires_expected_columns(monkeypatch, tmp_path):
+    monkeypatch.setattr(pd, "read_excel", lambda path, engine=None, header=None: pd.DataFrame({"x": [1]}))
+
+    with pytest.raises(DataQualityError, match="코드/지급기준일/분배금"):
+        normalize_distributions(tmp_path / "dist.xls", symbol="069500", trading_days=[date(2020, 1, 2)])
+
+
+def test_attach_cd91_forward_fills_short_gap():
+    price_dates = pd.to_datetime(["2020-01-02", "2020-01-03", "2020-01-06", "2020-01-07"])
+    cd91 = pd.DataFrame(
+        {"date": pd.to_datetime(["2020-01-02", "2020-01-06"]), "value": [1.5, 1.6]}
+    )
+
+    result = attach_cd91_with_carry_forward(price_dates, cd91, max_gap_business_days=10)
+
+    assert list(result["cd91_value"]) == [1.5, 1.5, 1.6, 1.6]
+
+
+def test_attach_cd91_raises_on_leading_gap():
+    price_dates = pd.to_datetime(["2020-01-02", "2020-01-03"])
+    cd91 = pd.DataFrame({"date": pd.to_datetime(["2020-01-03"]), "value": [1.5]})
+
+    with pytest.raises(DataQualityError, match="first"):
+        attach_cd91_with_carry_forward(price_dates, cd91)
+
+
+def test_attach_cd91_raises_on_gap_exceeding_threshold():
+    price_dates = pd.date_range("2020-01-02", periods=15, freq="B")
+    cd91 = pd.DataFrame(
+        {"date": [price_dates[0], price_dates[-1]], "value": [1.5, 1.6]}
+    )
+
+    with pytest.raises(DataQualityError, match="gap"):
+        attach_cd91_with_carry_forward(price_dates, cd91, max_gap_business_days=10)
+
+
+def test_attach_cd91_allows_gap_within_threshold():
+    price_dates = pd.date_range("2020-01-02", periods=8, freq="B")
+    cd91 = pd.DataFrame(
+        {"date": [price_dates[0], price_dates[-1]], "value": [1.5, 1.6]}
+    )
+
+    result = attach_cd91_with_carry_forward(price_dates, cd91, max_gap_business_days=10)
+
+    assert result["cd91_value"].isna().sum() == 0

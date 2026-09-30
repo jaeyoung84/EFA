@@ -1,0 +1,271 @@
+"""D-36 `index-tsmom-v1` Stage 5C signal/performance engine.
+
+Implements exactly the pre-registered spec in PREREGISTRATION_D36_index_tsmom_v1.md:
+month-end 12-month excess-return sign (§1), 069500 vs buy-and-hold (§2), the
+§7 cost model, the §8 CD91 accrual convention, the §9 dual-layer distribution
+treatment, and the §10 verdict matrix.
+
+Running this against the locked window (2002-10-14~2016-08-31) consumes that
+window under 합의15 and requires separate explicit authorization; see the
+hash-lock record for the governing protocol.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import pandas as pd
+
+# §7 비용 모델: 체결당 수수료 1.5bp + 체결손실 15bp, 증권거래세 0bp.
+COMMISSION_BPS = 1.5
+EXECUTION_LOSS_BPS = 15.0
+TRANSACTION_TAX_BPS = 0.0
+ONE_SIDE_COST = (COMMISSION_BPS + EXECUTION_LOSS_BPS + TRANSACTION_TAX_BPS) / 10_000
+
+LOOKBACK_MONTHS = 12
+DAYS_PER_YEAR_ACCRUAL = 365.0  # §8 ACT/365
+DAYS_PER_YEAR_CAGR = 365.25
+VERDICT_ROUNDING = 4  # §10 소수점 넷째 자리(1bp)
+
+
+class BacktestError(RuntimeError):
+    """Raised when inputs violate a pre-registered structural requirement."""
+
+
+def build_total_return_index(
+    prices: pd.DataFrame, distributions: pd.DataFrame
+) -> pd.Series:
+    """Signal-layer total-return index: reinvest each distribution at ex-date close (§9).
+
+    TR_t / TR_{t-1} = (close_t + D_t) / close_{t-1}, where D_t is the per-share
+    distribution whose ex-dividend date is t. Indexed by trading date, base 1.0.
+    """
+
+    closes = prices.set_index("date")["close"].astype(float).sort_index()
+    if closes.empty:
+        raise BacktestError("Price series is empty; cannot build a total-return index.")
+
+    per_day = distributions.groupby("ex_dividend_date")["amount"].sum()
+    unknown = set(per_day.index) - set(closes.index)
+    if unknown:
+        raise BacktestError(
+            f"Distribution ex-dividend dates are not trading days: {sorted(unknown)}"
+        )
+
+    divs = per_day.reindex(closes.index).fillna(0.0)
+    growth = (closes + divs) / closes.shift(1)
+    growth.iloc[0] = 1.0
+    return growth.cumprod().rename("tr_index")
+
+
+def cd91_daily_growth(cd91: pd.DataFrame) -> pd.Series:
+    """Per-trading-day cash growth factor under §8 ACT/365 accrual, compounded daily.
+
+    The factor at t covers accrual from t-1 to t and uses the rate published at
+    t-1 (the rate in effect at the start of the period), so no future quote is
+    ever used. The first trading day has no prior period and gets factor 1.0.
+    """
+
+    rates = cd91.set_index("date")["cd91_value"].astype(float).sort_index() / 100.0
+    if rates.empty:
+        raise BacktestError("CD91 series is empty; cannot build cash accrual factors.")
+
+    elapsed = pd.Series(rates.index, index=rates.index).diff().dt.days
+    growth = 1.0 + rates.shift(1) * elapsed / DAYS_PER_YEAR_ACCRUAL
+    growth.iloc[0] = 1.0
+    return growth.rename("cash_growth")
+
+
+def month_end_trading_days(trading_days: pd.DatetimeIndex) -> list[pd.Timestamp]:
+    """Last observed trading day of each calendar month, in order."""
+
+    s = pd.Series(trading_days, index=trading_days).sort_index()
+    return list(s.groupby([s.index.year, s.index.month]).max())
+
+
+@dataclass(frozen=True)
+class Signal:
+    judged_on: pd.Timestamp
+    excess_return: float
+    hold: bool
+
+
+def compute_signals(
+    tr_index: pd.Series,
+    cash_growth: pd.Series,
+    month_ends: list[pd.Timestamp],
+    *,
+    lookback_months: int = LOOKBACK_MONTHS,
+) -> list[Signal]:
+    """§1 signal: sign of the trailing 12-month total return in excess of CD91.
+
+    Uses only data up to and including the judgment month-end; the resulting
+    position takes effect on the next trading day (applied by `simulate`).
+    """
+
+    if len(month_ends) <= lookback_months:
+        raise BacktestError(
+            f"Need more than {lookback_months} month-end observations to judge; "
+            f"got {len(month_ends)}."
+        )
+
+    signals: list[Signal] = []
+    for i in range(lookback_months, len(month_ends)):
+        start, end = month_ends[i - lookback_months], month_ends[i]
+        asset_return = tr_index.loc[end] / tr_index.loc[start] - 1.0
+        window = cash_growth.loc[(cash_growth.index > start) & (cash_growth.index <= end)]
+        risk_free_return = window.prod() - 1.0
+        excess = asset_return - risk_free_return
+        # Cast off numpy scalar types so the dataclass honours its declared types.
+        signals.append(
+            Signal(judged_on=end, excess_return=float(excess), hold=bool(excess > 0))
+        )
+    return signals
+
+
+def simulate(
+    prices: pd.DataFrame,
+    distributions: pd.DataFrame,
+    cash_growth: pd.Series,
+    signals: list[Signal],
+    *,
+    always_hold: bool = False,
+) -> pd.Series:
+    """Capital-ledger equity curve (§9): distributions become cash on the payment date.
+
+    Positions change at the next trading day's open (§2's buy-and-hold convention,
+    applied symmetrically to the trend sleeve). Cash accrues CD91 (§8). Entitlement
+    to a distribution requires holding at the close of the trading day before its
+    ex-dividend date. The final trading day is marked at close and the held
+    position bears one-sided sell cost (§9).
+
+    `always_hold=True` produces the buy-and-hold benchmark: it buys at the same
+    first execution date regardless of the trend signal and never sells.
+    """
+
+    frame = prices.set_index("date").sort_index()
+    opens = frame["open"].astype(float)
+    closes = frame["close"].astype(float)
+    days = frame.index
+
+    start_month_end = signals[0].judged_on
+    future = days[days > start_month_end]
+    if future.empty:
+        raise BacktestError("No trading day follows the first judgment month-end.")
+    first_execution = future[0]
+
+    # Position effective on the trading day following each judgment month-end.
+    scheduled: dict[pd.Timestamp, bool] = {}
+    for signal in signals:
+        after = days[days > signal.judged_on]
+        if after.empty:
+            continue  # final month-end has no next trading day inside the window
+        scheduled[after[0]] = True if always_hold else signal.hold
+
+    payouts: dict[pd.Timestamp, list[tuple[pd.Timestamp, float]]] = {}
+    for row in distributions.itertuples():
+        payouts.setdefault(row.payment_date, []).append((row.ex_dividend_date, row.amount))
+
+    shares = 0.0
+    cash = 1.0
+    long_position = False
+    shares_at_close: dict[pd.Timestamp, float] = {}
+    equity = {start_month_end: 1.0}
+
+    active = days[(days >= first_execution)]
+    for day in active:
+        cash *= cash_growth.loc[day]
+
+        if day in scheduled:
+            target = scheduled[day]
+            if target and not long_position:
+                shares = cash * (1.0 - ONE_SIDE_COST) / opens.loc[day]
+                cash = 0.0
+                long_position = True
+            elif not target and long_position:
+                cash = shares * opens.loc[day] * (1.0 - ONE_SIDE_COST)
+                shares = 0.0
+                long_position = False
+
+        for ex_date, amount in payouts.get(day, []):
+            prior = days[days < ex_date]
+            entitled = shares_at_close.get(prior[-1], 0.0) if len(prior) else 0.0
+            proceeds = entitled * amount
+            if proceeds <= 0.0:
+                continue
+            if long_position:
+                shares += proceeds / closes.loc[day]
+            else:
+                cash += proceeds
+
+        shares_at_close[day] = shares
+        equity[day] = shares * closes.loc[day] + cash
+
+    last = active[-1]
+    equity[last] = shares * closes.loc[last] * (1.0 - ONE_SIDE_COST) + cash
+    return pd.Series(equity).sort_index().rename("equity")
+
+
+@dataclass(frozen=True)
+class Metrics:
+    cagr: float
+    mdd: float
+    calmar: float
+    monthly_win_rate: float
+
+
+def compute_metrics(equity: pd.Series) -> Metrics:
+    """CAGR / MDD(absolute) / Calmar / monthly win rate. §10 uses only the first two."""
+
+    span_days = (equity.index[-1] - equity.index[0]).days
+    if span_days <= 0:
+        raise BacktestError("Equity curve spans no time; cannot annualize.")
+    years = span_days / DAYS_PER_YEAR_CAGR
+    cagr = (equity.iloc[-1] / equity.iloc[0]) ** (1.0 / years) - 1.0
+
+    drawdown = equity / equity.cummax() - 1.0
+    mdd = abs(drawdown.min())
+
+    monthly = equity.resample("ME").last().pct_change().dropna()
+    win_rate = float((monthly > 0).mean()) if len(monthly) else float("nan")
+
+    return Metrics(
+        cagr=float(cagr),
+        mdd=float(mdd),
+        calmar=float(cagr / mdd) if mdd > 0 else float("inf"),
+        monthly_win_rate=win_rate,
+    )
+
+
+def _direction(treatment: float, baseline: float, *, lower_is_better: bool) -> str:
+    a = round(treatment, VERDICT_ROUNDING)
+    b = round(baseline, VERDICT_ROUNDING)
+    if a == b:
+        return "동률"
+    better = a < b if lower_is_better else a > b
+    return "개선" if better else "악화"
+
+
+def decide_verdict(trend: Metrics, benchmark: Metrics) -> dict[str, str]:
+    """§10 판정표. CAGR·MDD를 1bp로 반올림한 뒤 3×3 매트릭스로 판정한다.
+
+    §10이 명시한 것은 축 정의와 'MDD 동률은 PASS로 인정하지 않는다'는 카브아웃뿐이므로,
+    나머지 칸은 그 카브아웃과 §5의 PASS/INCONCLUSIVE/FAIL 정의로부터 다음과 같이
+    확정한다(결과 관찰 전 확정, Stage 5C 실행 전 사용자 승인 대상):
+
+      PASS         : MDD 개선 AND CAGR (개선 or 동률)
+      FAIL         : 두 지표 중 하나가 악화이고 나머지가 악화 or 동률
+      INCONCLUSIVE : 그 외 전부 (혼재, 완전 동률, MDD 동률+CAGR 개선)
+    """
+
+    cagr_dir = _direction(trend.cagr, benchmark.cagr, lower_is_better=False)
+    mdd_dir = _direction(trend.mdd, benchmark.mdd, lower_is_better=True)
+
+    if mdd_dir == "개선" and cagr_dir in ("개선", "동률"):
+        verdict = "PASS"
+    elif "악화" in (cagr_dir, mdd_dir) and "개선" not in (cagr_dir, mdd_dir):
+        verdict = "FAIL"
+    else:
+        verdict = "INCONCLUSIVE"
+
+    return {"cagr_direction": cagr_dir, "mdd_direction": mdd_dir, "verdict": verdict}

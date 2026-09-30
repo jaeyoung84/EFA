@@ -1,0 +1,171 @@
+import pandas as pd
+
+from korea_quant import candidate_scanner
+from korea_quant.candidate_scanner import (
+    CandidateScannerConfig,
+    scan_confluence_candidates,
+    write_candidate_report,
+)
+
+
+def _history(periods=260):
+    dates = pd.bdate_range("2024-01-01", periods=periods)
+    rows = []
+    for symbol, base, growth in (("A", 100, 1.4), ("B", 120, 0.8)):
+        for number, day in enumerate(dates):
+            close = base + growth * number
+            rows.append(
+                {
+                    "Date": day,
+                    "Symbol": symbol,
+                    "Name": symbol,
+                    "Market": "KOSPI",
+                    "Open": close - 1,
+                    "High": close + 2,
+                    "Low": close - 2,
+                    "Close": close,
+                    "Volume": 10_000,
+                    "TradingValue": 6_000_000_000,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def _confluence(index):
+    entries = pd.Series(False, index=index)
+    entries.iloc[-1] = True
+    return pd.DataFrame(
+        {
+            "entries": entries,
+            "confluence_count": 2,
+            "confluence_trend_count": 1,
+            "confluence_volume_count": 1,
+        },
+        index=index,
+    )
+
+
+def test_candidate_scanner_ranks_next_session_entries_by_relative_strength(monkeypatch):
+    history = _history()
+    benchmark = pd.Series(range(100, 360), index=pd.bdate_range("2024-01-01", periods=260))
+    observed_indexes = []
+
+    def fake_confluence(prices, *_args):
+        observed_indexes.append(prices.index)
+        return _confluence(prices.index)
+
+    monkeypatch.setattr(candidate_scanner, "generate_confluence_signals", fake_confluence)
+    result = scan_confluence_candidates(history, benchmark)
+    assert result["symbol"].tolist()[:2] == ["A", "B"]
+    assert set(result["state"]) == {"entry_due_next_session"}
+    assert set(result["execution_timing"]) == {"next_trading_session"}
+    assert all(len(index) == 261 for index in observed_indexes)
+    assert all(index[-1] > history["Date"].max() for index in observed_indexes)
+    assert result.loc[0, "candidate_score"] > result.loc[1, "candidate_score"]
+
+
+def test_candidate_scanner_filters_liquidity_before_signal_calculation(monkeypatch):
+    history = _history()
+    history["TradingValue"] = 1
+    monkeypatch.setattr(
+        candidate_scanner,
+        "generate_confluence_signals",
+        lambda *_args: (_ for _ in ()).throw(AssertionError()),
+    )
+    benchmark = pd.Series(range(100, 360), index=pd.bdate_range("2024-01-01", periods=260))
+    result = scan_confluence_candidates(history, benchmark)
+    assert set(result["state"]) == {"low_liquidity"}
+
+
+def test_candidate_scanner_enforces_signal_day_trading_value(monkeypatch):
+    history = _history()
+    monkeypatch.setattr(
+        candidate_scanner,
+        "generate_confluence_signals",
+        lambda *_args: (_ for _ in ()).throw(AssertionError()),
+    )
+    benchmark = pd.Series(range(100, 360), index=pd.bdate_range("2024-01-01", periods=260))
+    result = scan_confluence_candidates(
+        history,
+        benchmark,
+        CandidateScannerConfig(minimum_signal_trading_value=7_000_000_000),
+    )
+    assert set(result["state"]) == {"low_signal_trading_value"}
+
+
+def test_candidate_scanner_enforces_relative_strength_threshold(monkeypatch):
+    history = _history()
+    benchmark = pd.Series(range(100, 360), index=pd.bdate_range("2024-01-01", periods=260))
+    monkeypatch.setattr(
+        candidate_scanner,
+        "generate_confluence_signals",
+        lambda prices, *_args: _confluence(prices.index),
+    )
+    monkeypatch.setattr(
+        candidate_scanner,
+        "_relative_strength",
+        lambda close, *_args: 0.10 if close.iloc[-1] > 400 else 0.01,
+    )
+    result = scan_confluence_candidates(
+        history,
+        benchmark,
+        CandidateScannerConfig(minimum_relative_strength=0.05),
+    )
+    assert result.set_index("symbol").loc["A", "state"] == "entry_due_next_session"
+    assert result.set_index("symbol").loc["B", "state"] == "weak_relative_strength"
+
+
+def test_candidate_scanner_uses_market_specific_regime(monkeypatch):
+    history = _history()
+    history.loc[history["Symbol"] == "B", "Market"] = "KOSDAQ"
+    dates = pd.bdate_range("2024-01-01", periods=260)
+    benchmarks = {
+        "KOSPI": pd.Series(range(100, 360), index=dates),
+        "KOSDAQ": pd.Series(range(360, 100, -1), index=dates),
+    }
+    monkeypatch.setattr(
+        candidate_scanner,
+        "generate_confluence_signals",
+        lambda prices, *_args: _confluence(prices.index),
+    )
+    monkeypatch.setattr(candidate_scanner, "_relative_strength", lambda *_args: 0.10)
+    result = scan_confluence_candidates(
+        history,
+        benchmarks,
+        CandidateScannerConfig(
+            minimum_relative_strength=0.05,
+            market_filter_window=20,
+        ),
+    ).set_index("symbol")
+    assert result.loc["A", "state"] == "entry_due_next_session"
+    assert bool(result.loc["A", "market_entry_allowed"])
+    assert result.loc["B", "state"] == "bearish_market"
+    assert not bool(result.loc["B", "market_entry_allowed"])
+
+
+def test_candidate_report_exports_ranked_candidates(tmp_path):
+    scan = pd.DataFrame(
+        [
+            {
+                "state": "entry_due_next_session",
+                "symbol": "A",
+                "name": "Alpha",
+                "market": "KOSPI",
+                "close": 100,
+                "average_trading_value": 6_000_000_000,
+                "signal_trading_value": 7_000_000_000,
+                "confluence_count": 2,
+                "trend_count": 1,
+                "volume_count": 1,
+                "relative_strength_63": 0.1,
+                "relative_strength_126": 0.2,
+                "high_252_proximity": 0.95,
+                "candidate_score": 0.11,
+            }
+        ]
+    )
+    html, csv = write_candidate_report(
+        scan, tmp_path / "candidates.html", tmp_path / "candidates.csv"
+    )
+    assert "공통 매수 신호 후보" in html.read_text(encoding="utf-8")
+    assert pd.read_csv(csv)["symbol"].tolist() == ["A"]

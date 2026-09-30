@@ -1,0 +1,49 @@
+import sys
+
+import pandas as pd
+
+from korea_quant import momentum_cli
+
+
+def test_momentum_cli_passes_stored_point_in_time_membership(monkeypatch, tmp_path):
+    history = pd.DataFrame(
+        {
+            "Date": pd.to_datetime(["2024-01-02", "2024-01-02"]),
+            "Symbol": ["000660", "005930"],
+        }
+    )
+    seen = {}
+
+    class Store:
+        def __init__(self, _path):
+            pass
+
+        def market_history(self, *_args):
+            return history
+
+        def universe_membership_panel(self, universe, dates, symbols):
+            seen.update(universe=universe, dates=list(dates), symbols=symbols)
+            return pd.DataFrame(True, index=pd.DatetimeIndex(dates), columns=symbols)
+
+    monkeypatch.setattr(momentum_cli, "KrxDailyStore", Store)
+    monkeypatch.setattr(
+        momentum_cli,
+        "run_momentum",
+        lambda _history, _config, eligible: seen.update(eligible=eligible) or object(),
+    )
+    monkeypatch.setattr(momentum_cli, "write_momentum_report", lambda *_args: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "korea-quant-momentum", "--krx-db", str(tmp_path / "daily.sqlite3"),
+            "--start", "2024-01-01", "--universe", "KOSPI200",
+            "--report", str(tmp_path / "momentum.html"),
+        ],
+    )
+
+    momentum_cli.main()
+
+    assert seen["universe"] == "KOSPI200"
+    assert seen["symbols"] == ["000660", "005930"]
+    assert seen["eligible"].all().all()

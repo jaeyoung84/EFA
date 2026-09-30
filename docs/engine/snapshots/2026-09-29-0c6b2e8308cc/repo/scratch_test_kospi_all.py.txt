@@ -1,0 +1,84 @@
+﻿import pandas as pd
+from pathlib import Path
+from korea_quant.krx import KrxDailyStore
+from korea_quant.backtest import BacktestConfig
+from korea_quant.comparison import run_all_strategies
+import warnings
+import sys
+import io
+import time
+warnings.filterwarnings("ignore")
+
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
+def main():
+    store = KrxDailyStore(Path("data/krx_daily.sqlite3"))
+    start = "2019-01-01"
+    end = "2024-12-31"
+    
+    print("Finding all KOSPI stocks...")
+    history = store.market_history("2024-01-01", "2024-12-31", ("KOSPI",))
+    kospi_symbols = history.drop_duplicates(subset=["Symbol", "Name"])
+    
+    print(f"Total KOSPI stocks found: {len(kospi_symbols)}")
+    print("Running backtests with robust filters on ALL KOSPI stocks...")
+    
+    config = BacktestConfig(
+        market_filter_window=20,
+        minimum_average_trading_value=5_000_000_000,
+        minimum_signal_trading_value=10_000_000_000,
+        rs_window=63,
+        rs_threshold=0.0
+    )
+    
+    market_close = store.daily_prices("069500", start, end)["Close"]
+    
+    results = []
+    
+    t0 = time.time()
+    for i, (_, row) in enumerate(kospi_symbols.iterrows(), 1):
+        if i % 100 == 0:
+            print(f"Processing stock {i}/{len(kospi_symbols)}...")
+        sym = row["Symbol"]
+        name = row["Name"]
+        prices = store.daily_prices(sym, start, end)
+        if len(prices) < 200:
+            continue
+            
+        reports = run_all_strategies(prices, config, market_close=market_close)
+        for strat_name, run_obj in reports.items():
+            metrics = run_obj.report.metrics
+            results.append({
+                "Market": row["Market"],
+                "Symbol": sym,
+                "Name": name,
+                "Strategy": strat_name,
+                "Total Return": metrics["Total Return"],
+                "Win Rate": metrics["Win Rate"],
+                "Trade Count": metrics["Trade Count"]
+            })
+            
+    df = pd.DataFrame(results)
+    
+    active_df = df[df["Trade Count"] > 0]
+    
+    print(f"\n[Finished in {time.time() - t0:.1f} seconds]")
+    print("\n[Strategy Summary (Aggregated across ALL KOSPI Stocks)]")
+    agg = active_df.groupby("Strategy").agg({
+        "Total Return": "mean",
+        "Win Rate": "mean",
+        "Trade Count": "sum",
+        "Symbol": "count"
+    }).rename(columns={"Symbol": "Stocks Traded"})
+    
+    print(agg.sort_values("Total Return", ascending=False).to_string())
+    
+    print("\n[Confluence Strategy Details by Stock (Top 20)]")
+    conf = active_df[active_df["Strategy"] == "confluence"].sort_values("Total Return", ascending=False)
+    print(conf[["Market", "Name", "Total Return", "Win Rate", "Trade Count"]].head(20).to_string(index=False))
+    
+    print("\n[Confluence Strategy Details by Stock (Bottom 5 - Worst Losses)]")
+    print(conf.sort_values("Total Return", ascending=True)[["Market", "Name", "Total Return", "Win Rate", "Trade Count"]].head(5).to_string(index=False))
+
+if __name__ == "__main__":
+    main()

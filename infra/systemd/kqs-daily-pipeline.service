@@ -1,0 +1,12 @@
+[Unit]
+Description=KQS daily collect -> verify -> publish (no orders or fills)
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+OnFailure=kqs-alert@%n.service
+
+[Service]
+Type=oneshot
+# 0 = published/already_published; 3 = another writer is running (not an incident).
+SuccessExitStatus=3
+ExecStart=/usr/bin/docker compose -f /opt/investing-app/infra/docker/docker-compose.engine.yml --profile engine run --rm kqs-pipeline
+TimeoutStartSec=45min

@@ -1,0 +1,50 @@
+# Project rules
+
+- This project is limited to Korean listed equities and ETFs until the user expands scope.
+- Research and backtesting are allowed; live trading must remain disabled by default.
+- Never commit API keys, account numbers, credentials, or raw broker responses.
+- Avoid look-ahead bias: a signal computed from today's close may trade no earlier than the next session.
+- Include fees and slippage in every reported strategy result.
+- Preserve delisted securities when constructing historical universes to reduce survivorship bias.
+- Add or update tests with every behavioral change.
+- Maintain 100% pass rate on all existing and new tests (`pytest`) and zero warnings on linter (`ruff check .`).
+- Prefer using stable libraries as dependencies instead of copying or rewriting their internals.
+- Treat backtest results as research evidence, not a promise of future returns.
+
+## Multi-AI Collaboration & Git Workflow
+
+This project is developed and verified collaboratively across multiple AI agents (Codex, Claude, Antigravity) and manual user modifications. Each environment must adhere to its designated branch, author name, and email:
+
+| 작업 환경 | 권장 브랜치 | Git 작성자명 (Author Name) | 이메일 예시 (Email) |
+|---|---|---|---|
+| **Codex** | `codex/작업명` | `Codex Agent` | `codex@local.invalid` |
+| **Claude** | `claude/작업명` | `Claude Agent` | `claude@local.invalid` |
+| **Antigravity** | `antigravity/작업명` | `Antigravity Agent` | `antigravity@local.invalid` |
+| **직접 수정 (User)** | `user/작업명` 또는 `main` | `본인 이름` | `GitHub 비공개 이메일` |
+
+### Multi-Agent Guidelines:
+1. **Branch Isolation**: Always work in the appropriate branch namespace (e.g., `antigravity/<feature-name>`).
+2. **Author Identity**: Configure/use the exact designated Git Author name and email for commits in each environment.
+3. **Continuous Verification**: Any modifications made by an agent must be validated against the full test suite and linter before concluding the task.
+4. **Documentation Sync**: When CLI options, strategy parameters, or workflows are added/modified, synchronize `README.md` accordingly.
+5. **Decision Log First**: Read `DECISIONS.md` before changing any strategy rule, parameter, or validation method. Agents cannot see each other's sessions, so alternatives that were already measured and rejected live only in that file. If the change you are about to try is listed there with its numbers, **do not re-measure it**; to overturn a listed result, produce contrary evidence on the same universe, period, and cost assumptions first. Record every new decision there together with the alternatives you rejected and their measured figures — the rejected list is what prevents the next agent from repeating the work.
+6. **No Research Artifacts in Git**: Never commit `reports/`. This repository has no remote and every agent shares one working directory, so committing changes nothing except making the files vanish on branch checkout. Findings are handed over through `DECISIONS.md`, function docstrings, and regression tests. See the `산출물(reports/) 정책` section of `DECISIONS.md`.
+
+## Cost-conscious development workflow
+
+- Inspect the current local implementation and tests before external research.
+- For pandas and vectorbt behavior, consult only the specific official documentation needed.
+- Search GitHub only when an algorithm is complex, behavior remains unclear, or local work is blocked.
+- When GitHub research is necessary, inspect only the one or two files directly relevant to the task.
+- Do not copy external implementations; adapt only the necessary formulas or design ideas to this project.
+
+## Codex model usage
+
+- When the user says "다음 시작하자" or "실행하자", continue the next unfinished project step with implementation, testing, and validation without asking for a separate confirmation.
+
+- Use Terra as the default model for routine coding, tests, refactoring, reports, and documentation.
+- Do not switch to Sol automatically.
+- If an important validation task requires stronger reasoning, or progress is blocked by a complex issue, report the reason, expected benefit, and likely cost impact to the user first.
+- Switch to Sol only after the user explicitly approves the model change for that work.
+- After the approved high-complexity work is complete, return to Terra for routine implementation unless the user directs otherwise.
+

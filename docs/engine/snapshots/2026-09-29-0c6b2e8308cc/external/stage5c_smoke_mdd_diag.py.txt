@@ -1,0 +1,44 @@
+"""Check whether the identical trend/B&H MDD in the 2016~2026 smoke run is genuine
+(trend sleeve fully invested across the whole drawdown) rather than a wiring bug."""
+
+from __future__ import annotations
+
+import sys
+
+import pandas as pd
+
+sys.path.insert(0, "src")
+sys.path.insert(0, "/home/gram")
+
+from korea_quant.index_tsmom_backtest import (  # noqa: E402
+    build_total_return_index,
+    cd91_daily_growth,
+    compute_signals,
+    month_end_trading_days,
+    simulate,
+)
+from stage5c_smoke_2016_2026 import load_cd91, load_distributions, load_prices  # noqa: E402
+
+prices = load_prices()
+days = pd.DatetimeIndex(prices["date"])
+dist = load_distributions(days)
+growth = cd91_daily_growth(load_cd91(prices["date"]))
+signals = compute_signals(build_total_return_index(prices, dist), growth, month_end_trading_days(days))
+
+trend = simulate(prices, dist, growth, signals)
+bench = simulate(prices, dist, growth, signals, always_hold=True)
+
+for label, curve in [("추세", trend), ("B&H", bench)]:
+    dd = curve / curve.cummax() - 1.0
+    trough = dd.idxmin()
+    peak = curve.loc[:trough].idxmax()
+    print(f"{label}: 고점={peak.date()} 저점={trough.date()} MDD={-dd.min():.6%}")
+
+# 낙폭 구간 동안 추세가 계속 보유였는지 확인한다.
+dd = trend / trend.cummax() - 1.0
+trough = dd.idxmin()
+peak = trend.loc[:trough].idxmax()
+switches = [(s.judged_on.date(), s.hold) for s in signals if peak <= s.judged_on <= trough]
+print(f"고점~저점 사이 월말 판정: {switches}")
+ratio = (trend / bench).loc[peak:trough]
+print(f"고점~저점 추세/B&H 비율 변동폭={float(ratio.max() - ratio.min()):.2e}")

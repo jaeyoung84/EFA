@@ -1,0 +1,224 @@
+{
+  "schema": "kqs-change-verification/v1",
+  "change_id": "EINT-010",
+  "verified_at": "2026-09-29T09:51:33.972811+00:00",
+  "status": "local_safety_changes_verified; automatic_deployment_workflow_change_pending_user_approval",
+  "scope": "Local destructive-test protection, isolated KQS CI, read-only existing-deployment preflight, source inventory. No deployment.",
+  "reused_decisions": [
+    "EINT-007A engine/operations",
+    "EINT-008 FIFO regressions",
+    "EINT-009 fixed manifest and holdout regressions",
+    "D-28",
+    "D-44",
+    "D-20",
+    "D-26",
+    "D-36"
+  ],
+  "engine": {
+    "version": "0.6.0",
+    "registered_revision": "EINT-007A",
+    "revision_sha256": "ebc166f5d0fd7c93b9b0fa294e34d0c6a439c22365bed9ae5c7a15533cc9e380",
+    "source_unchanged": true,
+    "revision_check_passed": true
+  },
+  "previous_verification_unchanged": {
+    "path": "docs/engine/verification/EINT-009.json",
+    "sha256": "e06c438bfa250caaccade415dae636c5dfcb9de78e459a7d39357d8127258cf2"
+  },
+  "eint009_functional_artifacts_unchanged": {
+    "app/backend/routers/kqs.py": true,
+    "app/frontend/js/views/strategyList.js": true,
+    "tests/test_kqs_bridge.py": true,
+    "scripts/run_kqs_offline_baseline.py": true,
+    "scripts/tests/test_kqs_offline_baseline.py": true,
+    "docs/KQS_HUMAN_DECISION_DATASET.md": true
+  },
+  "artifacts": {
+    "tests/conftest.py": "c846b9f6c26fa59d1ae63a11234f78f35b4712d254667fa83803118d39466bf5",
+    "scripts/test_database_safety.py": "2f66aadaa43a16f77a9590ea4361421e74b72dad40621c169dc152e0a2ca6880",
+    "scripts/tests/test_database_safety.py": "d487e4ea79f99855b999bf871d16c046d31d9609465373ba9286dc6853a2566e",
+    "scripts/tests/test_kqs_release_safety.py": "94c56fb65c5af0721fa2841961a5179562b71df458f06affd36ab5ec82b682c1",
+    "scripts/tests/test_kqs_deployment_preflight.py": "7247076d17aa8192c892f8b241a1dfa3f92bdc6985bcf6118d566fa48179b84c",
+    "scripts/tests/requirements.kqs-backend.txt": "4f62b108a84536db582ebf36314bb499fd5f40bd986aad23740ebc667451ed0e",
+    "scripts/check_kqs_release.py": "b2160f66a21f540c9fe93933fe96f3b461a3842b9b049a65e023baba19742aed",
+    ".github/workflows/kqs-runtime.yml": "008c30fb2ae8d5564bce9b6926329eeb4a58f6ff26993c8a7bf4cf50a6d9b291",
+    "docker-compose.prod.yml": "d9b0a595a1472f5789ab9ec215223ca4ac50a4b68de61a22565d54b571237505",
+    "infra/ops/kqs-deployment-preflight.sh": "62d83ad6b428793e25ff1eb962aea17374082ac96762957d57c919b50910ef2f",
+    "docs/engine/README.md": "b4d7b07950006db01b943a5a9070f3b871296e677c1e7fe07f3d8b4e9c5a16ad",
+    "docs/engine/OPERATIONS.md": "762fff266c330563d3c12974393536ac64bc6ae89eada52d76cb28a8f9e2ce55",
+    "docs/engine/RELEASE_READINESS.md": "9424b0a378af885f7cd4c445cdbe5d250af478ceba6afcb6eed5498149ccc13f",
+    "docs/engine/CHANGES.md": "c2456aa5761e4903f2f9c001cab5a204c211df91daf09023c114096adeaab918",
+    "engine/kqs/revisions/EINT-007A.json": "ebc166f5d0fd7c93b9b0fa294e34d0c6a439c22365bed9ae5c7a15533cc9e380",
+    "docs/engine/verification/EINT-009.json": "e06c438bfa250caaccade415dae636c5dfcb9de78e459a7d39357d8127258cf2",
+    ".github/workflows/deploy.yml": "5d2cad7b568800528a2c6f456388132148acf2b6d7b64fa16f0e39599e6c8e83"
+  },
+  "tests": [
+    {
+      "command": "python -m unittest discover -s scripts/tests -v",
+      "environment": "Python 3.14.4 engine venv + isolated /tmp dependencies",
+      "passed": 60,
+      "skipped": 0,
+      "new_tests": 23,
+      "new_test_groups": {
+        "test_database_safety": 10,
+        "test_kqs_release_safety": 7,
+        "test_kqs_deployment_preflight": 6
+      },
+      "data_boundary": "fake API, fake Docker and temporary files only"
+    },
+    {
+      "command": "python -m unittest discover -s engine/kqs/tests -v",
+      "environment": "Python 3.14.4 engine venv",
+      "passed": 101,
+      "skipped": 0,
+      "data_boundary": "synthetic isolated regressions; no historical research"
+    },
+    {
+      "command": "python -m pytest tests/test_kqs_bridge.py tests/test_kqs_contract.py -q -p no:cacheprovider",
+      "environment": "fresh Python 3.14.4 /tmp/iv-kqs-eint010-ci.5qz9Uk/venv with requirements.kqs-backend.txt + engine/kqs --no-deps",
+      "passed": 61,
+      "skipped": 0,
+      "warnings": 13,
+      "data_boundary": "separate MongoDB 7 container, loopback random port 32768, jy_investing_test_eint010_clean, tmpfs only; no existing volumes"
+    },
+    {
+      "command": "python -m pip check",
+      "environment": "same fresh temporary CI venv",
+      "passed": true
+    },
+    {
+      "command": "node scripts/tests/kqs_recommendations_render.mjs",
+      "environment": "node:22 container with readonly workspace/network none/read-only rootfs",
+      "passed": true,
+      "image_digest": "sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7"
+    },
+    {
+      "command": "python scripts/check_engine_evidence.py --topic 원장",
+      "passed": true,
+      "archived_files": 167,
+      "decision_count": 45,
+      "metadata_only_files": 1735,
+      "full_backup_complete": false
+    },
+    {
+      "command": "python engine/kqs/tools/check_migration.py",
+      "passed": true
+    },
+    {
+      "command": "python engine/kqs/tools/check_revision.py",
+      "passed": true
+    },
+    {
+      "command": "docker compose -f infra/docker/docker-compose.engine.yml --profile engine config --quiet",
+      "passed": true,
+      "no_deployment": true
+    },
+    {
+      "command": "bash -n infra/ops/*.sh (each file)",
+      "passed": true
+    },
+    {
+      "command": "docker compose -f - --project-directory /home/gram/IV-TEST config --quiet",
+      "passed": true,
+      "note": "Production Compose parsed from memory with the single missing private env_file entry removed for syntax only. Original private .env was not created. This is not a production-environment validation."
+    },
+    {
+      "command": "git diff --check",
+      "passed": true
+    },
+    {
+      "command": "python scripts/check_kqs_release.py",
+      "passed": true,
+      "production_verified": false
+    },
+    {
+      "command": "python scripts/check_kqs_release.py --require-clean --require-deployment-ready",
+      "exit_code": 1,
+      "expected_failure": true,
+      "reason": "Uncommitted/untracked source and blocked automatic-deployment workflow change; no release readiness claim."
+    }
+  ],
+  "ci": {
+    "matrix": [
+      "3.12",
+      "3.14"
+    ],
+    "local_versions_tested": [
+      "3.14.4"
+    ],
+    "remote_workflow_executed": false,
+    "backend_mongo": "dedicated GitHub mongo:7 service, jy_investing_test_kqs_ci"
+  },
+  "approval_pending": {
+    "file": ".github/workflows/deploy.yml",
+    "file_unchanged": true,
+    "matches_git_head": true,
+    "reason": "Safety review rejected a persistent automatic-deployment change that can restart AWS services on future main pushes.",
+    "requested_scope": "Modify the file only; no current deployment/commit/push. AWS deployment requires separate authorization."
+  },
+  "release_configuration": {
+    "configuration_ok": true,
+    "errors": [],
+    "deployment_warnings": [
+      "Automatic deployment does not preserve verified existing state/volume identity.",
+      "Automatic deployment does not require the KQS regression gate.",
+      "Automatic deployment still overwrites the existing backend environment.",
+      "Existing automatic deployment still uses /opt/investment-analysis"
+    ],
+    "deployment_configuration_ready": false
+  },
+  "git_inventory_snapshot": {
+    "clean": false,
+    "change_count": 295,
+    "change_groups": {
+      "engine_and_evidence": 238,
+      "homepage_kqs": 8,
+      "test_ci_release": 40,
+      "other_existing_changes": 9
+    },
+    "untracked_required_count": 51,
+    "untracked_required_examples": [
+      ".github/workflows/kqs-runtime.yml",
+      "AGENTS.md",
+      "app/backend/kqs_contract.py",
+      "app/backend/kqs_recommendations.py",
+      "app/frontend/js/views/kqsRecommendations.js",
+      "docs/engine/evidence_registry.json",
+      "docs/engine/source_manifest.json",
+      "engine/kqs/migration_manifest.json",
+      "engine/kqs/pyproject.toml",
+      "engine/kqs/requirements.lock",
+      "engine/kqs/revisions/EINT-007A.json",
+      "engine/kqs/src/korea_quant/__init__.py"
+    ],
+    "private_files_tracked": [],
+    "git_ready": false,
+    "captured_before_this_new_verification_file": true,
+    "head": "ae52b1fee82dbfab8e825c7848f5345187cba9ae",
+    "commit_or_stage_performed": false
+  },
+  "cleanup": {
+    "mongo_test_container": "kqs-eint010-test-mongo",
+    "stopped_and_removed": true,
+    "tmpfs_test_data_discarded": true,
+    "existing_db_volumes_mounted": false,
+    "user_data_deleted": false
+  },
+  "limits": [
+    "No AWS commands/deployment or real pipeline execution in EINT-010.",
+    "Automatic deployment workflow still has four documented discrepancies and requires approval.",
+    "Python 3.12 and remote GitHub CI were not executed locally.",
+    "Only the relevant 61 backend KQS tests were rerun, not the complete historical 225-test suite.",
+    "Existing FastAPI/Pydantic deprecation warnings were not addressed.",
+    "No private Mongo ledger backup or full raw-data backup was performed.",
+    "Passing regressions does not validate investment performance or production authenticated E2E."
+  ],
+  "historical_research_reexecuted": 0,
+  "actual_holdout_reopened": 0,
+  "orders_or_automatic_fills_created": 0,
+  "user_ledger_writes": 0,
+  "aws_changes": 0,
+  "deployment_performed": false,
+  "committed_or_pushed": false,
+  "next_stage": "Finish EINT-010 automatic-deployment file review after user approval; then EINT-011 native status/candidate path consistency. No AWS redeploy without separate approval."
+}

@@ -14,6 +14,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     && pip install --index-url https://download.pytorch.org/whl/cpu torch \
     && pip install -r requirements.nogpu.txt
 
+COPY engine/kqs/ ./engine/kqs/
+RUN pip install --no-deps ./engine/kqs
 COPY app/ ./app/
 RUN mkdir -p app/frontend/vendor \
     && python -c "import pathlib, urllib.request; pathlib.Path('app/frontend/vendor/mermaid.min.js').write_bytes(urllib.request.urlopen('https://cdn.jsdelivr.net/npm/mermaid@11.16.0/dist/mermaid.min.js', timeout=90).read())" \

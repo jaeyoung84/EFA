@@ -1,0 +1,106 @@
+"""Parameter sensitivity analysis for fixed daily-bar strategies."""
+
+from __future__ import annotations
+
+from dataclasses import fields, replace
+from html import escape
+from itertools import product
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+
+from korea_quant.backtest import BacktestConfig, build_report, run_baseline
+
+
+def run_parameter_sensitivity(
+    prices: pd.DataFrame,
+    base_config: BacktestConfig,
+    parameter_values: dict[str, tuple[Any, ...]],
+    *,
+    max_combinations: int = 125,
+    market_close: pd.Series | None = None,
+) -> pd.DataFrame:
+    """Return full-period results for each requested parameter combination.
+
+    This function reports every supplied combination and intentionally does
+    not select a "best" one. The output is for checking whether a broad,
+    reasonable parameter region is stable before independent validation.
+    """
+    _validate_parameter_values(parameter_values, max_combinations)
+    names = tuple(parameter_values)
+    rows = []
+    for values in product(*(parameter_values[name] for name in names)):
+        overrides = dict(zip(names, values, strict=True))
+        config = replace(base_config, **overrides)
+        if market_close is None:
+            portfolio, signals = run_baseline(prices, config)
+        else:
+            portfolio, signals = run_baseline(prices, config, market_close=market_close)
+        report = build_report(portfolio, prices["Close"], config)
+        rows.append(
+            {
+                **overrides,
+                **report.metrics,
+                "Entry Signals": int(signals["entries"].sum()),
+                "Exit Signals": int(signals["exits"].sum()),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def write_sensitivity_reports(
+    results: pd.DataFrame, html_output: Path, csv_output: Path, *, title: str
+) -> tuple[Path, Path]:
+    """Write every sensitivity combination as a searchable HTML/CSV table."""
+    if results.empty:
+        raise ValueError("Sensitivity results cannot be empty.")
+    html_output.parent.mkdir(parents=True, exist_ok=True)
+    csv_output.parent.mkdir(parents=True, exist_ok=True)
+    results.to_csv(csv_output, index=False)
+    display = results.copy()
+    percentages = {
+        "CAGR", "MDD", "Total Return", "Benchmark Return", "Win Rate",
+        "Fee Rate", "Slippage Rate",
+    }
+    for column in percentages & set(display.columns):
+        display[column] = display[column].map(lambda value: f"{value:.2%}")
+    if "Sharpe Ratio" in display:
+        display["Sharpe Ratio"] = display["Sharpe Ratio"].map(lambda value: f"{value:.2f}")
+    for column in {"Trade Count", "Entry Signals", "Exit Signals"} & set(display.columns):
+        display[column] = display[column].map(lambda value: f"{int(value):,}")
+    if "Total Fees" in display:
+        display["Total Fees"] = display["Total Fees"].map(lambda value: f"{value:,.0f} KRW")
+    headers = "".join(f"<th>{escape(str(column))}</th>" for column in display.columns)
+    rows = [
+        "<tr>" + "".join(f"<td>{escape(str(value))}</td>" for value in row) + "</tr>"
+        for row in display.itertuples(index=False, name=None)
+    ]
+    html_output.write_text(
+        f'''<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>{escape(title)}</title>
+<style>body{{font-family:system-ui;margin:32px}}table{{border-collapse:collapse;width:100%}}th,td{{padding:9px;border:1px solid #ddd;text-align:right}}th:nth-child(-n+3),td:nth-child(-n+3){{text-align:left}}th{{background:#f5f5f5;position:sticky;top:0}}</style>
+</head><body><h1>{escape(title)}</h1><p>Every requested parameter combination is shown. Do not choose a single maximum result: prefer a broad stable region, then validate it in independent walk-forward windows. Fees and slippage are included. Research evidence only.</p>
+<table><thead><tr>{headers}</tr></thead><tbody>{''.join(rows)}</tbody></table></body></html>''',
+        encoding="utf-8",
+    )
+    return html_output, csv_output
+
+
+def _validate_parameter_values(
+    parameter_values: dict[str, tuple[Any, ...]], max_combinations: int
+) -> None:
+    if not parameter_values:
+        raise ValueError("At least one parameter range is required.")
+    allowed = {field.name for field in fields(BacktestConfig)} - {
+        "strategy", "initial_cash", "fee_rate", "slippage_rate",
+    }
+    unknown = set(parameter_values) - allowed
+    if unknown:
+        raise ValueError(f"Unsupported sensitivity parameters: {', '.join(sorted(unknown))}")
+    if any(not values for values in parameter_values.values()):
+        raise ValueError("Every parameter range must contain at least one value.")
+    combinations = 1
+    for values in parameter_values.values():
+        combinations *= len(values)
+    if combinations > max_combinations:
+        raise ValueError(f"Sensitivity combinations exceed the limit of {max_combinations}.")

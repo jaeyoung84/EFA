@@ -1,0 +1,11 @@
+# KQS backend regressions; shared app-import dependencies only, no Torch/collector/broker SDK stack.
+-r requirements.kqs-api.txt
+-r ../../requirements-test.txt
+-r ../../engine/kqs/requirements.lock
+python-dotenv==1.2.3
+python-multipart==0.0.32
+PyYAML==6.0.3
+pandas-market-calendars==5.4.0
+scipy==1.18.1
+APScheduler==3.11.3
+requests==2.34.2

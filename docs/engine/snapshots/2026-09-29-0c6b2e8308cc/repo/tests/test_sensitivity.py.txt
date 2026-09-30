@@ -1,0 +1,93 @@
+from types import SimpleNamespace
+
+import pandas as pd
+import pytest
+
+from korea_quant.backtest import BacktestConfig
+from korea_quant.sensitivity import run_parameter_sensitivity, write_sensitivity_reports
+
+
+def _prices():
+    index = pd.bdate_range("2024-01-01", periods=10)
+    return pd.DataFrame(
+        {
+            "Open": range(100, 110), "High": range(101, 111), "Low": range(99, 109),
+            "Close": range(100, 110), "Volume": 1000,
+        },
+        index=index,
+    )
+
+
+def test_run_parameter_sensitivity_reports_every_combination(monkeypatch):
+    seen = []
+
+    def fake_run(prices, config):
+        seen.append((config.ema_window, config.resistance_threshold))
+        return object(), pd.DataFrame(
+            {"entries": [False, True], "exits": [False, False]}, index=prices.index[:2]
+        )
+
+    monkeypatch.setattr("korea_quant.sensitivity.run_baseline", fake_run)
+    monkeypatch.setattr(
+        "korea_quant.sensitivity.build_report",
+        lambda portfolio, benchmark, config: SimpleNamespace(
+            metrics={"CAGR": 0.1, "MDD": -0.05, "Total Fees": 123.0}
+        ),
+    )
+
+    result = run_parameter_sensitivity(
+        _prices(),
+        BacktestConfig(strategy="ema30-resistance"),
+        {"ema_window": (25, 30), "resistance_threshold": (0.003, 0.005)},
+    )
+
+    assert len(result) == 4
+    assert set(seen) == {(25, 0.003), (25, 0.005), (30, 0.003), (30, 0.005)}
+    assert list(result["Entry Signals"]) == [1, 1, 1, 1]
+
+
+def test_run_parameter_sensitivity_rejects_invalid_or_excessive_ranges():
+    with pytest.raises(ValueError, match="Unsupported"):
+        run_parameter_sensitivity(_prices(), BacktestConfig(), {"strategy": ("sma",)})
+    with pytest.raises(ValueError, match="exceed"):
+        run_parameter_sensitivity(
+            _prices(), BacktestConfig(), {"fast_window": tuple(range(126))}
+        )
+
+
+def test_run_parameter_sensitivity_passes_optional_market_prices(monkeypatch):
+    received = []
+    monkeypatch.setattr(
+        "korea_quant.sensitivity.run_baseline",
+        lambda prices, config, market_close: (
+            received.append(market_close) or object(),
+            pd.DataFrame({"entries": [False], "exits": [False]}),
+        ),
+    )
+    monkeypatch.setattr(
+        "korea_quant.sensitivity.build_report",
+        lambda *_args: SimpleNamespace(metrics={"CAGR": 0.1}),
+    )
+    market_close = pd.Series(range(100, 110), index=_prices().index)
+
+    run_parameter_sensitivity(
+        _prices(), BacktestConfig(), {"fast_window": (10,)}, market_close=market_close
+    )
+
+    assert received[0] is market_close
+
+
+def test_write_sensitivity_reports_writes_csv_and_html(tmp_path):
+    results = pd.DataFrame(
+        {
+            "ema_window": [25, 30], "CAGR": [0.1, 0.2], "MDD": [-0.1, -0.05],
+            "Total Fees": [100.0, 200.0], "Entry Signals": [3, 4], "Exit Signals": [2, 3],
+        }
+    )
+
+    html, csv = write_sensitivity_reports(
+        results, tmp_path / "sensitivity.html", tmp_path / "sensitivity.csv", title="Sensitivity test"
+    )
+
+    assert "broad stable region" in html.read_text(encoding="utf-8")
+    assert list(pd.read_csv(csv)["ema_window"]) == [25, 30]

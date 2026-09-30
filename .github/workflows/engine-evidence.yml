@@ -1,0 +1,32 @@
+name: Engine evidence integrity
+
+on:
+  pull_request:
+    paths:
+      - 'AGENTS.md'
+      - 'docs/engine/**'
+      - 'scripts/check_engine_evidence.py'
+      - 'scripts/tests/test_engine_evidence.py'
+      - '.github/workflows/engine-evidence.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'AGENTS.md'
+      - 'docs/engine/**'
+      - 'scripts/check_engine_evidence.py'
+      - 'scripts/tests/test_engine_evidence.py'
+      - '.github/workflows/engine-evidence.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Isolated evidence-tool tests (no engine execution)
+        run: python3 -m unittest discover -s scripts/tests -p 'test_engine_evidence.py' -v
+      - name: Verify immutable source evidence
+        run: python3 scripts/check_engine_evidence.py

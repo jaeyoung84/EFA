@@ -1,0 +1,101 @@
+from types import SimpleNamespace
+
+import pandas as pd
+import pytest
+
+from korea_quant.backtest import BacktestConfig
+from korea_quant.walkforward import (
+    WalkForwardConfig,
+    run_walk_forward,
+    write_walk_forward_reports,
+)
+
+
+class FakePortfolio:
+    def __init__(self, index):
+        self._value = pd.Series(range(100, 100 + len(index)), index=index, dtype=float)
+        self.trades = SimpleNamespace(records_readable=pd.DataFrame(columns=["PnL", "Status"]))
+        self.orders = SimpleNamespace(records_readable=pd.DataFrame(columns=["Fees"]))
+
+    def value(self):
+        return self._value
+
+
+def _prices(count=15):
+    index = pd.bdate_range("2024-01-01", periods=count)
+    close = pd.Series(range(100, 100 + count), index=index, dtype=float)
+    return pd.DataFrame(
+        {"Open": close, "High": close + 1, "Low": close - 1, "Close": close, "Volume": 1000},
+        index=index,
+    )
+
+
+def test_run_walk_forward_creates_independent_sequential_test_windows(monkeypatch):
+    captured = []
+
+    def fake_run_signals(prices, signals, config):
+        captured.append((prices.index.copy(), signals.index.copy()))
+        return FakePortfolio(prices.index)
+
+    monkeypatch.setattr("korea_quant.walkforward.run_signals", fake_run_signals)
+    prices = _prices()
+    report = run_walk_forward(
+        prices,
+        BacktestConfig(strategy="sma", fast_window=2, slow_window=3),
+        WalkForwardConfig(training_sessions=5, testing_sessions=4),
+    )
+
+    assert len(report.windows) == 3
+    assert [(len(price_index), len(signal_index)) for price_index, signal_index in captured] == [
+        (4, 4), (4, 4), (2, 2),
+    ]
+    assert report.windows[0].training_start == prices.index[0]
+    assert report.windows[0].training_end == prices.index[4]
+    assert report.windows[0].testing_start == prices.index[5]
+    assert report.windows[1].training_end == prices.index[8]
+    assert report.windows[1].testing_start == prices.index[9]
+
+
+def test_run_walk_forward_rejects_insufficient_out_of_sample_prices():
+    with pytest.raises(ValueError, match="out-of-sample"):
+        run_walk_forward(
+            _prices(5), BacktestConfig(), WalkForwardConfig(training_sessions=5, testing_sessions=2)
+        )
+
+
+def test_run_walk_forward_applies_optional_market_filter(monkeypatch):
+    prices = _prices()
+    captured = []
+
+    def fake_run_signals(prices, signals, config):
+        captured.append(signals)
+        return FakePortfolio(prices.index)
+
+    monkeypatch.setattr("korea_quant.walkforward.run_signals", fake_run_signals)
+    run_walk_forward(
+        prices,
+        BacktestConfig(strategy="sma", fast_window=2, slow_window=3, market_filter_window=2),
+        WalkForwardConfig(training_sessions=5, testing_sessions=4),
+        market_close=pd.Series(range(100, 115), index=prices.index),
+    )
+
+    assert "market_entry_allowed" in captured[0]
+
+
+def test_write_walk_forward_reports_writes_metrics_csv_and_html(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "korea_quant.walkforward.run_signals", lambda prices, signals, config: FakePortfolio(prices.index)
+    )
+    report = run_walk_forward(
+        _prices(), BacktestConfig(strategy="sma", fast_window=2, slow_window=3),
+        WalkForwardConfig(training_sessions=5, testing_sessions=4),
+    )
+
+    html, csv = write_walk_forward_reports(
+        report, tmp_path / "walkforward.html", tmp_path / "walkforward.csv", title="Walk-forward test"
+    )
+
+    assert "independent out-of-sample window" in html.read_text(encoding="utf-8")
+    summary = pd.read_csv(csv)
+    assert list(summary["Window"]) == [1, 2, 3]
+    assert {"Training End", "Testing Start", "CAGR", "Total Fees"} <= set(summary.columns)

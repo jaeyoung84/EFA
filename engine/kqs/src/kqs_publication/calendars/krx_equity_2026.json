@@ -1,0 +1,32 @@
+{
+  "schema": "krx-equity-calendar/v1",
+  "calendar_id": "krx-equity-2026",
+  "year": 2026,
+  "timezone": "Asia/Seoul",
+  "session_weekdays": [0, 1, 2, 3, 4],
+  "data_available_time_kst": "06:00",
+  "source": {
+    "rule_url": "https://global.krx.co.kr/contents/GLB/06/0602/0602010201/GLB0602010201T1.jsp",
+    "schedule_url": "https://global.krx.co.kr/contents/GLB/05/0501/0501060000/GLB0501060000T3.jsp",
+    "verified_at": "2026-09-29",
+    "notes": "KRX weekday/public-holiday/Labor-Day/year-end rule. Calendar-year closure entries are reviewed source data, not an inferred weekday-only calendar."
+  },
+  "closures": {
+    "2026-01-01": "New Year's Day",
+    "2026-02-16": "Lunar New Year holiday",
+    "2026-02-17": "Lunar New Year",
+    "2026-02-18": "Lunar New Year holiday",
+    "2026-03-02": "Independence Movement Day substitute holiday",
+    "2026-05-01": "Labor Day (KRX holiday)",
+    "2026-05-05": "Children's Day",
+    "2026-05-25": "Buddha's Birthday substitute holiday",
+    "2026-06-03": "Nationwide local election",
+    "2026-08-17": "Liberation Day substitute holiday",
+    "2026-09-24": "Chuseok holiday",
+    "2026-09-25": "Chuseok",
+    "2026-10-05": "National Foundation Day substitute holiday",
+    "2026-10-09": "Hangeul Day",
+    "2026-12-25": "Christmas Day",
+    "2026-12-31": "Last KRX trading day of the year"
+  }
+}

@@ -1,0 +1,283 @@
+import sqlite3
+from datetime import date
+
+import pandas as pd
+
+from korea_quant.krx import KrxCollector, KrxDailyStore, KrxOpenApiClient, _fill_halted_trading_days
+
+
+def raw_row():
+    return {
+        "BAS_DD": "20240801", "ISU_CD": "005930", "ISU_NM": "삼성전자",
+        "MKT_NM": "KOSPI", "SECT_TP_NM": "", "TDD_CLSPRC": "12,000",
+        "TDD_OPNPRC": "0", "TDD_HGPRC": "0", "TDD_LWPRC": "0",
+        "ACC_TRDVOL": "1,234", "ACC_TRDVAL": "14,808,000",
+        "MKTCAP": "1,000,000,000", "LIST_SHRS": "5,969,782,550",
+    }
+
+
+def test_client_normalizes_response_and_auth_header():
+    seen = {}
+
+    def transport(url, headers):
+        seen.update(url=url, headers=headers)
+        return {"OutBlock_1": [raw_row()]}
+
+    rows = KrxOpenApiClient("secret", transport=transport).fetch_market_day(
+        "KOSPI", date(2024, 8, 1)
+    )
+    assert "sto/stk_bydd_trd?basDd=20240801" in seen["url"]
+    assert seen["headers"]["AUTH_KEY"] == "secret"
+    assert rows[0]["close"] == 12_000
+    assert rows[0]["listed_shares"] == 5_969_782_550
+
+
+def test_client_accepts_krx_alphanumeric_short_code():
+    row = raw_row()
+    row["ISU_CD"] = "00104K"
+    client = KrxOpenApiClient(
+        "secret", transport=lambda _url, _headers: {"OutBlock_1": [row]}
+    )
+    result = client.fetch_market_day("KOSPI", date(2024, 8, 1))
+    assert result[0]["symbol"] == "00104K"
+
+
+def test_client_accepts_letter_inside_krx_short_code():
+    row = raw_row()
+    row["ISU_CD"] = "0030R0"
+    client = KrxOpenApiClient(
+        "secret", transport=lambda _url, _headers: {"OutBlock_1": [row]}
+    )
+    result = client.fetch_market_day("KOSPI", date(2024, 8, 1))
+    assert result[0]["symbol"] == "0030R0"
+
+
+def test_client_uses_etf_endpoint_and_labels_rows_as_etf():
+    seen = {}
+
+    def transport(url, _headers):
+        seen["url"] = url
+        return {"OutBlock_1": [raw_row()]}
+
+    rows = KrxOpenApiClient("secret", transport=transport).fetch_market_day("ETF", date(2024, 8, 1))
+
+    assert "etp/etf_bydd_trd?basDd=20240801" in seen["url"]
+    assert rows[0]["market"] == "ETF"
+
+
+def test_client_accepts_blank_etf_open_high_low_as_no_trade_prices():
+    row = raw_row()
+    row.update({"TDD_OPNPRC": "", "TDD_HGPRC": "", "TDD_LWPRC": ""})
+    client = KrxOpenApiClient(
+        "secret", transport=lambda _url, _headers: {"OutBlock_1": [row]}
+    )
+
+    result = client.fetch_market_day("ETF", date(2024, 8, 1))
+
+    assert (result[0]["open"], result[0]["high"], result[0]["low"]) == (0, 0, 0)
+
+
+def test_client_skips_etf_rows_without_a_close():
+    blank_close = raw_row()
+    blank_close["TDD_CLSPRC"] = ""
+    client = KrxOpenApiClient(
+        "secret", transport=lambda _url, _headers: {"OutBlock_1": [blank_close, raw_row()]}
+    )
+
+    result = client.fetch_market_day("ETF", date(2024, 8, 1))
+
+    assert len(result) == 1
+    assert result[0]["close"] == 12_000
+
+
+def test_store_upserts_and_returns_chart_ready_bar(tmp_path):
+    client = KrxOpenApiClient(
+        "secret", transport=lambda _url, _headers: {"OutBlock_1": [raw_row()]}
+    )
+    store = KrxDailyStore(tmp_path / "daily.sqlite3")
+    day = date(2024, 8, 1)
+    rows = client.fetch_market_day("KOSPI", day)
+    store.upsert_day("KOSPI", day, rows)
+    rows[0]["close"] = 12_100
+    store.upsert_day("KOSPI", day, rows)
+
+    prices = store.prices("005930")
+    assert len(prices) == 1
+    assert prices.iloc[0]["Close"] == 12_100
+    assert prices.iloc[0]["Open"] == 12_100
+    assert store.status()["rows"] == 1
+    assert store.daily_prices("005930", "2024-08-01", "2024-08-01").shape == (1, 5)
+    securities = store.securities("삼성")
+    assert securities.loc[0, "symbol"] == "005930"
+    assert store.security_name("005930") == "삼성전자"
+
+
+def test_store_migrates_legacy_two_market_schema_without_losing_prices(tmp_path):
+    path = tmp_path / "legacy.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE daily_prices (
+                trade_date TEXT NOT NULL, symbol TEXT NOT NULL, name TEXT NOT NULL,
+                market TEXT NOT NULL CHECK (market IN ('KOSPI', 'KOSDAQ')), section TEXT NOT NULL,
+                open INTEGER NOT NULL, high INTEGER NOT NULL, low INTEGER NOT NULL, close INTEGER NOT NULL,
+                volume INTEGER NOT NULL, trading_value INTEGER NOT NULL, market_cap INTEGER NOT NULL,
+                listed_shares INTEGER NOT NULL, collected_at TEXT NOT NULL,
+                PRIMARY KEY (trade_date, symbol)
+            );
+            CREATE TABLE collection_log (
+                trade_date TEXT NOT NULL, market TEXT NOT NULL CHECK (market IN ('KOSPI', 'KOSDAQ')),
+                row_count INTEGER NOT NULL, collected_at TEXT NOT NULL, PRIMARY KEY (trade_date, market)
+            );
+            """
+        )
+        connection.execute(
+            "INSERT INTO daily_prices VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("2024-08-01", "005930", "삼성전자", "KOSPI", "", 1, 1, 1, 1, 1, 1, 1, 1, "now"),
+        )
+        connection.execute(
+            "INSERT INTO collection_log VALUES (?, ?, ?, ?)", ("2024-08-01", "KOSPI", 1, "now")
+        )
+
+    store = KrxDailyStore(path)
+    etf_row = KrxOpenApiClient(
+        "secret", transport=lambda *_args: {"OutBlock_1": [raw_row()]}
+    ).fetch_market_day("ETF", date(2024, 8, 1))[0]
+    store.upsert_day("ETF", date(2024, 8, 1), [{**etf_row, "symbol": "069500"}])
+
+    assert set(store.securities()["symbol"]) == {"005930", "069500"}
+    assert store.is_collected("ETF", date(2024, 8, 1))
+
+
+def test_market_history_preserves_symbols_missing_from_latest_date(tmp_path):
+    store = KrxDailyStore(tmp_path / "daily.sqlite3")
+    client = KrxOpenApiClient(
+        "secret", transport=lambda _url, _headers: {"OutBlock_1": [raw_row()]}
+    )
+    first_day = date(2024, 8, 1)
+    first_row = client.fetch_market_day("KOSPI", first_day)[0]
+    disappeared = dict(first_row, symbol="000001", name="과거종목")
+    store.upsert_day("KOSPI", first_day, [first_row, disappeared])
+
+    next_row = dict(first_row, trade_date="2024-08-02")
+    store.upsert_day("KOSPI", date(2024, 8, 2), [next_row])
+    history = store.market_history("2024-08-01", "2024-08-02", ("KOSPI",))
+
+    assert set(history["Symbol"]) == {"005930", "000001"}
+    assert len(history[history["Symbol"] == "000001"]) == 1
+
+
+def test_universe_members_uses_latest_knowable_effective_snapshot(tmp_path):
+    store = KrxDailyStore(tmp_path / "daily.sqlite3")
+    store.upsert_universe_snapshot(
+        "kospi200", "2024-01-02", ["005930", "000660"], source="licensed-file"
+    )
+    store.upsert_universe_snapshot(
+        "KOSPI200", "2024-06-14", ["005930", "035420"], source="licensed-file"
+    )
+
+    before = store.universe_members("kospi200", "2024-06-13")
+    after = store.universe_members("KOSPI200", "2024-06-14")
+
+    assert before["symbol"].tolist() == ["000660", "005930"]
+    assert after["symbol"].tolist() == ["005930", "035420"]
+    assert after.loc[0, "effective_date"] == "2024-06-14"
+
+
+def test_universe_members_does_not_look_ahead_to_late_backfill(tmp_path):
+    store = KrxDailyStore(tmp_path / "daily.sqlite3")
+    store.upsert_universe_snapshot(
+        "KOSPI200", "2024-01-02", ["005930"], source="late-file",
+        available_date="2024-03-01",
+    )
+
+    assert store.universe_members("KOSPI200", "2024-02-01").empty
+    known_later = store.universe_members(
+        "KOSPI200", "2024-02-01", known_on="2024-03-01"
+    )
+    assert known_later["symbol"].tolist() == ["005930"]
+
+
+def test_upsert_universe_snapshot_replaces_members_and_keeps_empty_snapshot(tmp_path):
+    store = KrxDailyStore(tmp_path / "daily.sqlite3")
+    store.upsert_universe_snapshot(
+        "TEST", "2024-01-02", ["005930", "005930", "000660"], source="fixture"
+    )
+    count = store.upsert_universe_snapshot(
+        "TEST", "2024-01-02", [], source="corrected-fixture"
+    )
+
+    assert count == 0
+    assert store.universe_members("TEST", "2024-01-02").empty
+
+
+def test_universe_membership_panel_changes_only_when_snapshot_is_knowable(tmp_path):
+    store = KrxDailyStore(tmp_path / "daily.sqlite3")
+    store.upsert_universe_snapshot(
+        "KOSPI200", "2024-01-02", ["005930"], source="fixture"
+    )
+    store.upsert_universe_snapshot(
+        "KOSPI200", "2024-01-04", ["000660"], source="late-fixture",
+        available_date="2024-01-05",
+    )
+
+    panel = store.universe_membership_panel(
+        "KOSPI200",
+        pd.date_range("2024-01-01", "2024-01-05", freq="D"),
+        ["005930", "000660", "035420"],
+    )
+
+    assert not panel.loc["2024-01-01"].any()
+    assert panel.loc["2024-01-04", "005930"]
+    assert panel.loc["2024-01-05", "000660"]
+    assert not panel.loc["2024-01-05", "005930"]
+
+
+def test_collector_resumes_completed_market_days(tmp_path):
+    calls = []
+
+    def transport(url, _headers):
+        calls.append(url)
+        return {"OutBlock_1": []}
+
+    store = KrxDailyStore(tmp_path / "daily.sqlite3")
+    collector = KrxCollector(KrxOpenApiClient("secret", transport=transport), store, 0)
+    first = collector.collect_range(date(2024, 8, 1), date(2024, 8, 2))
+    second = collector.collect_range(date(2024, 8, 1), date(2024, 8, 2))
+    assert first == {"requests": 6, "rows": 0, "skipped": 0}
+    assert second == {"requests": 0, "rows": 0, "skipped": 6}
+    assert len(calls) == 6
+
+
+def test_halt_normalization_never_backfills_a_future_price():
+    history = pd.DataFrame(
+        {
+            "Date": pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"]),
+            "Symbol": ["000001"] * 3,
+            "Open": [0.0, 100.0, 0.0],
+            "High": [0.0, 101.0, 0.0],
+            "Low": [0.0, 99.0, 0.0],
+            "Close": [0.0, 100.0, 0.0],
+        }
+    )
+
+    normalized = _fill_halted_trading_days(history)
+
+    # No prior price exists on the first row, so replacing it with 100 would
+    # leak the next session into a historical signal.
+    assert normalized.loc[0, ["Open", "High", "Low", "Close"]].isna().all()
+    # A later halt may use the already observable prior close as a flat bar.
+    assert normalized.loc[2, ["Open", "High", "Low", "Close"]].tolist() == [100.0] * 4
+
+
+def test_open_api_client_reads_plain_dotenv_key_without_executing_it(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("KRX_AUTH_KEY", raising=False)
+    (tmp_path / ".env").write_text(
+        "# comment\nIGNORED=value\nKRX_AUTH_KEY=\"dotenv-key\"\n", encoding="utf-8"
+    )
+
+    assert KrxOpenApiClient.from_env().auth_key == "dotenv-key"
+
+    monkeypatch.setenv("KRX_AUTH_KEY", "process-key")
+    assert KrxOpenApiClient.from_env().auth_key == "process-key"

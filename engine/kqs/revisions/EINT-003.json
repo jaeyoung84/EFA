@@ -1,0 +1,81 @@
+{
+  "schema": "kqs-runtime-revision/v1",
+  "change_id": "EINT-003",
+  "created_at": "2026-09-29T00:57:42.060618+00:00",
+  "supersedes": "EINT-002",
+  "initial_manifest": {
+    "path": "engine/kqs/migration_manifest.json",
+    "sha256": "989dd536a3aa1bb7e96e55e5ef903b50d259594c98ef2445dbe173d364355580"
+  },
+  "previous_verification": {
+    "path": "docs/engine/verification/EINT-002.json",
+    "sha256": "37eb9db0f4a82b542f0d23592fd2a80b14c2adecf8179425ee9e37c6a8788768"
+  },
+  "dependency_lock": {
+    "path": "engine/kqs/requirements.lock",
+    "sha256": "d5677f00d64a3952e04be5d02b509de1ddb808e3877eb8ea1d3b4b56359a38b3"
+  },
+  "package_metadata": {
+    "path": "engine/kqs/pyproject.toml",
+    "sha256": "64ae74292535e55531f0493989b934eb0e87610a48ac795370b17ad3277ff7ca"
+  },
+  "code": {
+    "package_version": "0.2.0",
+    "source_commit": "0c6b2e8308cc783ea5c4a50c18ff213203631ba2",
+    "code_sha256": "a8d7daad1aea62025db74e07d656b130421e623a98999cb5b001796d2b0d62d8",
+    "component_sha256": {
+      "korea_quant/__init__.py": "960d03eca7c45577aea05e6d71dea5269a209ad02c7f15f584f53d535da6a405",
+      "korea_quant/eligibility.py": "f363ec556a14adfdad06af331f3f94f35beb9de405cb047b83b1677f8da1836d",
+      "korea_quant/reversion_scanner.py": "c9bc74ff52f2c79e4e4197679d4ea967bb9aa91b37fa2cf643cc5538c0bd1d99",
+      "korea_quant/strategy.py": "bdf8506cf1371f9b5aca1f4001649ca509c132651d749a550062a452c3b3c9d8",
+      "kqs_runtime/__init__.py": "3fb31dc4b50ed2518b4efea156f203b063b9a05c90283a0a5b54a1045135aa6c",
+      "kqs_runtime/cli.py": "95cf0fb3cae89c60c33110081ac8754a293500eb62c5d6ba346feed9d13ec2d6",
+      "kqs_runtime/inputs.py": "74f8bd2d4e8f2e78d553b1adc8011d22c9b577c789929388c762ab5cab4730c5",
+      "kqs_runtime/provenance.py": "cc40d4c09a59112aa272de8438ee28e510811027ee7bf3a2f3c92e94ea261d28",
+      "kqs_runtime/recommendations.py": "9f08ae80ccf0c30700a49dbbaf8052840c5a096918685ce2ac67c4e8220681f0",
+      "kqs_runtime/sqlite_reader.py": "ffc0fa4b5d576b41e5235307b90a08f997a16476dc302737aeb9f43112a27cfb",
+      "kqs_publication/__init__.py": "c66278f32a047b596624280f0fafd4e29b5a7a4527792546ffaba488b342016d",
+      "kqs_publication/contract.py": "d8bc8cc0ba7770054c0f7cb377a6dc650b55ad7461572921bcec62b949478139",
+      "kqs_publication/publisher.py": "a90581754bcb205b23324842d06c86131bdef10bcac980c0c9abd3957c7d6b01",
+      "kqs_publication/store.py": "552d267678f221d7b76770f122013d4e96083347ded5c905b3464bdc360bd0b2"
+    },
+    "python": "3.14.4",
+    "dependencies": {
+      "pandas": "2.3.3",
+      "numpy": "2.3.5",
+      "python-dateutil": "2.9.0.post0",
+      "pytz": "2026.4",
+      "tzdata": "2026.4",
+      "six": "1.17.0"
+    }
+  },
+  "wheel_sha256": "ccdcebc5deaed271f7066302df1805320ff496ad39f2183c7a5695f37583d507",
+  "reused_decisions": [
+    "D-19",
+    "D-24",
+    "D-27",
+    "D-28",
+    "D-30",
+    "D-44"
+  ],
+  "preserved_core_modules": 4,
+  "changes": [
+    "shared stdlib recommendation contract",
+    "immutable explicit publication store",
+    "worker opt-in publication CLI",
+    "website readonly reader and manual evidence linkage"
+  ],
+  "contract": "kqs-recommendations/v1",
+  "publication_policy": "explicit-session-expiry/v1",
+  "safety": {
+    "orders_enabled": false,
+    "automatic_fills_enabled": false,
+    "legacy_ledger_compatible": false,
+    "research_runs": 0,
+    "production_publication_performed": false,
+    "deployment_performed": false
+  },
+  "scope": "Recommendation publication integration, not calendar/collector or complete bridge/AWS migration.",
+  "verification": "docs/engine/verification/EINT-003.json",
+  "future_change_rule": "Add a new successor and change CI manifest selection explicitly; do not overwrite this revision or the initial migration manifest."
+}

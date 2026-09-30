@@ -1,0 +1,17 @@
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+.pytest_tmp/
+.ruff_cache/
+.cache/
+*.py[cod]
+data/raw/
+data/processed/
+# Research artifacts: regenerable, ~500MB, and rewritten on every run. This
+# used to be `reports/*.html`, which let the CSVs through -- 404 of them were
+# staged before anyone noticed. See DECISIONS.md for why these are shared
+# through the working tree rather than through git.
+reports/
+.env
+data/

@@ -1,0 +1,22 @@
+"""Diagnose why 069500 is missing from KRX Open API ETF responses for early dates.
+Prints only counts/booleans, never price values.
+"""
+from __future__ import annotations
+
+import sys
+import pandas as pd
+
+sys.path.insert(0, "src")
+from korea_quant.krx import KrxOpenApiClient  # noqa: E402
+
+client = KrxOpenApiClient.from_env()
+
+for d in ["2002-10-28", "2005-06-02", "2009-10-01", "2010-01-04", "2010-04-13"]:
+    target = pd.Timestamp(d).date()
+    try:
+        rows = client.fetch_market_day("ETF", target)
+    except Exception as exc:
+        print(f"{d}: EXCEPTION {type(exc).__name__}: {exc}")
+        continue
+    symbols = {r["symbol"] for r in rows}
+    print(f"{d}: 전체 ETF 행수={len(rows)}, 069500 포함 여부={'069500' in symbols}")

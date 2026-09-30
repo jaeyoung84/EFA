@@ -1,0 +1,373 @@
+import pandas as pd
+import pytest
+
+from korea_quant import reversion_scanner
+from korea_quant.eligibility import build_market_cap_tiers
+from korea_quant.reversion_scanner import (
+    LONG_TERM_STRATEGY,
+    SWING_STRATEGY,
+    ReversionScannerConfig,
+    native_exit_observed,
+    reversion_rule_parameters,
+    scan_reversion_candidates,
+)
+
+
+def _history(periods=260):
+    dates = pd.bdate_range("2024-01-01", periods=periods)
+    rows = []
+    for symbol, base, market_cap in (("A", 100, 1_000_000_000_000), ("B", 200, 500_000_000_000)):
+        for number, day in enumerate(dates):
+            price = base + number * 0.1
+            rows.append(
+                {
+                    "Date": day,
+                    "Symbol": symbol,
+                    "Name": symbol,
+                    "Market": "KOSPI",
+                    "Open": price,
+                    "High": price + 1,
+                    "Low": price - 1,
+                    "Close": price,
+                    "Volume": 10_000,
+                    "TradingValue": 6_000_000_000,
+                    "MarketCap": market_cap,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def _no_entries(data):
+    entries = pd.Series(False, index=data.index)
+    return pd.DataFrame({"entries": entries, "exits": False}, index=data.index)
+
+
+def test_scan_tags_swing_and_long_term_signals_separately(monkeypatch):
+    history = _history()
+    calls = {"boll": 0, "obv": 0}
+
+    def fake_bollinger(close):
+        calls["boll"] += 1
+        frame = _no_entries(close)
+        if calls["boll"] == 1:  # symbols are scanned in sorted order: "A" first
+            frame.loc[frame.index[-1], "entries"] = True
+        return frame
+
+    def fake_obv(prices):
+        calls["obv"] += 1
+        frame = _no_entries(prices)
+        if calls["obv"] == 2:  # "B" second
+            frame.loc[frame.index[-1], "entries"] = True
+        return frame
+
+    monkeypatch.setattr(reversion_scanner, "bollinger_rsi_signals", fake_bollinger)
+    monkeypatch.setattr(reversion_scanner, "rsi_obv_signals", fake_obv)
+
+    result = scan_reversion_candidates(history).set_index(["symbol", "signal_type"])
+    assert result.loc[("A", "swing"), "state"] == "entry_due_next_session"
+    assert result.loc[("B", "long_term"), "state"] == "entry_due_next_session"
+    assert ("A", "long_term") not in result.index
+    assert ("B", "swing") not in result.index
+
+
+def test_scan_filters_low_liquidity_before_signal_calculation(monkeypatch):
+    history = _history()
+    history["TradingValue"] = 1
+
+    def boom(*_args):
+        raise AssertionError("signals must not be computed for illiquid symbols")
+
+    monkeypatch.setattr(reversion_scanner, "bollinger_rsi_signals", boom)
+    monkeypatch.setattr(reversion_scanner, "rsi_obv_signals", boom)
+
+    result = scan_reversion_candidates(history)
+    assert set(result["state"]) == {"low_liquidity"}
+
+
+def test_scan_filters_by_market_cap_tier(monkeypatch):
+    history = _history()
+    monkeypatch.setattr(reversion_scanner, "bollinger_rsi_signals", lambda data: _no_entries(data))
+    monkeypatch.setattr(reversion_scanner, "rsi_obv_signals", lambda data: _no_entries(data))
+
+    result = scan_reversion_candidates(
+        history, ReversionScannerConfig(market_cap_tiers=build_market_cap_tiers(1, 1))
+    ).set_index("symbol")
+    assert result.loc["A", "state"] == "no_signal"
+    assert result.loc["B", "state"] == "outside_market_cap_tier"
+
+
+def test_scan_requires_minimum_history_rows():
+    history = _history(periods=100)
+    result = scan_reversion_candidates(history)
+    assert set(result["state"]) == {"insufficient_history"}
+
+
+def test_scan_requires_market_cap_column():
+    history = _history().drop(columns="MarketCap")
+    with pytest.raises(ValueError, match="MarketCap"):
+        scan_reversion_candidates(history)
+
+
+def test_market_cap_rank_is_computed_within_each_market_separately(monkeypatch):
+    # A KOSDAQ name with a far smaller absolute market cap than a KOSPI name
+    # must still rank #1 within KOSDAQ, not get crowded out by KOSPI's much
+    # larger caps under a shared cross-market ranking.
+    dates = pd.bdate_range("2024-01-01", periods=260)
+    rows = []
+    for symbol, market, cap in (("A", "KOSPI", 1_000_000_000_000), ("B", "KOSDAQ", 1_000_000_000)):
+        for number, day in enumerate(dates):
+            price = 100 + number * 0.1
+            rows.append(
+                {
+                    "Date": day, "Symbol": symbol, "Name": symbol, "Market": market,
+                    "Open": price, "High": price + 1, "Low": price - 1, "Close": price,
+                    "Volume": 10_000, "TradingValue": 6_000_000_000, "MarketCap": cap,
+                }
+            )
+    history = pd.DataFrame(rows)
+    monkeypatch.setattr(reversion_scanner, "bollinger_rsi_signals", lambda data: _no_entries(data))
+    monkeypatch.setattr(reversion_scanner, "rsi_obv_signals", lambda data: _no_entries(data))
+
+    result = scan_reversion_candidates(
+        history,
+        ReversionScannerConfig(
+            market_cap_tiers=build_market_cap_tiers(1, 1), markets=("KOSPI", "KOSDAQ")
+        ),
+    ).set_index("symbol")
+    assert result.loc["A", "market_cap_rank"] == 1
+    assert result.loc["B", "market_cap_rank"] == 1
+    assert result.loc["A", "state"] == "no_signal"
+    assert result.loc["B", "state"] == "no_signal"
+
+
+def test_each_market_gets_its_own_tier_depth(monkeypatch):
+    # KOSPI200 and KOSDAQ150 are different depths, so the second-ranked name in
+    # each market must be admitted or rejected by its own market's cutoff.
+    dates = pd.bdate_range("2024-01-01", periods=260)
+    rows = []
+    for symbol, market, cap in (
+        ("A", "KOSPI", 2_000_000_000_000), ("B", "KOSPI", 1_000_000_000_000),
+        ("C", "KOSDAQ", 2_000_000_000), ("D", "KOSDAQ", 1_000_000_000),
+    ):
+        for number, day in enumerate(dates):
+            price = 100 + number * 0.1
+            rows.append(
+                {
+                    "Date": day, "Symbol": symbol, "Name": symbol, "Market": market,
+                    "Open": price, "High": price + 1, "Low": price - 1, "Close": price,
+                    "Volume": 10_000, "TradingValue": 6_000_000_000, "MarketCap": cap,
+                }
+            )
+    history = pd.DataFrame(rows)
+    monkeypatch.setattr(reversion_scanner, "bollinger_rsi_signals", lambda data: _no_entries(data))
+    monkeypatch.setattr(reversion_scanner, "rsi_obv_signals", lambda data: _no_entries(data))
+
+    result = scan_reversion_candidates(
+        history, ReversionScannerConfig(market_cap_tiers=build_market_cap_tiers(2, 1))
+    ).set_index("symbol")
+    assert result.loc["B", "state"] == "no_signal"
+    assert result.loc["D", "state"] == "outside_market_cap_tier"
+
+
+def test_scan_flags_stale_security(monkeypatch):
+    history = _history()
+    monkeypatch.setattr(reversion_scanner, "bollinger_rsi_signals", lambda data: _no_entries(data))
+    monkeypatch.setattr(reversion_scanner, "rsi_obv_signals", lambda data: _no_entries(data))
+    stale_mask = (history["Symbol"] == "A") & (history["Date"] == history["Date"].max())
+    history = history[~stale_mask]
+
+    result = scan_reversion_candidates(history).set_index("symbol")
+    assert result.loc["A", "state"] == "stale_security"
+
+
+def test_scan_blocks_recent_outlier_before_exposing_a_candidate(monkeypatch):
+    history = _history()
+    outlier_date = history["Date"].drop_duplicates().iloc[-10]
+    mask = (history["Symbol"] == "A") & (history["Date"] == outlier_date)
+    history.loc[mask, "Close"] *= 2
+
+    def always_enters(data):
+        frame = _no_entries(data)
+        frame.loc[frame.index[-1], "entries"] = True
+        return frame
+
+    monkeypatch.setattr(reversion_scanner, "bollinger_rsi_signals", always_enters)
+    monkeypatch.setattr(reversion_scanner, "rsi_obv_signals", always_enters)
+
+    result = scan_reversion_candidates(history).set_index("symbol")
+    assert result.loc["A", "state"] == "outlier_cooldown"
+    assert set(result.loc[["B"], "state"]) == {"entry_due_next_session"}
+
+
+@pytest.mark.parametrize(
+    ("updates", "message"),
+    [
+        ({"markets": ("ETF",)}, "Unsupported markets"),
+        ({"outlier_gap_threshold": 0}, "outlier_gap_threshold"),
+        ({"outlier_cooldown_sessions": 0}, "outlier_cooldown_sessions"),
+        ({"market_filter_window": 1}, "market_filter_window"),
+        ({"market_filter_window": -1}, "market_filter_window"),
+    ],
+)
+def test_scan_rejects_invalid_safety_config(updates, message):
+    with pytest.raises(ValueError, match=message):
+        scan_reversion_candidates(_history(), ReversionScannerConfig(**updates))
+
+
+def _benchmark_close(periods=260, level=100.0):
+    dates = pd.bdate_range("2024-01-01", periods=periods)
+    return pd.Series(level, index=dates)
+
+
+def test_market_filter_window_zero_ignores_benchmark_close(monkeypatch):
+    history = _history()
+
+    def always_enters(data):
+        frame = _no_entries(data)
+        frame.loc[frame.index[-1], "entries"] = True
+        return frame
+
+    monkeypatch.setattr(reversion_scanner, "bollinger_rsi_signals", always_enters)
+    monkeypatch.setattr(reversion_scanner, "rsi_obv_signals", always_enters)
+
+    # A benchmark that is falling below its own SMA would block entries under
+    # inverted=False (bullish mode), but the filter is disabled (window=0), so
+    # it must have no effect at all.
+    falling = _benchmark_close()
+    falling.iloc[-1] = falling.iloc[0] * 0.5
+    result = scan_reversion_candidates(
+        history, ReversionScannerConfig(market_filter_window=0), {"KOSPI": falling}
+    ).set_index(["symbol", "signal_type"])
+    assert result.loc[("A", "swing"), "state"] == "entry_due_next_session"
+
+
+def test_market_filter_suppresses_entries_in_the_wrong_regime(monkeypatch):
+    history = _history()
+
+    def always_enters(data):
+        frame = _no_entries(data)
+        frame.loc[frame.index[-1], "entries"] = True
+        return frame
+
+    monkeypatch.setattr(reversion_scanner, "bollinger_rsi_signals", always_enters)
+    monkeypatch.setattr(reversion_scanner, "rsi_obv_signals", always_enters)
+
+    # inverted=True (the D-8 default) wants the benchmark BELOW its own SMA.
+    # A flat-then-rising benchmark stays above its SMA, so the gate must block
+    # every entry even though the underlying signals always fire.
+    rising = _benchmark_close(level=100.0)
+    rising.iloc[-30:] = [100.0 + step for step in range(30)]
+    result = scan_reversion_candidates(
+        history,
+        ReversionScannerConfig(
+            market_filter_window=20, market_filter_inverted=True, markets=("KOSPI",)
+        ),
+        {"KOSPI": rising},
+    ).set_index("symbol")
+    # A real signal fired but the gate suppressed it -- this must stay
+    # distinguishable from a genuine no-signal day (see reversion_scanner.py).
+    assert set(result["state"]) == {"regime_gate_blocked"}
+    assert result.loc["A", "signal_type"] == "swing+long_term"
+
+
+def test_market_filter_allows_entries_when_regime_matches(monkeypatch):
+    history = _history()
+
+    def always_enters(data):
+        frame = _no_entries(data)
+        frame.loc[frame.index[-1], "entries"] = True
+        return frame
+
+    monkeypatch.setattr(reversion_scanner, "bollinger_rsi_signals", always_enters)
+    monkeypatch.setattr(reversion_scanner, "rsi_obv_signals", always_enters)
+
+    # A benchmark that just dropped below its own SMA satisfies inverted=True,
+    # so entries due next session must pass through unchanged.
+    falling = _benchmark_close(level=100.0)
+    falling.iloc[-30:] = [100.0 - step for step in range(30)]
+    result = scan_reversion_candidates(
+        history,
+        ReversionScannerConfig(
+            market_filter_window=20, market_filter_inverted=True, markets=("KOSPI",)
+        ),
+        {"KOSPI": falling},
+    ).set_index(["symbol", "signal_type"])
+    assert result.loc[("A", "swing"), "state"] == "entry_due_next_session"
+    assert result.loc[("A", "long_term"), "state"] == "entry_due_next_session"
+
+
+def test_market_filter_window_without_benchmark_close_raises():
+    with pytest.raises(ValueError, match="market_filter_window requires a benchmark close"):
+        scan_reversion_candidates(_history(), ReversionScannerConfig(market_filter_window=20))
+
+
+def test_market_filter_does_not_affect_native_exit_evaluation(monkeypatch):
+    # native_exit_observed takes no config/benchmark_close argument at all --
+    # this test documents that the regime gate cannot reach it, matching the
+    # "only entries are gated" contract shared with reversion_validation.py.
+    close = pd.Series([80.0, 100.0], index=pd.bdate_range("2024-01-01", periods=2))
+
+    def indicators(values):
+        result = pd.DataFrame(
+            {"bb_middle": [90.0, 90.0], "rsi": [10.0, 10.0], "entries": False, "exits": False},
+            index=values.index,
+        )
+        result.attrs["rsi_levels"] = (30.0, 50.0)
+        return result
+
+    monkeypatch.setattr(reversion_scanner, "bollinger_rsi_signals", indicators)
+    assert native_exit_observed(close, "swing")
+
+
+def test_native_swing_exit_does_not_require_a_simulated_entry(monkeypatch):
+    close = pd.Series([80.0, 100.0], index=pd.bdate_range("2024-01-01", periods=2))
+
+    def indicators(values):
+        result = pd.DataFrame(
+            {
+                "bb_middle": [90.0, 90.0],
+                "rsi": [10.0, 10.0],
+                "entries": False,
+                "exits": False,
+            },
+            index=values.index,
+        )
+        result.attrs["rsi_levels"] = (30.0, 50.0)
+        return result
+
+    monkeypatch.setattr(reversion_scanner, "bollinger_rsi_signals", indicators)
+    assert native_exit_observed(close, "swing")
+
+
+def test_native_long_term_exit_does_not_require_a_simulated_entry(monkeypatch):
+    index = pd.bdate_range("2024-01-01", periods=2)
+    prices = pd.DataFrame(
+        {"Open": 100.0, "High": 101.0, "Low": 99.0, "Close": 100.0, "Volume": 1_000},
+        index=index,
+    )
+
+    def indicators(values):
+        result = pd.DataFrame(
+            {"rsi": [60.0, 80.0], "obv_weakening": [False, True], "entries": False, "exits": False},
+            index=values.index,
+        )
+        result.attrs["rsi_levels"] = (30.0, 70.0)
+        return result
+
+    monkeypatch.setattr(reversion_scanner, "rsi_obv_signals", indicators)
+    assert native_exit_observed(prices, "long_term")
+
+
+def test_reversion_rule_parameters_report_the_live_signal_defaults():
+    parameters = reversion_rule_parameters()
+
+    # The scanner never passes these explicitly, so the function defaults are
+    # the live rule; D-33 folds them into the candidate-audit fingerprint so a
+    # retune invalidates the accumulating prospective sample.
+    assert set(parameters) == {SWING_STRATEGY, LONG_TERM_STRATEGY}
+    assert parameters[SWING_STRATEGY]["oversold"] == 30.0
+    assert parameters[SWING_STRATEGY]["window"] == 20
+    assert parameters[LONG_TERM_STRATEGY]["oversold"] == 30.0
+    assert "exit_rsi" in parameters[LONG_TERM_STRATEGY]
+    # Price/volume inputs carry no default and must not leak into the payload.
+    assert not any("close" in strategy or "data" in strategy for strategy in parameters.values())

@@ -1,0 +1,24 @@
+"""감사로그·체결로그 요약(건수만). 읽기 전용."""
+import csv
+from collections import Counter, OrderedDict
+from pathlib import Path
+
+REPO = Path("/home/gram/korea-quant-system")
+rows = list(csv.DictReader((REPO / "data/bot_candidate_audit.csv").open(encoding="utf-8-sig", newline="")))
+by = OrderedDict()
+for r in rows:
+    k = (r["AsOf"], r["ConfigFingerprint"][:16])
+    d = by.setdefault(k, Counter())
+    d["rows"] += 1
+    d[f"sel={r['SelectionOutcome']}"] += 1
+    d[f"sig={r['SignalType']}"] += 1
+for (asof, fp), c in by.items():
+    print(asof, fp, dict(c))
+print("audit rows total", len(rows), "| distinct AsOf", len({r["AsOf"] for r in rows}))
+p = REPO / "data/bot_trade_log.csv"
+if p.exists():
+    t = list(csv.DictReader(p.open(encoding="utf-8-sig", newline="")))
+    cols = t[0].keys() if t else []
+    ev = Counter(r.get("Event") or r.get("EventType") or r.get("Status") or "?" for r in t)
+    print("trade log rows", len(t), "| columns:", ", ".join(cols)[:200])
+    print("trade log events", dict(ev))

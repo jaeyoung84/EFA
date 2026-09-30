@@ -1,0 +1,69 @@
+from datetime import date
+
+from korea_quant.audit import audit_krx_database
+from korea_quant.krx import KrxDailyStore
+
+
+def _row(day: date, symbol: str, market: str):
+    return {
+        "trade_date": day.isoformat(), "symbol": symbol, "name": symbol,
+        "market": market, "section": "", "open": 100, "high": 110,
+        "low": 90, "close": 105, "volume": 1000, "trading_value": 105000,
+        "market_cap": 1_000_000, "listed_shares": 10_000,
+    }
+
+
+def _complete_day(store: KrxDailyStore, day: date):
+    store.upsert_day("KOSPI", day, [_row(day, "005930", "KOSPI")])
+    store.upsert_day("KOSDAQ", day, [_row(day, "035720", "KOSDAQ")])
+
+
+def test_audit_reports_healthy_complete_database(tmp_path):
+    store = KrxDailyStore(tmp_path / "daily.sqlite3")
+    _complete_day(store, date(2024, 8, 1))
+    _complete_day(store, date(2024, 8, 2))
+
+    report = audit_krx_database(store.path)
+
+    assert report["healthy"]
+    assert report["summary"]["price_rows"] == 4
+    assert not any(report["issue_counts"].values())
+
+
+def test_audit_allows_an_etf_log_in_addition_to_complete_stock_markets(tmp_path):
+    store = KrxDailyStore(tmp_path / "daily.sqlite3")
+    day = date(2024, 8, 1)
+    _complete_day(store, day)
+    store.upsert_day("ETF", day, [_row(day, "069500", "ETF")])
+
+    report = audit_krx_database(store.path)
+
+    assert report["healthy"]
+
+
+def test_audit_finds_incomplete_market_and_logged_count_mismatch(tmp_path):
+    store = KrxDailyStore(tmp_path / "daily.sqlite3")
+    day = date(2024, 8, 1)
+    store.upsert_day("KOSPI", day, [_row(day, "005930", "KOSPI")])
+    with store.connect() as connection:
+        connection.execute(
+            "UPDATE collection_log SET row_count = 99 WHERE trade_date = ?",
+            (day.isoformat(),),
+        )
+
+    report = audit_krx_database(store.path)
+
+    assert not report["healthy"]
+    assert report["issue_counts"]["incomplete_market_dates"] == 1
+    assert report["issue_counts"]["row_count_mismatches"] == 1
+
+
+def test_audit_finds_long_calendar_gap(tmp_path):
+    store = KrxDailyStore(tmp_path / "daily.sqlite3")
+    _complete_day(store, date(2024, 8, 1))
+    _complete_day(store, date(2024, 8, 30))
+
+    report = audit_krx_database(store.path)
+
+    assert report["issue_counts"]["calendar_gaps_over_14_days"] == 1
+    assert report["samples"]["calendar_gaps_over_14_days"][0]["gap_days"] == 29

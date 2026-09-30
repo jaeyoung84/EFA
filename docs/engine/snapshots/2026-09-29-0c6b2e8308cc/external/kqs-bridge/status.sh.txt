@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# kqs-bridge 상태: 프로세스 · 포트 · /api/health (수치 없이 상태만 출력)
+set -u
+DIR="$(cd "$(dirname "$0")" && pwd)"
+PIDFILE="$DIR/bridge.pid"
+PORT="${KQS_BRIDGE_PORT:-18100}"
+if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+  echo "process: running (pid $(cat "$PIDFILE"))"
+else
+  echo "process: not running"
+fi
+if command -v ss >/dev/null 2>&1; then
+  if ss -ltn 2>/dev/null | grep -q ":$PORT "; then echo "port $PORT: listening"; else echo "port $PORT: not listening"; fi
+fi
+python3 - "$PORT" <<'EOF'
+import json, sys, urllib.request
+port = sys.argv[1]
+try:
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=5) as r:
+        j = json.load(r)
+    print(f"health: ok  {j['bridge']}  started={j['started_at']}  uptime_s={j['uptime_s']}  missing_files={j['missing'] or 'none'}")
+except Exception as e:
+    print(f"health: FAIL ({e})")
+EOF

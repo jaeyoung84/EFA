@@ -1,0 +1,163 @@
+"""4개 변형(T-0/v1/v2/v3)의 기존 원출력 .log 에서 성과 지표를 구조적으로 파싱 → §12.3 고정 기준으로 순위.
+재실행 없음. 출력: /home/gram/pullback_variant_ranking.txt (stdout 동일). 가격/배당/NAV 값 없음(집계 지표만)."""
+import re, math
+from pathlib import Path
+H = Path("/home/gram")
+LOGS = {
+    "T-0 (#1)":      H / "pullback_realdata_run.log",
+    "T-0 (#1 재현)": H / "pullback_v04_repro.log",
+    "v1 (#2)":       H / "pullback_v1_obs2.log",
+    "v2 (#3)":       H / "pullback_v2_obs3.log",
+    "v3 (#4)":       H / "pullback_v3_obs4.log",
+}
+SUMS = {
+    "T-0 (#1)":      H / "pullback_realdata_summary.txt",
+    "T-0 (#1 재현)": H / "pullback_v04_repro_summary.txt",
+    "v1 (#2)":       H / "pullback_v1_obs2_summary.txt",
+    "v2 (#3)":       H / "pullback_v2_obs3_summary.txt",
+    "v3 (#4)":       H / "pullback_v3_obs4_summary.txt",
+}
+
+def fnum(s):
+    s = s.strip()
+    if s.startswith("∞") or s == "inf": return math.inf
+    try: return float(s)
+    except ValueError: return s
+
+def parse_log(p):
+    lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+    out = {"final": {}, "tg": {}, "tg_criteria": {}, "folds": [], "g3": [], "g7": None, "summary_lines": []}
+    sec = None
+    for ln in lines:
+        s = ln.rstrip()
+        if "COMBINED FINAL VALIDATION" in s: sec = "final"; continue
+        if "TREND GOAL CHECK" in s: sec = "tg"; continue
+        if "FOLD DIAGNOSTIC" in s: sec = "fold"; continue
+        if s.startswith("[G3 국면별 PF]"): sec = "g3"; continue
+        if "MARKET GATE DIAGNOSTIC" in s: sec = "gate"; continue
+        if s.startswith("[SUMMARY]"): out["summary_lines"].append(s); sec = None; continue
+        if s.startswith("G7") or s.startswith("[G7"): out["g7"] = re.sub(r"\d+(\.\d+)?%", "#%", s); sec = "final"; continue
+        if s.startswith("─"): sec = "final"; continue
+        if not s.strip():
+            if sec in ("fold", "g3"): sec = None
+            continue
+        if sec == "final":
+            m = re.match(r"^\s{2}(\S[^:]*?):\s(.*)$", s)
+            if m and "─" not in s: out["final"][m.group(1).strip()] = fnum(m.group(2))
+        elif sec == "tg":
+            m = re.match(r"^\s{4}(\S+):\s(PASS|FAIL)$", s)
+            if m: out["tg_criteria"][m.group(1)] = m.group(2); continue
+            m = re.match(r"^\s{2}(\S+):\s(.*)$", s)
+            if m: out["tg"][m.group(1)] = fnum(m.group(2))
+        elif sec == "fold":
+            if s.strip().startswith("기간"): continue
+            parts = s.split()
+            if len(parts) >= 7 and parts[1] == "~":
+                out["folds"].append({"기간": " ".join(parts[:3]), "PF": fnum(parts[3]), "MDD": fnum(parts[4]),
+                                     "n": int(parts[5]), "판정": " ".join(parts[6:])})
+        elif sec == "g3":
+            if s.strip().startswith("기간"): continue
+            parts = s.split()
+            if len(parts) >= 4:
+                out["g3"].append({"기간": " ".join(parts[:-3]), "유형": parts[-3], "PF": fnum(parts[-2]), "n": int(parts[-1])})
+    return out
+
+R = {k: parse_log(p) for k, p in LOGS.items()}
+S = {k: p.read_text(encoding="utf-8", errors="replace") for k, p in SUMS.items()}
+
+buf = []
+def P(*a): buf.append(" ".join(str(x) for x in a))
+
+# 0) T-0 원본 vs 재현 동일성
+a, b = R["T-0 (#1)"]["final"], R["T-0 (#1 재현)"]["final"]
+same = {k for k in a if k in b and a[k] == b[k]}
+P(f"[검사] T-0 원본 vs 재현: final 키 {len(a)}/{len(b)}, 값 동일 {len(same)}, 상이 {sorted((set(a)|set(b)) - same)}")
+fa, fb = R["T-0 (#1)"]["folds"], R["T-0 (#1 재현)"]["folds"]
+P(f"[검사] T-0 원본 vs 재현: 폴드 표 동일 {fa == fb}, G3 표 동일 {R['T-0 (#1)']['g3'] == R['T-0 (#1 재현)']['g3']}")
+P(f"[검사] 폴드 행수: " + ", ".join(f"{k}={len(v['folds'])}" for k, v in R.items()))
+P(f"[검사] G3 행수: " + ", ".join(f"{k}={len(v['g3'])}" for k, v in R.items()))
+P(f"[검사] final 키수: " + ", ".join(f"{k}={len(v['final'])}" for k, v in R.items()))
+P()
+
+V = ["T-0 (#1 재현)", "v1 (#2)", "v2 (#3)", "v3 (#4)"]
+KEYS = ["PF_cash", "PF_R (진단)", "PF_cash_49bp (민감도)", "PF_부트스트랩_보수_하한", "원시_거래_수", "실효_표본_수",
+        "[강제] 검정력_상태", "MDD", "최대_낙폭_지속_거래일", "미회복_종료", "평균_노출도",
+        "상위1%_제외_PF", "상위1%_의존도", "상위5%_제외_PF", "손절_거래_수", "실현손실_95%분위_R", "2R_초과_비율",
+        "R1_보수_하한>1.00", "R3_MDD≤20%", "최종_통과", "[주의] 결과_등급", "관측_횟수"]
+def fmt(v):
+    if isinstance(v, float):
+        if math.isinf(v): return "∞"
+        return f"{v:.4f}"
+    return str(v)
+P("=== A. COMBINED FINAL VALIDATION (원출력 파싱) ===")
+P(f"{'지표':28s} | " + " | ".join(f"{v:14s}" for v in V))
+for k in KEYS:
+    P(f"{k:28s} | " + " | ".join(f"{fmt(R[v]['final'].get(k, 'N/A')):14s}" for v in V))
+P()
+P("=== B. TREND GOAL CHECK (T-0 는 V1-6 이전 → 없음) ===")
+tgk = sorted({k for v in V for k in R[v]["tg"]})
+for k in tgk:
+    P(f"{k:28s} | " + " | ".join(f"{fmt(R[v]['tg'].get(k, 'N/A')):14s}" for v in V))
+ck = sorted({k for v in V for k in R[v]["tg_criteria"]})
+for k in ck:
+    P(f"  criteria.{k:18s} | " + " | ".join(f"{R[v]['tg_criteria'].get(k, 'N/A'):14s}" for v in V))
+P()
+P("=== C. FOLD DIAGNOSTIC (10 폴드: PF / 폴드내 MDD / 거래 / 판정) ===")
+for v in V:
+    fs = R[v]["folds"]
+    npos = sum(1 for f in fs if isinstance(f["PF"], float) and f["PF"] > 1.0)
+    P(f"-- {v}: PF>1 폴드 {npos}/{len(fs)}, 판정 " + ",".join(f["판정"] for f in fs))
+    for f in fs:
+        P(f"   {f['기간']:26s} PF {fmt(f['PF']):>8s}  MDD {fmt(f['MDD']):>8s}  n {f['n']:4d}  {f['판정']}")
+P()
+P("=== D. G3 국면별 PF (강세/약세/워밍업/결측) + 월별 PF>1 개수 ===")
+for v in V:
+    g = R[v]["g3"]
+    mon = [r for r in g if r["유형"] == "월별"]
+    ph = [r for r in g if r["유형"] == "국면"]
+    mpos = sum(1 for r in mon if isinstance(r["PF"], float) and r["PF"] > 1.0)
+    P(f"-- {v}: 월별 {len(mon)}개월 중 PF>1 {mpos}개월; " + "; ".join(f"{r['기간']} PF {fmt(r['PF'])} n {r['n']}" for r in ph))
+    P(f"   G7: {R[v]['g7']}")
+P()
+P("=== E. 요약 파일(건수·플래그·해시) ===")
+for v in V:
+    P(f"-- {v}")
+    for ln in S[v].splitlines():
+        if ln.strip(): P("   " + ln)
+P()
+
+# 승률(요약 건수)
+def winrate(txt):
+    m = re.search(r"win/loss\D*(\d+)\D+(\d+)", txt) or re.search(r"승/패\D*(\d+)\D+(\d+)", txt) or re.search(r"승\D*(\d+)\D+패\D*(\d+)", txt)
+    if not m: return None
+    w, l = int(m.group(1)), int(m.group(2)); return w / (w + l), w, l
+
+P("=== F. 순위 (§12.3 고정: ①PF_cash↑ ②PF보수하한↑ ③MDD↓ ④상위5%제외PF↑ ⑤PF>1폴드수↑, 보르다 합, 동점 PF_cash) ===")
+crit = {
+    "PF_cash":   (lambda v: R[v]["final"]["PF_cash"], True),
+    "PF_보수하한": (lambda v: R[v]["final"]["PF_부트스트랩_보수_하한"], True),
+    "MDD":       (lambda v: R[v]["final"]["MDD"], False),
+    "상위5%제외PF": (lambda v: R[v]["final"]["상위5%_제외_PF"], True),
+    "PF>1폴드":   (lambda v: sum(1 for f in R[v]["folds"] if isinstance(f["PF"], float) and f["PF"] > 1.0), True),
+}
+ranks = {v: {} for v in V}
+for name, (fn, hi) in crit.items():
+    vals = {v: fn(v) for v in V}
+    order = sorted(V, key=lambda v: (-vals[v] if hi else vals[v]))
+    # 동일값 = 동일 순위(최소 순위)
+    for i, v in enumerate(order):
+        ranks[v][name] = 1 + sum(1 for u in V if (vals[u] > vals[v] if hi else vals[u] < vals[v]))
+    P(f"{name:12s}: " + " | ".join(f"{v} {fmt(vals[v]) if isinstance(vals[v], float) else vals[v]} (r{ranks[v][name]})" for v in V))
+tot = {v: sum(ranks[v].values()) for v in V}
+final_order = sorted(V, key=lambda v: (tot[v], -R[v]["final"]["PF_cash"]))
+P()
+P("순위 합(낮을수록 좋음):")
+for i, v in enumerate(final_order, 1):
+    wr = winrate(S[v])
+    wrs = f"승률 {wr[0]:.1%} ({wr[1]}/{wr[2]})" if wr else "승률 N/A"
+    P(f"  {i}위 {v:14s} 합 {tot[v]:2d}  " + " ".join(f"{k}=r{r}" for k, r in ranks[v].items()) + f"  | {wrs}")
+P()
+P("[주의] 4개 변형 전부 사전등록 판정 불통과(PF_cash<1 또는 R1/R3 False) — 순위는 '덜 나쁜 순서'.")
+text = "\n".join(buf)
+(H / "pullback_variant_ranking.txt").write_text(text + "\n", encoding="utf-8")
+print(text)

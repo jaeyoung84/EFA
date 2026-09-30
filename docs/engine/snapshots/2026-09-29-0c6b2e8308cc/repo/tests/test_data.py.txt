@@ -1,0 +1,133 @@
+import pandas as pd
+import pytest
+
+from korea_quant.data import CachedPriceDataSource, normalize_ohlcv, validate_krx_symbol
+
+
+def _prices(dates, closes=None):
+    closes = closes or range(100, 100 + len(dates))
+    return pd.DataFrame(
+        {
+            "Open": closes,
+            "High": [value + 2 for value in closes],
+            "Low": [value - 2 for value in closes],
+            "Close": closes,
+            "Volume": [1_000] * len(dates),
+        },
+        index=pd.to_datetime(dates),
+    )
+
+
+class RecordingSource:
+    def __init__(self):
+        self.calls = []
+
+    def daily_prices(self, symbol, start, end=None):
+        self.calls.append((symbol, start, end))
+        return _prices(pd.date_range(start, end, freq="D"))
+
+
+class EmptySource:
+    def __init__(self):
+        self.calls = 0
+
+    def daily_prices(self, symbol, start, end=None):
+        self.calls += 1
+        return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
+
+
+def test_validate_krx_symbol_preserves_leading_zeroes():
+    assert validate_krx_symbol("005930") == "005930"
+
+
+def test_validate_krx_symbol_accepts_letter_suffix():
+    assert validate_krx_symbol("00104k") == "00104K"
+
+
+def test_validate_krx_symbol_accepts_letter_inside_code():
+    assert validate_krx_symbol("0030r0") == "0030R0"
+
+
+@pytest.mark.parametrize("symbol", ["5930", "AB-CD1", "005930.KS", "가0104K", ""])
+def test_validate_krx_symbol_rejects_invalid_values(symbol):
+    with pytest.raises(ValueError):
+        validate_krx_symbol(symbol)
+
+
+def test_normalize_ohlcv_sorts_and_deduplicates():
+    frame = pd.DataFrame(
+        {
+            "Open": [100, 110, 105],
+            "High": [120, 130, 125],
+            "Low": [90, 100, 95],
+            "Close": [115, 125, 120],
+            "Volume": [10, 20, 15],
+        },
+        index=["2024-01-03", "2024-01-02", "2024-01-03"],
+    )
+
+    result = normalize_ohlcv(frame)
+
+    assert result.index.is_monotonic_increasing
+    assert result.index.is_unique
+    assert result.loc[pd.Timestamp("2024-01-03"), "Close"] == 120
+
+
+@pytest.mark.parametrize(
+    ("column", "value", "message"),
+    [
+        ("Close", None, "missing"),
+        ("Open", -1, "positive"),
+        ("Volume", -1, "negative"),
+    ],
+)
+def test_normalize_ohlcv_rejects_bad_values(column, value, message):
+    frame = _prices(["2024-01-02"])
+    frame.loc[frame.index[0], column] = value
+
+    with pytest.raises(ValueError, match=message):
+        normalize_ohlcv(frame)
+
+
+def test_cache_fetches_only_missing_ranges(tmp_path):
+    source = RecordingSource()
+    cached = CachedPriceDataSource(source, tmp_path)
+
+    first = cached.daily_prices("005930", "2024-01-03", "2024-01-05")
+    second = cached.daily_prices("005930", "2024-01-01", "2024-01-07")
+    third = cached.daily_prices("005930", "2024-01-02", "2024-01-06")
+
+    assert len(first) == 3
+    assert list(second.index) == list(pd.date_range("2024-01-01", "2024-01-07"))
+    assert len(third) == 5
+    assert source.calls == [
+        ("005930", pd.Timestamp("2024-01-03").date(), pd.Timestamp("2024-01-05").date()),
+        ("005930", pd.Timestamp("2024-01-01").date(), pd.Timestamp("2024-01-02").date()),
+        ("005930", pd.Timestamp("2024-01-06").date(), pd.Timestamp("2024-01-07").date()),
+    ]
+    assert (tmp_path / "005930.csv").exists()
+    assert (tmp_path / "005930.json").exists()
+
+
+def test_cache_rejects_corrupted_cached_data(tmp_path):
+    source = RecordingSource()
+    cached = CachedPriceDataSource(source, tmp_path)
+    cached.daily_prices("005930", "2024-01-01", "2024-01-02")
+    frame = pd.read_csv(tmp_path / "005930.csv")
+    frame.loc[0, "Volume"] = -1
+    frame.to_csv(tmp_path / "005930.csv", index=False)
+
+    with pytest.raises(ValueError, match="Invalid price cache"):
+        cached.daily_prices("005930", "2024-01-01", "2024-01-02")
+
+
+def test_cache_remembers_a_requested_range_with_no_trading_days(tmp_path):
+    source = EmptySource()
+    cached = CachedPriceDataSource(source, tmp_path)
+
+    with pytest.raises(ValueError, match="requested period"):
+        cached.daily_prices("005930", "2024-01-06", "2024-01-07")
+    with pytest.raises(ValueError, match="requested period"):
+        cached.daily_prices("005930", "2024-01-06", "2024-01-07")
+
+    assert source.calls == 1

@@ -1,0 +1,13 @@
+from korea_quant.strategy_profiles import profile_label, strategies_for_profile
+
+
+def test_strategy_profiles_keep_reversion_and_trend_objectives_separate():
+    assert strategies_for_profile("reversion") == ("bollinger-rsi", "rsi-obv")
+    assert set(strategies_for_profile("breakout")) == {
+        "donchian-atr", "volatility-squeeze", "ema30-resistance", "trend-multiplier"
+    }
+    assert profile_label("trend-pullback") == "추세 눌림목 혼합형"
+
+
+def test_multiplier_profile_contains_only_the_high_reward_hold_strategy():
+    assert strategies_for_profile("multiplier") == ("trend-multiplier",)

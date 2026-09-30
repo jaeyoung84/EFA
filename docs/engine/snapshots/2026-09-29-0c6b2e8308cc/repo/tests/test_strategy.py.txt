@@ -1,0 +1,490 @@
+import pandas as pd
+import pytest
+
+from korea_quant.strategy import (
+    bollinger_rsi_signals,
+    candle_volume_signals,
+    darvas_box_signals,
+    donchian_atr_signals,
+    ema_resistance_signals,
+    macd_trend_signals,
+    moving_average_signals,
+    rsi_obv_signals,
+    trend_multiplier_signals,
+    trend_pullback_signals,
+    turtle_signals,
+    volatility_squeeze_signals,
+)
+
+
+def test_signal_is_shifted_to_next_session():
+    close = pd.Series([1.0, 1.0, 1.0, 3.0, 4.0], index=pd.date_range("2024-01-01", periods=5))
+
+    result = moving_average_signals(close, fast_window=2, slow_window=3)
+
+    regime = result["fast"] > result["slow"]
+    first_regime_date = regime[regime].index[0]
+    first_entry_date = result.index[result["entries"]][0]
+    assert first_entry_date > first_regime_date
+
+
+@pytest.mark.parametrize("fast,slow", [(0, 2), (2, 0), (2, 2), (3, 2)])
+def test_invalid_windows_raise(fast, slow):
+    with pytest.raises(ValueError):
+        moving_average_signals(pd.Series([1, 2, 3]), fast, slow)
+
+
+def test_bollinger_rsi_orders_are_shifted_and_do_not_overlap():
+    index = pd.bdate_range("2024-01-01", periods=12)
+    close = pd.Series([10, 10, 10, 10, 10, 6, 7, 8, 10, 11, 10, 9], index=index)
+
+    result = bollinger_rsi_signals(
+        close, window=3, standard_deviations=1, rsi_window=2, oversold=40, exit_rsi=55
+    )
+
+    observed_entry = (close <= result["bb_lower"]) & (result["rsi"] <= 40)
+    assert result.loc[observed_entry, "entries"].sum() == 0
+    assert result["entries"].any()
+    assert result.index[result["entries"]][0] > result.index[observed_entry][0]
+    assert not (result["entries"] & result["exits"]).any()
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"window": 1},
+        {"rsi_window": 1},
+        {"standard_deviations": 0},
+        {"oversold": 60, "exit_rsi": 50},
+    ],
+)
+def test_invalid_bollinger_rsi_parameters_raise(kwargs):
+    with pytest.raises(ValueError):
+        bollinger_rsi_signals(pd.Series(range(30)), **kwargs)
+
+
+def test_volatility_squeeze_is_causal_and_returns_required_columns():
+    index = pd.bdate_range("2024-01-01", periods=145)
+    close = pd.Series(
+        [100 + (position % 7) for position in range(110)]
+        + [106 + (position % 2) * 0.1 for position in range(34)]
+        + [110],
+        index=index,
+    )
+    prices = pd.DataFrame(
+        {"High": close + 1, "Low": close - 1, "Close": close, "Volume": 1_000}, index=index
+    )
+    prices.loc[index[-1], "Volume"] = 3_000
+
+    short = volatility_squeeze_signals(
+        prices.iloc[:-1], ema_window=5, band_window=5, atr_window=3,
+        compression_lookback=10, breakout_window=5, volume_window=5,
+    )
+    full = volatility_squeeze_signals(
+        prices, ema_window=5, band_window=5, atr_window=3,
+        compression_lookback=10, breakout_window=5, volume_window=5,
+    )
+
+    assert {
+        "ema30", "squeeze_bandwidth", "squeeze_atr_percent", "squeeze",
+        "breakout_level", "volume_average", "volume_confirmed", "breakout", "entries", "exits",
+    } == set(full)
+    pd.testing.assert_frame_equal(short, full.loc[short.index])
+
+
+@pytest.mark.parametrize("kwargs", [{"ema_window": 1}, {"compression_percentile": 0}])
+def test_invalid_volatility_squeeze_parameters_raise(kwargs):
+    prices = pd.DataFrame(
+        {"High": range(30), "Low": range(30), "Close": range(30), "Volume": 1_000}
+    )
+    with pytest.raises(ValueError):
+        volatility_squeeze_signals(prices, **kwargs)
+
+
+def test_donchian_uses_prior_channel_and_shifts_entry():
+    index = pd.bdate_range("2024-01-01", periods=10)
+    close = pd.Series([10, 10, 10, 11, 12, 13, 14, 15, 14, 13], index=index)
+    prices = pd.DataFrame(
+        {"High": close + 0.5, "Low": close - 0.5, "Close": close}, index=index
+    )
+
+    result = donchian_atr_signals(
+        prices, entry_window=3, exit_window=2, atr_window=2, atr_multiplier=2
+    )
+
+    breakout = close > result["donchian_upper"]
+    first_breakout = breakout[breakout].index[0]
+    first_order = result.index[result["entries"]][0]
+    assert not bool(result.loc[first_breakout, "entries"])
+    assert first_order > first_breakout
+    assert result.loc[index[3], "donchian_upper"] == prices["High"].iloc[:3].max()
+
+
+def test_donchian_atr_stop_exits_on_next_session():
+    index = pd.bdate_range("2024-01-01", periods=11)
+    close = pd.Series([10, 10, 10, 12, 14, 15, 16, 15, 13, 12, 11], index=index)
+    prices = pd.DataFrame(
+        {"High": close + 0.5, "Low": close - 0.5, "Close": close}, index=index
+    )
+    result = donchian_atr_signals(
+        prices, entry_window=3, exit_window=2, atr_window=2, atr_multiplier=1
+    )
+
+    assert result["entries"].sum() == 1
+    assert result["exits"].sum() == 1
+    exit_order_date = result.index[result["exits"]][0]
+    prior_date = result.index[result.index.get_loc(exit_order_date) - 1]
+    assert close.loc[prior_date] <= result.loc[prior_date, "atr_stop"] or (
+        close.loc[prior_date] < result.loc[prior_date, "donchian_lower"]
+    )
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"entry_window": 1},
+        {"exit_window": 1},
+        {"atr_window": 1},
+        {"entry_window": 3, "exit_window": 4},
+        {"atr_multiplier": 0},
+    ],
+)
+def test_invalid_donchian_atr_parameters_raise(kwargs):
+    prices = pd.DataFrame({"High": range(30), "Low": range(30), "Close": range(30)})
+    with pytest.raises(ValueError):
+        donchian_atr_signals(prices, **kwargs)
+
+
+def test_macd_trend_entry_is_shifted_to_next_session():
+    index = pd.bdate_range("2024-01-01", periods=20)
+    close = pd.Series([10, 9, 8, 7, 6, 7, 8, 9, 10, 11, 12, 13, 12, 11, 10, 9, 8, 9, 10, 11], index=index)
+
+    result = macd_trend_signals(
+        close, fast_span=2, slow_span=4, signal_span=2, trend_window=3
+    )
+
+    above = result["macd"] > result["macd_signal"]
+    bullish_cross = above & ~above.shift(1, fill_value=False) & (close > result["trend_sma"])
+    first_observation = bullish_cross[bullish_cross].index[0]
+    first_order = result.index[result["entries"]][0]
+    assert not bool(result.loc[first_observation, "entries"])
+    assert first_order > first_observation
+
+
+def test_macd_trend_filter_blocks_cross_below_long_sma():
+    index = pd.bdate_range("2024-01-01", periods=20)
+    close = pd.Series([20, 19, 18, 17, 16, 17, 18, 19, 18, 17, 16, 15, 14, 15, 16, 17, 16, 15, 14, 13], index=index)
+    result = macd_trend_signals(
+        close, fast_span=2, slow_span=4, signal_span=2, trend_window=10
+    )
+    above = result["macd"] > result["macd_signal"]
+    crosses = above & ~above.shift(1, fill_value=False)
+
+    blocked = crosses & (close <= result["trend_sma"])
+    assert blocked.any()
+    assert not result["entries"].shift(-1, fill_value=False).loc[blocked].any()
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"fast_span": 1},
+        {"slow_span": 1},
+        {"signal_span": 1},
+        {"trend_window": 1},
+        {"fast_span": 5, "slow_span": 5},
+        {"fast_span": 6, "slow_span": 5},
+    ],
+)
+def test_invalid_macd_parameters_raise(kwargs):
+    with pytest.raises(ValueError):
+        macd_trend_signals(pd.Series(range(30)), **kwargs)
+
+
+def test_candle_volume_uses_prior_volume_and_shifts_order():
+    index = pd.bdate_range("2024-01-01", periods=7)
+    prices = pd.DataFrame(
+        {
+            "Open": [10, 10, 10, 10, 10, 9, 11],
+            "High": [11, 11, 11, 11, 11, 12, 12],
+            "Low": [9, 9, 9, 9, 9, 8, 10],
+            "Close": [10, 10, 10, 10, 9, 11, 11],
+            "Volume": [100, 100, 100, 100, 100, 250, 100],
+        },
+        index=index,
+    )
+
+    result = candle_volume_signals(prices, volume_window=3, volume_multiplier=2)
+
+    pattern_date = index[5]
+    assert result.loc[pattern_date, "bullish_engulfing"]
+    assert result.loc[pattern_date, "volume_average"] == 100
+    assert result.loc[pattern_date, "volume_confirmed"]
+    assert not bool(result.loc[pattern_date, "entries"])
+    assert result.loc[index[6], "entries"]
+
+
+def test_candle_volume_detects_bullish_hammer():
+    index = pd.bdate_range("2024-01-01", periods=5)
+    prices = pd.DataFrame(
+        {
+            "Open": [10, 10, 10, 10, 10], "High": [11, 11, 11, 11, 11.2],
+            "Low": [9, 9, 9, 9, 7], "Close": [10, 10, 10, 10, 11],
+            "Volume": [100, 100, 100, 100, 200],
+        }, index=index,
+    )
+    result = candle_volume_signals(prices, volume_window=3, volume_multiplier=1.5)
+    assert result.loc[index[-1], "bullish_hammer"]
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"volume_window": 1},
+        {"volume_multiplier": 0},
+        {"hammer_shadow_ratio": 0},
+    ],
+)
+def test_invalid_candle_volume_parameters_raise(kwargs):
+    prices = pd.DataFrame(
+        {"Open": range(5), "High": range(5), "Low": range(5),
+         "Close": range(5), "Volume": range(5)}
+    )
+    with pytest.raises(ValueError):
+        candle_volume_signals(prices, **kwargs)
+
+
+def test_rsi_obv_calculation_and_next_session_entry():
+    index = pd.bdate_range("2024-01-01", periods=12)
+    close = pd.Series([10, 9, 8, 7, 6, 7, 8, 9, 10, 11, 10, 9], index=index)
+    volume = pd.Series([100, 100, 100, 100, 100, 300, 300, 300, 200, 200, 400, 400], index=index)
+    prices = pd.DataFrame({"Close": close, "Volume": volume})
+
+    result = rsi_obv_signals(
+        prices, rsi_window=2, oversold=40, exit_rsi=70, obv_signal_window=2
+    )
+
+    expected_obv = (volume * close.diff().apply(
+        lambda value: 1 if value > 0 else (-1 if value < 0 else 0)
+    )).cumsum()
+    pd.testing.assert_series_equal(result["obv"], expected_obv, check_names=False)
+    observations = result["rsi_recovery"] & result["obv_rising"]
+    first_observation = observations[observations].index[0]
+    first_order = result.index[result["entries"]][0]
+    assert not bool(result.loc[first_observation, "entries"])
+    assert first_order > first_observation
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"rsi_window": 1},
+        {"obv_signal_window": 1},
+        {"oversold": 70, "exit_rsi": 70},
+    ],
+)
+def test_invalid_rsi_obv_parameters_raise(kwargs):
+    prices = pd.DataFrame({"Close": range(20), "Volume": range(20)})
+    with pytest.raises(ValueError):
+        rsi_obv_signals(prices, **kwargs)
+
+
+def test_rsi_obv_exits_on_neutral_rsi_without_waiting_for_obv():
+    # The old rule was `(rsi >= 70) & obv_weakening`. A recovery that stalls
+    # short of the opposite extreme never satisfied it, so the position was
+    # held indefinitely -- 9.4% of a ten-year sample never closed. The exit now
+    # targets the completion of the reversion, the same level bollinger-rsi
+    # uses, and the OBV term no longer gates it.
+    index = pd.bdate_range("2024-01-01", periods=40)
+    # Fall hard enough to drive RSI under 30, then recover past neutral and
+    # stall there -- the shape that used to trap a position forever.
+    recovery = [43.0, 46.0, 49.0, 52.0] + [51.0 if step % 2 else 52.0 for step in range(21)]
+    close = pd.Series([100.0] * 5 + [100.0 - 6 * step for step in range(1, 11)] + recovery, index=index)
+    prices = pd.DataFrame({"Close": close, "Volume": 1_000.0}, index=index)
+
+    signals = rsi_obv_signals(prices, rsi_window=5, obv_signal_window=3)
+    assert signals["entries"].any(), "the recovery has to produce an entry to test the exit"
+    assert signals["exits"].any(), "a stalled recovery must still close"
+    assert signals["rsi"].max() < 70.0, "and it must close without ever reaching overbought"
+
+    observed = signals.index.get_loc(signals.index[signals["exits"]][0]) - 1
+    assert signals["rsi"].iloc[observed] >= 50.0, "the exit is observed at neutral RSI"
+
+    # The same prices under the level the rule used to require: nothing closes.
+    assert not rsi_obv_signals(
+        prices, rsi_window=5, exit_rsi=70.0, obv_signal_window=3
+    )["exits"].any(), "this is the trade the old rule held indefinitely"
+
+
+def test_ema_resistance_confirms_swings_causally_and_shifts_entry():
+    index = pd.bdate_range("2024-01-01", periods=12)
+    high = pd.Series([10, 12, 10, 11, 12.02, 10, 11, 11.5, 13, 14, 13, 12], index=index)
+    close = pd.Series([9, 10, 9, 10, 11, 9, 10, 11, 12.5, 13, 12, 11], index=index)
+    open_ = close - 0.3
+    open_.iloc[8] = 11
+    low = pd.Series([8, 9, 8, 9, 9, 8.5, 9, 10, 10, 11, 10, 9], index=index)
+    prices = pd.DataFrame({"Open": open_, "High": high, "Low": low, "Close": close})
+
+    result = ema_resistance_signals(
+        prices, ema_window=3, resistance_threshold=0.005, minimum_touches=2,
+        strong_body_lookback=2, strong_body_multiplier=1.5,
+    )
+
+    assert pd.isna(result.loc[index[1], "confirmed_swing_high"])
+    assert result.loc[index[2], "confirmed_swing_high"] == 12
+    assert result.loc[index[5], "confirmed_swing_high"] == pytest.approx(12.02)
+    observation_dates = result.index[result["breakout"]]
+    assert len(observation_dates) == 1
+    order_date = result.index[result["entries"]][0]
+    assert order_date > observation_dates[0]
+
+
+def test_ema_resistance_past_does_not_change_when_future_is_appended():
+    index = pd.bdate_range("2024-01-01", periods=14)
+    high = pd.Series([10, 12, 10, 11, 12.02, 10, 11, 13, 10, 15, 10, 16, 10, 17], index=index)
+    close = high - 1
+    open_ = close - 0.5
+    low = close - 1
+    short = pd.DataFrame(
+        {"Open": open_.iloc[:10], "High": high.iloc[:10], "Low": low.iloc[:10],
+         "Close": close.iloc[:10]}
+    )
+    full = pd.DataFrame({"Open": open_, "High": high, "Low": low, "Close": close})
+
+    short_result = ema_resistance_signals(short, ema_window=3)
+    full_result = ema_resistance_signals(full, ema_window=3)
+
+    pd.testing.assert_frame_equal(short_result, full_result.loc[short_result.index])
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"ema_window": 1},
+        {"resistance_threshold": 0},
+        {"minimum_touches": 1},
+    ],
+)
+def test_invalid_ema_resistance_parameters_raise(kwargs):
+    prices = pd.DataFrame(
+        {"Open": range(20), "High": range(20), "Low": range(20), "Close": range(20)}
+    )
+    with pytest.raises(ValueError):
+        ema_resistance_signals(prices, **kwargs)
+
+
+def test_ema_resistance_exits_after_structure_stop_break():
+    index = pd.bdate_range("2024-01-01", periods=12)
+    high = pd.Series([10, 12, 10, 11, 12.02, 10, 11, 11.5, 13, 14, 8, 8], index=index)
+    close = pd.Series([9, 10, 9, 10, 11, 9, 10, 11, 12.5, 13, 7, 7], index=index)
+    open_ = close - 0.3
+    open_.iloc[8] = 11
+    low = pd.Series([8, 9, 8, 9, 9, 8.5, 9, 10, 10, 11, 6, 6], index=index)
+    result = ema_resistance_signals(
+        pd.DataFrame({"Open": open_, "High": high, "Low": low, "Close": close}),
+        ema_window=3, strong_body_lookback=2, strong_body_multiplier=1.5,
+    )
+    assert result["entries"].sum() == 1
+    assert result["exits"].sum() == 1
+    assert result.index[result["exits"]][0] == index[11]
+
+
+def test_trend_pullback_requires_prior_pullback_and_executes_next_open():
+    index = pd.bdate_range("2024-01-01", periods=14)
+    close = pd.Series([10, 11, 12, 13, 14, 15, 14, 13, 14, 15, 16, 17, 18, 19], index=index)
+    prices = pd.DataFrame({"High": close + 0.5, "Low": close - 0.5, "Close": close})
+    result = trend_pullback_signals(
+        prices, pullback_ema_window=3, trend_ema_window=5, pullback_lookback=4,
+        breakout_window=2, atr_window=3,
+    )
+    observed = result.index[result["rising_trend"] & result["recent_pullback"] & result["breakout"]]
+    assert len(observed) >= 1
+    assert result.index[result["entries"]][0] > observed[0]
+    assert result["atr"].notna().any()
+    assert result["atr_trailing_stop"].notna().any()
+
+
+def test_trend_pullback_rejects_invalid_ema_order():
+    prices = pd.DataFrame({"High": range(20), "Low": range(20), "Close": range(20)})
+    with pytest.raises(ValueError, match="shorter"):
+        trend_pullback_signals(prices, pullback_ema_window=20, trend_ema_window=20)
+
+
+def test_trend_pullback_rejects_invalid_atr_multiplier():
+    prices = pd.DataFrame({"High": range(20), "Low": range(20), "Close": range(20)})
+    with pytest.raises(ValueError, match="ATR multiplier"):
+        trend_pullback_signals(prices, pullback_ema_window=3, trend_ema_window=5, atr_multiplier=0)
+
+
+def test_darvas_box_entry_shifts_and_stop_only_ratchets_up():
+    index = pd.bdate_range("2024-01-01", periods=10)
+    high = pd.Series([11, 11, 11, 13.5, 14, 12.5, 13, 13.2, 13, 12], index=index)
+    low = pd.Series([9, 9, 9, 12.5, 12, 11.5, 11, 11.2, 10.5, 10], index=index)
+    close = pd.Series([10, 10, 10, 13, 13.5, 12, 12.5, 12.8, 11.0, 11.2], index=index)
+    prices = pd.DataFrame({"High": high, "Low": low, "Close": close}, index=index)
+
+    result = darvas_box_signals(prices, box_window=3)
+
+    assert result["entries"].sum() == 1
+    assert result.index[result["entries"]][0] == index[4]
+    assert result["exits"].sum() == 1
+    assert result.index[result["exits"]][0] == index[9]
+    # The box floor briefly dips (11) below the ratcheted stop (11.5); the
+    # stop must not follow it back down.
+    assert result.loc[index[7], "box_floor"] == 11
+    assert result.loc[index[6], "box_stop"] == 11.5
+    assert result.loc[index[7], "box_stop"] == 11.5
+
+
+@pytest.mark.parametrize("kwargs", [{"box_window": 1}, {"box_window": 0}])
+def test_invalid_darvas_box_parameters_raise(kwargs):
+    prices = pd.DataFrame({"High": range(10), "Low": range(10), "Close": range(10)})
+    with pytest.raises(ValueError):
+        darvas_box_signals(prices, **kwargs)
+
+
+def test_turtle_entry_shifts_pyramids_and_ratchets_stop():
+    index = pd.bdate_range("2024-01-01", periods=16)
+    close = pd.Series(
+        [100, 100, 100, 100, 100, 100, 110, 112, 115, 119, 124, 95, 90, 88, 87, 86],
+        index=index,
+    )
+    prices = pd.DataFrame({"High": close + 1, "Low": close - 1, "Close": close}, index=index)
+
+    result = turtle_signals(
+        prices, entry_window=5, exit_window=3, atr_window=3,
+        atr_stop_multiplier=2, pyramid_atr_fraction=0.5, max_units=3,
+    )
+
+    entry_dates = list(result.index[result["entries"]])
+    assert entry_dates == list(pd.to_datetime(["2024-01-10", "2024-01-12", "2024-01-15"]))
+    assert list(result.index[result["exits"]]) == list(pd.to_datetime(["2024-01-17"]))
+    assert result["units"].max() == 3
+
+    holding_stops = result["turtle_stop"].dropna()
+    assert (holding_stops.diff().dropna() >= 0).all()
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"entry_window": 1}, {"exit_window": 1}, {"atr_window": 1},
+        {"atr_stop_multiplier": 0}, {"pyramid_atr_fraction": 0}, {"max_units": 0},
+    ],
+)
+def test_invalid_turtle_parameters_raise(kwargs):
+    prices = pd.DataFrame({"High": range(30), "Low": range(30), "Close": range(30)})
+    with pytest.raises(ValueError):
+        turtle_signals(prices, **kwargs)
+
+
+def test_trend_multiplier_requires_confirmed_breakout_and_shifts_order():
+    index = pd.bdate_range("2024-01-01", periods=36)
+    close = pd.Series([100 + 2 * value for value in range(len(index))], index=index)
+    prices = pd.DataFrame({"High": close + 1, "Low": close - 1, "Close": close, "Volume": 100}, index=index)
+    prices.loc[index[-2], "Volume"] = 300
+    result = trend_multiplier_signals(prices, breakout_window=5, fast_ema_window=3, slow_ema_window=6, volume_window=3, volume_multiplier=1.5, atr_window=2)
+    assert result["entries"].any()
+    entry = result.index[result["entries"]][0]
+    assert entry == index[-1]
+    assert {"trend_breakout_level", "trend_atr_stop", "entries", "exits"} <= set(result)

@@ -1,0 +1,176 @@
+{
+ "change_id": "EINT-006",
+ "verified_at": "2026-09-29T02:14:14.013751+00:00",
+ "package": "iv-kqs-engine 0.5.0",
+ "code": {
+  "package_version": "0.5.0",
+  "source_commit": "0c6b2e8308cc783ea5c4a50c18ff213203631ba2",
+  "code_sha256": "37af1f498bbbf201f4668a950a718ed1694365efb0e32bdc3ad722352bf47a4b",
+  "component_sha256": {
+   "korea_quant/__init__.py": "960d03eca7c45577aea05e6d71dea5269a209ad02c7f15f584f53d535da6a405",
+   "korea_quant/eligibility.py": "f363ec556a14adfdad06af331f3f94f35beb9de405cb047b83b1677f8da1836d",
+   "korea_quant/reversion_scanner.py": "c9bc74ff52f2c79e4e4197679d4ea967bb9aa91b37fa2cf643cc5538c0bd1d99",
+   "korea_quant/strategy.py": "bdf8506cf1371f9b5aca1f4001649ca509c132651d749a550062a452c3b3c9d8",
+   "kqs_collection/__init__.py": "99e384cc6de3f53eb35caf61a8f68e8224705ccd195287f60af234f0d1988ffc",
+   "kqs_collection/cli.py": "05fb03c1024eee29e12838ffe9f27ec2d02c088b5fe2212021170a57387378e8",
+   "kqs_collection/quality.py": "b53b962be5ea41b0d9ec405155df7b704ea5fff2cfb3d75eb6815357313171b0",
+   "kqs_collection/store.py": "094bfb5388e70d43835c2ba456ff2349005d8956a27f908f07335d7a02eb47ad",
+   "kqs_publication/__init__.py": "c66278f32a047b596624280f0fafd4e29b5a7a4527792546ffaba488b342016d",
+   "kqs_publication/attempts.py": "5699f5e1607a395844a7c78b965f29ef3861a16caf1b19066ff2f8efaddbba1c",
+   "kqs_publication/calendar.py": "bc4b4badb87c948a7cf1b955b9a909c98df3400e0fb9882821000cb27756389e",
+   "kqs_publication/calendars/krx_equity_2026.json": "c35228678b6f1059fcd944ec34f20f620207bf5b577d063d0cee52a3f8ab11b9",
+   "kqs_publication/contract.py": "b0668aaffc2ec677d0b21567239f04f4714a73cc7751ea99e0c7c0ec8b0adb6d",
+   "kqs_publication/publisher.py": "b6029705c4c94e750b1a2ad85eac959d861b73fa0490931d9f11351dbc76fc9b",
+   "kqs_publication/store.py": "8ec9d63b3a7e55e8b01f30861cff12113330112cfb38cdbd455f53ee042bf829",
+   "kqs_publication/writer.py": "a1dd5c1379dd9e684f38681e42ca0460a9ebf1d40463381b0d8d18bd6e9e6685",
+   "kqs_runtime/__init__.py": "6f36120c8925eb352598bb12c73ebb7a61991300d534b13fc38cbf1aab161bef",
+   "kqs_runtime/cli.py": "31b2a207fe870a9ffa16c51339c42a198838cbe9bd4218702a7154ffecbcc35f",
+   "kqs_runtime/inputs.py": "74f8bd2d4e8f2e78d553b1adc8011d22c9b577c789929388c762ab5cab4730c5",
+   "kqs_runtime/provenance.py": "a7b25f17ea3622c67a29073ebd5c09ec65d145f957c2a0a32428ac1c7cde5f5d",
+   "kqs_runtime/recommendations.py": "9f08ae80ccf0c30700a49dbbaf8052840c5a096918685ce2ac67c4e8220681f0",
+   "kqs_runtime/sqlite_reader.py": "ffc0fa4b5d576b41e5235307b90a08f997a16476dc302737aeb9f43112a27cfb",
+   "kqs_runtime/worker.py": "a05720f3c52d2ad34fe96b9a7ae49280fa7b45eff74be47e8a3531e16851b3c6"
+  },
+  "python": "3.14.4",
+  "dependencies": {
+   "pandas": "2.3.3",
+   "numpy": "2.3.5",
+   "python-dateutil": "2.9.0.post0",
+   "pytz": "2026.4",
+   "tzdata": "2026.4",
+   "six": "1.17.0"
+  }
+ },
+ "initial_manifest_unchanged": {
+  "path": "engine/kqs/migration_manifest.json",
+  "sha256": "989dd536a3aa1bb7e96e55e5ef903b50d259594c98ef2445dbe173d364355580"
+ },
+ "previous_revision_unchanged": {
+  "path": "engine/kqs/revisions/EINT-005.json",
+  "sha256": "f3e5845c2ae67d79c8ad1235504313c7bc385dc36b57621760bf88073de6ea29"
+ },
+ "previous_verification_unchanged": {
+  "path": "docs/engine/verification/EINT-005.json",
+  "sha256": "9d2200053d2e5a0ecd849ddf9083c68d0e7977ce54ad2c3b548977546d843aff"
+ },
+ "successor_manifest": "engine/kqs/revisions/EINT-006.json",
+ "single_writer": {
+  "entry_point": "kqs-publish-worker (kqs_runtime.worker:main)",
+  "lock": "non-blocking fcntl.flock LOCK_EX on <snapshot_db>.writer.lock (0600, never unlinked; released by the kernel on process exit)",
+  "store_guard": "kqs_publication.store.publish requires a held WriterLock bound to the same resolved snapshot DB",
+  "quality_source": "kqs_collection.store.read_run from the immutable quality DB by run_id; recomputed with the stored observed_at",
+  "attempt_statuses": [
+   "published",
+   "already_published",
+   "blocked_quality",
+   "writer_busy",
+   "failed"
+  ],
+  "exit_codes": {
+   "0": "published/already_published",
+   "2": "blocked_quality/failed/argument or path error",
+   "3": "writer_busy"
+  },
+  "preview_cli": "kqs-recommend no longer accepts publication flags"
+ },
+ "artifacts": {
+  "engine/kqs/src/kqs_publication/writer.py": "a1dd5c1379dd9e684f38681e42ca0460a9ebf1d40463381b0d8d18bd6e9e6685",
+  "engine/kqs/src/kqs_publication/attempts.py": "5699f5e1607a395844a7c78b965f29ef3861a16caf1b19066ff2f8efaddbba1c",
+  "engine/kqs/src/kqs_publication/store.py": "8ec9d63b3a7e55e8b01f30861cff12113330112cfb38cdbd455f53ee042bf829",
+  "engine/kqs/src/kqs_collection/store.py": "094bfb5388e70d43835c2ba456ff2349005d8956a27f908f07335d7a02eb47ad",
+  "engine/kqs/src/kqs_runtime/worker.py": "a05720f3c52d2ad34fe96b9a7ae49280fa7b45eff74be47e8a3531e16851b3c6",
+  "engine/kqs/src/kqs_runtime/cli.py": "31b2a207fe870a9ffa16c51339c42a198838cbe9bd4218702a7154ffecbcc35f",
+  "engine/kqs/src/kqs_runtime/provenance.py": "a7b25f17ea3622c67a29073ebd5c09ec65d145f957c2a0a32428ac1c7cde5f5d",
+  "engine/kqs/src/kqs_runtime/__init__.py": "6f36120c8925eb352598bb12c73ebb7a61991300d534b13fc38cbf1aab161bef",
+  "engine/kqs/pyproject.toml": "8b5330f0bb4e948fd754eaffe74ecc714c0b58b73718ddc3a675775efdd3a03a",
+  "engine/kqs/tests/test_worker.py": "56d7187c06031bbb524d1e837b0891ccb1c467ef6ca755afb2d7f2cdd2233444",
+  "engine/kqs/tests/test_publication.py": "0642065b6766b92fbf91205b7ba6f5fa551e375ca02efd14fa23d2b86f3274a3",
+  "scripts/tests/test_kqs_publication_api.py": "1ed89bc50234c9e424eb795f8ba997f7f36c186cf70c812160a698a9fc29ed68",
+  "engine/kqs/tools/check_revision.py": "da2227b4dcc1da3810515e5fe01fd5f7e49fce9eec031de33d347ca7ef2bfa13",
+  ".github/workflows/kqs-runtime.yml": "10fb6831bb40d2297f5e3b5f6d032c66c662bc7e1d69b11d104822a257dc4eed",
+  "engine/kqs/README.md": "5981752e5606122a8bcfbea96ce0ac11ee3664469e1cfc66e39731991ea2bd9f",
+  "docs/engine/PUBLICATION.md": "5eac94fdc5a2c067cd5df19d0d0b881ffa4af3571fa8733d8e8e3ce6cc391a0c",
+  "engine/kqs/revisions/EINT-006.json": "25713599913af738f6b331e0597064273694a23d94164108c96834787f2eaff1"
+ },
+ "tests": [
+  {
+   "environment": "Python 3.14.4 venv engine/kqs/.venv, installed 0.5.0 package from current worktree",
+   "command": "engine/kqs/.venv/bin/python -m unittest discover -s engine/kqs/tests",
+   "passed": 78
+  },
+  {
+   "environment": "Python 3.14.4 testenv, source imports via PYTHONPATH",
+   "command": "python -m unittest discover -s engine/kqs/tests",
+   "passed": 77,
+   "note": "test_package_import_from_outside_repository needs an installed package"
+  },
+  {
+   "environment": "Python 3.14.4 venv",
+   "command": "python -m unittest discover -s scripts/tests -p test_kqs_publication_api.py",
+   "passed": 12
+  },
+  {
+   "environment": "Python 3.14.4 venv",
+   "command": "python -m unittest discover -s scripts/tests -p test_kqs_revision.py",
+   "passed": 6
+  },
+  {
+   "environment": "Python 3.14.4 venv",
+   "command": "python -m unittest discover -s scripts/tests -p test_engine_evidence.py",
+   "passed": 15
+  },
+  {
+   "environment": "Python 3.14.4 testenv (backend)",
+   "command": "pytest tests/test_kqs_bridge.py tests/test_kqs_contract.py",
+   "passed": 51
+  }
+ ],
+ "new_tests": [
+  "test_worker.py: 10 tests (publish+log, idempotent rerun, unrecorded/rejected quality, market change, other session, writer_busy, failure releases lock, separate DBs, immutable attempt log, CLI exit codes and preview cannot publish)",
+  "test_publication.py: test_concurrent_writers_are_exclusive_and_keep_the_first_snapshot, test_second_writer_is_rejected_while_first_holds_the_lock, test_publication_requires_the_writer_lock_for_the_same_database"
+ ],
+ "moved_tests": "Six EINT-005 kqs-recommend publication-gate CLI tests were replaced by worker tests because kqs-recommend no longer publishes.",
+ "development_failures": [
+  {
+   "suite": "test_kqs_publication_api.py (4 tests)",
+   "cause": "Pre-existing wall-clock dependency: fixed publications at 2026-09-29 00:00 UTC expire at 02:00 UTC while the API reader and checker script used the real clock, so the suite started failing after 02:00 UTC regardless of code. Froze kqs_publication.store/contract clocks in the test and ran the checker script in-process under the same clock."
+  },
+  {
+   "suite": "test_kqs_revision.py",
+   "cause": "Expected: code differed from the EINT-005 manifest until the EINT-006 successor was created."
+  }
+ ],
+ "other_checks": [
+  "pip check passed; kqs-recommend, kqs-verify-market-inputs and kqs-publish-worker run from /tmp",
+  "Initial migration checker: errors 0",
+  "EINT-006 successor checker: errors 0",
+  "Evidence checker: archive 167, decisions 45, metadata-only 1735, errors 0"
+ ],
+ "reused_decisions": [
+  "D-19",
+  "D-24",
+  "D-27",
+  "D-28",
+  "D-30",
+  "D-44"
+ ],
+ "historical_research_runs": 0,
+ "market_api_calls": 0,
+ "actual_market_data_scan_runs": 0,
+ "orders_or_automatic_fills_created": 0,
+ "production_publications_created": 0,
+ "real_manual_ledger_writes": 0,
+ "deployment_performed": false,
+ "containers_restarted": false,
+ "source_wsl_modified": false,
+ "committed_or_pushed": false,
+ "user_dirty_changes_preserved": true,
+ "scope": "Synthetic, local single-writer publication worker; no collector, scheduler or production operation.",
+ "limits": [
+  "flock is advisory and assumes one host with a local disk; it does not coordinate writers across hosts or on NFS.",
+  "Code that constructs its own WriterLock can still call store.publish without the quality gate; the gate is enforced by the installed worker, and the lock only guarantees one writer at a time.",
+  "Attempt log records outcomes but nothing alerts on them yet; monitoring/notification is EINT-007.",
+  "No scheduler runs the worker; the operator must run verify then publish explicitly.",
+  "No real market DB was scanned, no publication was made, and no AWS/backup was performed."
+ ]
+}

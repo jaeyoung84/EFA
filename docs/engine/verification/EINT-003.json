@@ -1,0 +1,230 @@
+{
+  "change_id": "EINT-003",
+  "verified_at": "2026-09-29T01:01:51.699983+00:00",
+  "package": "iv-kqs-engine 0.2.0",
+  "code": {
+    "package_version": "0.2.0",
+    "source_commit": "0c6b2e8308cc783ea5c4a50c18ff213203631ba2",
+    "code_sha256": "a8d7daad1aea62025db74e07d656b130421e623a98999cb5b001796d2b0d62d8",
+    "component_sha256": {
+      "korea_quant/__init__.py": "960d03eca7c45577aea05e6d71dea5269a209ad02c7f15f584f53d535da6a405",
+      "korea_quant/eligibility.py": "f363ec556a14adfdad06af331f3f94f35beb9de405cb047b83b1677f8da1836d",
+      "korea_quant/reversion_scanner.py": "c9bc74ff52f2c79e4e4197679d4ea967bb9aa91b37fa2cf643cc5538c0bd1d99",
+      "korea_quant/strategy.py": "bdf8506cf1371f9b5aca1f4001649ca509c132651d749a550062a452c3b3c9d8",
+      "kqs_runtime/__init__.py": "3fb31dc4b50ed2518b4efea156f203b063b9a05c90283a0a5b54a1045135aa6c",
+      "kqs_runtime/cli.py": "95cf0fb3cae89c60c33110081ac8754a293500eb62c5d6ba346feed9d13ec2d6",
+      "kqs_runtime/inputs.py": "74f8bd2d4e8f2e78d553b1adc8011d22c9b577c789929388c762ab5cab4730c5",
+      "kqs_runtime/provenance.py": "cc40d4c09a59112aa272de8438ee28e510811027ee7bf3a2f3c92e94ea261d28",
+      "kqs_runtime/recommendations.py": "9f08ae80ccf0c30700a49dbbaf8052840c5a096918685ce2ac67c4e8220681f0",
+      "kqs_runtime/sqlite_reader.py": "ffc0fa4b5d576b41e5235307b90a08f997a16476dc302737aeb9f43112a27cfb",
+      "kqs_publication/__init__.py": "c66278f32a047b596624280f0fafd4e29b5a7a4527792546ffaba488b342016d",
+      "kqs_publication/contract.py": "d8bc8cc0ba7770054c0f7cb377a6dc650b55ad7461572921bcec62b949478139",
+      "kqs_publication/publisher.py": "a90581754bcb205b23324842d06c86131bdef10bcac980c0c9abd3957c7d6b01",
+      "kqs_publication/store.py": "552d267678f221d7b76770f122013d4e96083347ded5c905b3464bdc360bd0b2"
+    },
+    "python": "3.14.4",
+    "dependencies": {
+      "pandas": "2.3.3",
+      "numpy": "2.3.5",
+      "python-dateutil": "2.9.0.post0",
+      "pytz": "2026.4",
+      "tzdata": "2026.4",
+      "six": "1.17.0"
+    }
+  },
+  "initial_manifest_unchanged": {
+    "path": "engine/kqs/migration_manifest.json",
+    "sha256": "989dd536a3aa1bb7e96e55e5ef903b50d259594c98ef2445dbe173d364355580"
+  },
+  "previous_verification_unchanged": {
+    "path": "docs/engine/verification/EINT-002.json",
+    "sha256": "37eb9db0f4a82b542f0d23592fd2a80b14c2adecf8179425ee9e37c6a8788768"
+  },
+  "successor_manifest": "engine/kqs/revisions/EINT-003.json",
+  "artifacts": {
+    ".dockerignore": "ef88adfb6e76a9b90eaec73bc8c623679ebf233eb6d6e5beef910a73d11bd11b",
+    ".env.desktop.example": "8c530f2aed6115db0d924afa18e4fa3b122ebc2d1977224a84ea2d91a0541c42",
+    ".github/workflows/kqs-runtime.yml": "558a24002965b7422a6539f8ab26fa4809985430e346261361f5356b4d39bdaf",
+    "Dockerfile": "f7ba94fd9c9e08f3d539f9d931f6cb7f02308bd52702a709e363322012ea8415",
+    "Dockerfile.service": "8b195beb4364870a2b05001ca8d02ea5c24bdb4fd33cf1774e4678e82a10946b",
+    "app/backend/kqs_contract.py": "ac8547d2719fd582f2e01846826e148a0e463b8e3f700f959654294b7fa3bddf",
+    "app/backend/kqs_recommendations.py": "32832db92d2d335fa1bd6ba3a25a9de0cfbed7cb7a648dc3a0184c486b278883",
+    "app/backend/routers/kqs.py": "1ed71e8ba4d95a2479b09f11070c73d1a4ae68fbabab483f064c1571af3609cd",
+    "app/frontend/js/views/kqsRecommendations.js": "0c23873f6c90abcf3ac1931414122e7b962d7ffce1260778a3528c72ecbd645d",
+    "docker-compose.prod.yml": "d32e3f8ca792529207f92c377b751d03741a660d1431eff8bdd6cd3474c28671",
+    "docker-compose.yml": "ede50f37781656aaaba84cc5fd8960f4b215f3a9e9978cea1207c35cff4e0e00",
+    "docs/KQS_RECOMMENDATION_CONTRACT.md": "2e3e56e33b83e42297e11e191bfd0cb6c0fbc1328168daf181bf2e551f24d0cd",
+    "docs/engine/CHANGES.md": "5ada127ca36858235d842d2024c8d696830c3777477e4e56b18ff5d444fef921",
+    "docs/engine/PUBLICATION.md": "e8590dc7830869a7c73090771f7b1371f29a70b8d4493e668039377ae72173a2",
+    "docs/engine/README.md": "b3d8b31a2c243f05f1b330658e6ffbb0f6e36ac8d5b45b04aab9730174151807",
+    "engine/kqs/README.md": "46c06c8e56fd9548e7e942e6ba6e975a024398514ccf8e16dfc8d3a854654f79",
+    "engine/kqs/migration_manifest.json": "989dd536a3aa1bb7e96e55e5ef903b50d259594c98ef2445dbe173d364355580",
+    "engine/kqs/pyproject.toml": "64ae74292535e55531f0493989b934eb0e87610a48ac795370b17ad3277ff7ca",
+    "engine/kqs/requirements.lock": "d5677f00d64a3952e04be5d02b509de1ddb808e3877eb8ea1d3b4b56359a38b3",
+    "engine/kqs/revisions/EINT-003.json": "3e6eb55e4fa1d1cbf07654a6f03f4b5d9ebeb6420a8946344c354f970af42d74",
+    "engine/kqs/src/korea_quant/__init__.py": "960d03eca7c45577aea05e6d71dea5269a209ad02c7f15f584f53d535da6a405",
+    "engine/kqs/src/korea_quant/eligibility.py": "f363ec556a14adfdad06af331f3f94f35beb9de405cb047b83b1677f8da1836d",
+    "engine/kqs/src/korea_quant/reversion_scanner.py": "c9bc74ff52f2c79e4e4197679d4ea967bb9aa91b37fa2cf643cc5538c0bd1d99",
+    "engine/kqs/src/korea_quant/strategy.py": "bdf8506cf1371f9b5aca1f4001649ca509c132651d749a550062a452c3b3c9d8",
+    "engine/kqs/src/kqs_publication/__init__.py": "c66278f32a047b596624280f0fafd4e29b5a7a4527792546ffaba488b342016d",
+    "engine/kqs/src/kqs_publication/contract.py": "d8bc8cc0ba7770054c0f7cb377a6dc650b55ad7461572921bcec62b949478139",
+    "engine/kqs/src/kqs_publication/publisher.py": "a90581754bcb205b23324842d06c86131bdef10bcac980c0c9abd3957c7d6b01",
+    "engine/kqs/src/kqs_publication/store.py": "552d267678f221d7b76770f122013d4e96083347ded5c905b3464bdc360bd0b2",
+    "engine/kqs/src/kqs_runtime/__init__.py": "3fb31dc4b50ed2518b4efea156f203b063b9a05c90283a0a5b54a1045135aa6c",
+    "engine/kqs/src/kqs_runtime/cli.py": "95cf0fb3cae89c60c33110081ac8754a293500eb62c5d6ba346feed9d13ec2d6",
+    "engine/kqs/src/kqs_runtime/inputs.py": "74f8bd2d4e8f2e78d553b1adc8011d22c9b577c789929388c762ab5cab4730c5",
+    "engine/kqs/src/kqs_runtime/provenance.py": "cc40d4c09a59112aa272de8438ee28e510811027ee7bf3a2f3c92e94ea261d28",
+    "engine/kqs/src/kqs_runtime/recommendations.py": "9f08ae80ccf0c30700a49dbbaf8052840c5a096918685ce2ac67c4e8220681f0",
+    "engine/kqs/src/kqs_runtime/sqlite_reader.py": "ffc0fa4b5d576b41e5235307b90a08f997a16476dc302737aeb9f43112a27cfb",
+    "engine/kqs/tests/test_publication.py": "dae49d870f0af4700b2f2c36e5b5981f6a511bc11aa61d70a93c69e720f8122e",
+    "engine/kqs/tests/test_runtime.py": "c26452e2a841cae4e45f8d62f80738077562f9e4a53d7772a291a95d216c09cb",
+    "engine/kqs/tools/check_migration.py": "7034e19d2e660309d724db97813f4b7f2801fa9995ecd409163640d9fb8384d4",
+    "engine/kqs/tools/check_revision.py": "9adcefca1886218c1c29b455b98bd50bf959f12abdec1859c25973a82b200f5d",
+    "scripts/check_kqs_recommendation_contract.py": "0fb2af156bff9b659593bfded89cec803ccbdaf876518295203a676b972af201",
+    "scripts/tests/kqs_recommendations_render.mjs": "bd50be14c5bb797caf3fa14547b16de5abe8c5046d3370c4f16a64184d052d1f",
+    "scripts/tests/requirements.kqs-api.txt": "7c68d311d70a733a6595ff04f86e13ae96f85e38dfe77fcfd7bcfee8b6c38768",
+    "scripts/tests/test_kqs_publication_api.py": "c6e8139cf5d364c0d48206a04132240f63c33b26e9289786655985ff745b052f",
+    "scripts/tests/test_kqs_revision.py": "e109da2ac2eff5a45660a4da69f15eab9c64ff2f2ecb0d3affa68acfdde45257",
+    "state/kqs/.gitignore": "240a3e0d37d2e86b614063f5347eb02d4f99ca6c254de6b82871ff8d95532a7d",
+    "tests/test_kqs_bridge.py": "39120fc757360f2adc5f782f03916e49d6cf8d489f3941fa14ec0c82e6fd823b"
+  },
+  "pre_change_file_sha256": {
+    "docs/engine/CHANGES.md": "ab464f3be6c51ba0da00ae9a134e17a5489d39a914f0a0038c2df6d95947258c",
+    "app/backend/kqs_contract.py": "6826d91e4e119be179f0ae8b90cbafdbe4ac39877f8e9023f6153a4bbeb4d32c",
+    "app/backend/routers/kqs.py": "8d9c1ce46e48e21e5033a85528279efe75277b5df4561fb1a9d3c4c639d41a05",
+    "app/frontend/js/views/kqsRecommendations.js": "bc23f3a9e58b73f0cb6a428ab7bd322983e0ea3bb5737e4401ec1d8809b25871",
+    "engine/kqs/src/kqs_runtime/cli.py": "9dad9b553e3fa840944c011cc65b6428f77575d6539a9203f2054752b2878cf1",
+    "engine/kqs/src/kqs_runtime/provenance.py": "a17a57bc76ac1292cc99527ad43f7e7eed94099bf309de2b1b2c59ebbe1b10d5",
+    "engine/kqs/src/kqs_runtime/__init__.py": "0dce97bcae4549b7fdbfcdb4a54e2501b3a8a81e2e7e121713787d45c938b25f",
+    "engine/kqs/pyproject.toml": "653334939cb5a7c19cdc8cbbf118df66a0c02830fa8595f912a05f37556a29ef",
+    "Dockerfile": "3d040065200d571eea6a16a6d2ac93082fa8ab3bef2d19a5a03754cade52fd0a",
+    "Dockerfile.service": "b331339577e7de053419083dc26be306dedba38ff9cf70c3206d20b0808deb28",
+    "docker-compose.yml": "e2f362a4dfec126c89c08917add6be8d35bfa130a54f2b03d3d468ed5ea8220e",
+    "docker-compose.prod.yml": "8f533ea8c558f8343456527ace2f7968dfeb82279efc6fe43c2361820cfa9795",
+    ".env.desktop.example": "5dca54371457fdc29bd67ee27c033fb6d0c55eb0079340c95404a555f75f9821",
+    ".dockerignore": "bc3a0818a64fdebea948e8abd0c9cba2d9ccc7272d1f5d4301517448bdfac2b4",
+    "engine/kqs/README.md": "9b4792241ee3e68fe998be9f32f5eae76a8a8ad04081529c3714b547b6bc32fe",
+    "docs/engine/README.md": "603bfb615f846b40c80d21bd9383dff4b008c1bcff8b119ec35efb37445aad5d",
+    "scripts/check_kqs_recommendation_contract.py": "49325bdf24ad095aca888d6a4c7d46015afa418213aa5a2185987d75c174af3e",
+    "tests/test_kqs_bridge.py": "ba2cf84747e2def0db0504a04d1d14ec6163389a3ccf41adb8e809d3b868f940",
+    ".github/workflows/kqs-runtime.yml": "1cb5cb06791bb967145b67700c2221c7ff735b460639b77d1dfd6385eabe21bf"
+  },
+  "tested_wheel": {
+    "path_at_verification": "/tmp/iv-kqs-eint003-wheels/iv_kqs_engine-0.2.0-py3-none-any.whl",
+    "sha256": "ccdcebc5deaed271f7066302df1805320ff496ad39f2183c7a5695f37583d507",
+    "native_python_modules": 14,
+    "module_bytes_match_source": true,
+    "git_archived": false
+  },
+  "tests": [
+    {
+      "environment": "Python 3.14.4 isolated temporary venv, installed wheel",
+      "command": "python -m unittest discover -s engine/kqs/tests -q",
+      "passed": 57
+    },
+    {
+      "environment": "Python 3.12.14 disposable Docker container, readonly project and wheel mounts",
+      "command": "python -m unittest discover -s engine/kqs/tests -q",
+      "passed": 57
+    },
+    {
+      "environment": "Python 3.14.4 isolated venv, installed wheel",
+      "command": "python -m unittest discover -s scripts/tests -p test_kqs_publication_api.py -q",
+      "passed": 12
+    },
+    {
+      "environment": "Python 3.12.14 disposable Docker, readonly mounts, installed wheel",
+      "command": "python -m unittest discover -s scripts/tests -p test_kqs_publication_api.py -q",
+      "passed": 12
+    },
+    {
+      "environment": "System Python 3.14 and disposable Python 3.12.14",
+      "command": "python -m unittest discover -s scripts/tests -p test_kqs_revision.py -v",
+      "passed_each": 5
+    },
+    {
+      "environment": "System Python, stdlib only",
+      "command": "python3 -m unittest discover -s scripts/tests -p test_engine_evidence.py -q",
+      "passed": 15
+    },
+    {
+      "environment": "functions JavaScript V8; direct pure renderer",
+      "cases": [
+        "fail-closed error and escaping",
+        "zero signal result",
+        "actual reason/reference/version/snapshot/manual form and escaping"
+      ],
+      "passed": 3,
+      "browser_e2e": false,
+      "actual_node_execution": false
+    }
+  ],
+  "regression_suite_runs": {
+    "engine": 7,
+    "api": 9,
+    "api_environment_import_failure_additional": 1
+  },
+  "development_failures": [
+    {
+      "suite": "First engine publication suite (53 tests)",
+      "errors": 1,
+      "cause": "Synthetic new-session generation date did not match shifted input date; corrected fixture."
+    },
+    {
+      "suite": "Initial API environment",
+      "errors": 1,
+      "cause": "httpx was missing in the isolated test environment; added explicit test dependency installation."
+    },
+    {
+      "suite": "Resource warnings during tests",
+      "cause": "SQLite test context committed without closing; closing now explicit. Product store already closed both read/write connections in finally."
+    }
+  ],
+  "test_dependencies_file": "scripts/tests/requirements.kqs-api.txt",
+  "other_checks": [
+    "pip check: no broken requirements in installed-wheel environments",
+    "14 installed wheel module bytes identical to native source",
+    "Migration checker: 4 original core modules unchanged, errors 0",
+    "Evidence checker: archive 167, decisions 45, metadata-only 1735, errors 0",
+    "Successor manifest code/metadata/dependency guard: errors 0",
+    "Final Python source AST parsing: pass",
+    "git diff --check tracked changes: pass",
+    "Local compose config --quiet: pass",
+    "Prod compose full config: missing app/backend/.env, NOT passed",
+    "Prod compose structural check with only env_file section removed: pass, NOT deployment readiness",
+    "Recommendation inspection tool valid snapshot/wrong DB/invalid source tested without network fallback"
+  ],
+  "reused_decisions": [
+    "D-19",
+    "D-24",
+    "D-27",
+    "D-28",
+    "D-30",
+    "D-44"
+  ],
+  "historical_research_runs": 0,
+  "market_api_calls": 0,
+  "actual_market_data_scan_runs": 0,
+  "orders_or_automatic_fills_created": 0,
+  "production_publications_created": 0,
+  "real_manual_ledger_writes": 0,
+  "deployment_performed": false,
+  "containers_restarted": false,
+  "source_wsl_modified": false,
+  "committed_or_pushed": false,
+  "user_dirty_changes_preserved": true,
+  "scope": "Local implementation and synthetic regression; no AWS live verification or real market publication.",
+  "limits": [
+    "Explicit as-of/expiry and 7 calendar-day / 24-hour caps do not replace a validated KRX calendar/latest-session policy.",
+    "Market collector, operational worker/scheduler and PC-independent AWS migration remain pending.",
+    "Existing status/candidate/prospective/reconciliation endpoints still depend on the legacy bridge.",
+    "Manual sell currently requires a valid current signal; later sales linked to expired buy recommendations and partial/lot accounting need separate work.",
+    "Component and payload SHA are consistency checks, not producer authentication or a signed allowed-release policy.",
+    "SQLite publication is designed for a single host local filesystem, not NFS or distributed storage.",
+    "First publication not performed; missing or expired snapshots intentionally return 503.",
+    "1735 original data/report files are metadata-only, not a full backup; source deletion not authorized.",
+    "Remote CI, full backend pytest with destructive Mongo fixtures, browser E2E and actual Node rendering execution were not run.",
+    "Synthetic tests do not certify financial performance, collector health, real API data freshness or model training validity.",
+    "Wheel retained only as a temporary verified artifact; do not treat its path as permanent backup."
+  ]
+}

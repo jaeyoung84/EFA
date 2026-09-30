@@ -1,0 +1,56 @@
+import io
+from datetime import date
+
+import pyarrow.parquet as pq
+import pytest
+
+from korea_quant.aws_storage import S3ParquetDailyStore, rows_to_parquet
+from korea_quant.lambda_handler import _event_date, _required_env
+
+
+class FakeS3:
+    def __init__(self):
+        self.objects = {}
+
+    def put_object(self, **kwargs):
+        self.objects[kwargs["Key"]] = kwargs
+
+    def list_objects_v2(self, **kwargs):
+        key = kwargs["Prefix"]
+        return {"Contents": [{"Key": key}]} if key in self.objects else {}
+
+
+def test_s3_store_writes_deterministic_encrypted_partition():
+    client = FakeS3()
+    store = S3ParquetDailyStore("bucket", client)
+    day = date(2024, 8, 1)
+    rows = [{
+        "trade_date": "2024-08-01", "symbol": "005930", "name": "삼성전자",
+        "market": "KOSPI", "section": "", "open": 100, "high": 110,
+        "low": 90, "close": 105, "volume": 1000, "trading_value": 105000,
+        "market_cap": 1000000, "listed_shares": 10000,
+    }]
+
+    assert not store.is_collected("KOSPI", day)
+    assert store.upsert_day("KOSPI", day, rows) == 1
+    assert store.is_collected("KOSPI", day)
+    key = "krx/daily/year=2024/month=08/day=01/market=KOSPI/data.parquet"
+    uploaded = client.objects[key]
+    assert uploaded["ServerSideEncryption"] == "AES256"
+    assert pq.read_table(source=io.BytesIO(uploaded["Body"])).num_rows == 1
+
+
+def test_empty_holiday_partition_keeps_schema():
+    table = pq.read_table(source=io.BytesIO(rows_to_parquet([])))
+    assert table.num_rows == 0
+    assert table.column_names[0:3] == ["trade_date", "symbol", "name"]
+
+
+def test_scheduler_utc_time_is_converted_to_seoul_date():
+    assert _event_date({"time": "2024-08-01T09:30:00+00:00"}) == date(2024, 8, 1)
+
+
+def test_required_environment_does_not_supply_a_secret_fallback(monkeypatch):
+    monkeypatch.delenv("KRX_AUTH_KEY_PARAMETER", raising=False)
+    with pytest.raises(ValueError, match="KRX_AUTH_KEY_PARAMETER"):
+        _required_env("KRX_AUTH_KEY_PARAMETER")

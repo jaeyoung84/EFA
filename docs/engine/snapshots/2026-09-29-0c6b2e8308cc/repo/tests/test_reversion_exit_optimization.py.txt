@@ -1,0 +1,237 @@
+"""Smoke tests for walk-forward bollinger-rsi exit-parameter optimization."""
+
+from __future__ import annotations
+
+import math
+
+import numpy as np
+import pandas as pd
+import pytest
+
+import korea_quant.reversion_exit_optimization as exit_optimization
+from korea_quant.reversion_exit_optimization import (
+    ExitGrid,
+    ExitOptimizationConfig,
+    ExitOptimizationGoal,
+    _select_best_combo,
+    _simulate_symbol_combos,
+    run_exit_optimization,
+    summarize_exit_optimization_trades,
+)
+
+
+def _synthetic_history(sessions: int = 700, symbols: int = 8, seed: int = 7) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    dates = pd.bdate_range("2020-01-01", periods=sessions)
+    frames = []
+    for i in range(symbols):
+        market = "KOSPI" if i % 2 == 0 else "KOSDAQ"
+        symbol = f"{i:06d}"
+        base = 10_000 + i * 500
+        noise = rng.normal(0, 1, sessions).cumsum()
+        cycle = 800 * np.sin(np.linspace(0, 12 * np.pi, sessions))
+        close = base + noise * 20 + cycle
+        close = np.clip(close, 100, None)
+        open_ = close * (1 + rng.normal(0, 0.002, sessions))
+        high = np.maximum(open_, close) * 1.01
+        low = np.minimum(open_, close) * 0.99
+        volume = rng.integers(100_000, 500_000, sessions)
+        trading_value = volume * close
+        frames.append(
+            pd.DataFrame(
+                {
+                    "Date": dates, "Symbol": symbol, "Name": symbol, "Market": market,
+                    "Open": open_, "High": high, "Low": low, "Close": close,
+                    "Volume": volume, "TradingValue": trading_value,
+                    "MarketCap": trading_value * 50,
+                }
+            )
+        )
+    return pd.concat(frames, ignore_index=True)
+
+
+def test_run_exit_optimization_produces_windows_and_summary():
+    history = _synthetic_history()
+    config = ExitOptimizationConfig(
+        training_sessions=200, testing_sessions=50,
+        minimum_average_trading_value=0, minimum_history_sessions=60,
+        outlier_gap_threshold=0.9, outlier_cooldown_sessions=5,
+        minimum_fit_trades=1,
+        grid=ExitGrid(
+            rsi_exit_candidates=(50.0, 60.0), exit_band_std_candidates=(0.0, 1.0),
+            stop_loss_candidates=(None, 0.1),
+        ),
+        goal=ExitOptimizationGoal(minimum_trades=1),
+    )
+    result = run_exit_optimization(history, config)
+    assert not result.chosen_params.empty
+    assert set(result.chosen_params.columns) >= {"Window", "RsiExit", "ExitBandStd", "StopLoss"}
+    if not result.trades.empty:
+        assert set(result.trades["RsiExit"]).issubset({50.0, 60.0})
+        assert result.trades["EntryDate"].lt(result.trades["ExitDate"]).all()
+    summary = summarize_exit_optimization_trades(result.trades, config.goal)
+    assert list(summary["Market"]) == ["KOSPI", "KOSDAQ", "ALL"]
+
+
+def test_summarize_exit_optimization_trades_requires_columns():
+    try:
+        summarize_exit_optimization_trades(pd.DataFrame({"NetReturnPct": [0.1]}))
+    except ValueError as exc:
+        assert "Market" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for missing Market column.")
+
+
+def test_grid_simulation_keeps_end_of_history_open_position_for_selection():
+    dates = pd.bdate_range("2024-01-02", periods=4)
+    item = {
+        "market": "KOSPI",
+        "symbol": "000001",
+        "dates": dates,
+        "close": np.array([100.0, 90.0, 80.0, 70.0]),
+        "open": np.array([100.0, 90.0, 80.0, 70.0]),
+        "middle": np.array([np.nan, 200.0, 200.0, 200.0]),
+        "std": np.array([np.nan, 1.0, 1.0, 1.0]),
+        "rsi": np.array([np.nan, 20.0, 20.0, 20.0]),
+        "entry_observed_raw": np.array([True, False, False, False]),
+        "allowed": np.array([True, True, True, True]),
+    }
+    config = ExitOptimizationConfig()
+
+    trades = _simulate_symbol_combos(item, [(50.0, 0.0, None)], dates[0], config)
+
+    assert len(trades) == 1
+    trade = trades.iloc[0]
+    assert trade["Status"] == "open"
+    assert trade["EntryDate"] == dates[1]
+    assert trade["ExitDate"] == dates[-1]
+    assert trade["NetReturnPct"] < 0
+
+
+def test_exit_summary_reports_open_positions_without_counting_them_as_realised():
+    trades = pd.DataFrame(
+        {
+            "Market": ["KOSPI", "KOSPI"],
+            "NetReturnPct": [0.05, -0.20],
+            "Status": ["closed", "open"],
+        }
+    )
+    summary = summarize_exit_optimization_trades(
+        trades, ExitOptimizationGoal(minimum_trades=1, minimum_win_rate=0.5)
+    )
+
+    kospi = summary.loc[summary["Market"] == "KOSPI"].iloc[0]
+    assert kospi["Closed Trade Count"] == 1
+    assert kospi["Open Trade Count"] == 1
+    assert kospi["Mean Net Return"] == 0.05
+    # No realised loss to divide by, so the ratios are infinite rather than a
+    # divide-by-zero or a silent zero that would read as a failure.
+    assert kospi["Profit Factor"] == math.inf
+    assert kospi["Payoff Ratio"] == math.inf
+
+
+def test_exit_goal_rejects_gains_that_come_from_only_a_few_windows():
+    # Same criteria as the reversion harness, for the same measured reason: a
+    # profit factor above the bar is not enough if the windows behind it are not.
+    trades = pd.DataFrame(
+        {
+            "Market": "KOSPI", "Status": "closed",
+            "Window": [window for window in range(1, 11) for _ in range(10)],
+            "NetReturnPct": [0.35] * 40 + ([0.35] * 5 + [-0.50] * 5) * 6,
+        }
+    )
+    row = summarize_exit_optimization_trades(trades, ExitOptimizationGoal()).iloc[0]
+    assert row["Profit Factor"] > 1.30
+    assert row["Win Rate"] > 0.60
+    assert row["Profitable Window Share"] == pytest.approx(0.40)
+    assert not bool(row["Passes Goal"])
+
+
+def test_parameter_selection_includes_open_mark_to_market_losses():
+    combos = [(50.0, 0.0, None), (60.0, 0.0, None)]
+    fit_trades = pd.DataFrame(
+        {
+            "RsiExit": [50.0, 50.0, 60.0],
+            "ExitBandStd": [0.0, 0.0, 0.0],
+            "StopLoss": [None, None, None],
+            "NetReturnPct": [0.10, -0.40, 0.05],
+            "Status": ["closed", "open", "closed"],
+        }
+    )
+    # The fit filter is switched off here so the choice is made on mean alone:
+    # what is under test is that the open position's mark-to-market loss counts
+    # against combo 50, not that the win-rate filter happens to exclude it.
+    config = ExitOptimizationConfig(minimum_fit_trades=1, minimum_fit_win_rate=0.0)
+
+    chosen = _select_best_combo(fit_trades, combos, config)
+
+    assert chosen == (60.0, 0.0, None)
+
+
+def test_the_training_filter_is_deliberately_stricter_than_the_acceptance_goal():
+    # 0.70 was the old acceptance bar. It survives as the combo-selection filter
+    # -- fitting on the best-behaved parameters is fine -- but it is no longer
+    # what PASS means, and conflating the two is what made the goal untraceable.
+    config = ExitOptimizationConfig()
+    assert config.minimum_fit_win_rate == 0.70
+    assert config.goal.minimum_win_rate == 0.60
+
+
+def test_training_cutoff_marks_open_trade_without_reading_later_recovery():
+    dates = pd.bdate_range("2024-01-02", periods=5)
+    item = {
+        "market": "KOSPI",
+        "symbol": "000001",
+        "dates": dates,
+        "close": np.array([100.0, 90.0, 80.0, 200.0, 200.0]),
+        "open": np.array([100.0, 90.0, 80.0, 200.0, 200.0]),
+        "middle": np.full(5, np.nan),
+        "std": np.ones(5),
+        "rsi": np.array([np.nan, 20.0, 20.0, 50.0, 50.0]),
+        "entry_observed_raw": np.array([True, False, False, False, False]),
+        "allowed": np.ones(5, dtype=bool),
+    }
+    combo = [(50.0, 0.0, None)]
+    config = ExitOptimizationConfig()
+
+    capped = _simulate_symbol_combos(item, combo, dates[0], config, simulation_end=dates[2])
+    full_history = _simulate_symbol_combos(item, combo, dates[0], config)
+
+    assert capped.iloc[0]["Status"] == "open"
+    assert capped.iloc[0]["ExitDate"] == dates[2]
+    assert capped.iloc[0]["NetReturnPct"] < 0
+    assert full_history.iloc[0]["Status"] == "closed"
+    assert full_history.iloc[0]["ExitDate"] == dates[4]
+    assert full_history.iloc[0]["NetReturnPct"] > 0
+
+
+def test_walk_forward_fit_passes_each_train_end_as_a_simulation_cutoff(monkeypatch):
+    history = _synthetic_history(sessions=320, symbols=2)
+    config = ExitOptimizationConfig(
+        training_sessions=100,
+        testing_sessions=80,
+        minimum_average_trading_value=0,
+        minimum_history_sessions=20,
+        outlier_gap_threshold=0.9,
+        outlier_cooldown_sessions=5,
+        minimum_fit_trades=1,
+        grid=ExitGrid(
+            rsi_exit_candidates=(50.0,),
+            exit_band_std_candidates=(0.0,),
+            stop_loss_candidates=(None,),
+        ),
+        goal=ExitOptimizationGoal(minimum_trades=1),
+    )
+    original = exit_optimization._simulate_symbol_combos
+    fit_cutoffs: list[pd.Timestamp] = []
+
+    def record_cutoff(*args, **kwargs):
+        cutoff = kwargs.get("simulation_end")
+        if cutoff is not None:
+            fit_cutoffs.append(pd.Timestamp(cutoff))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(exit_optimization, "_simulate_symbol_combos", record_cutoff)
+    result = exit_optimization.run_exit_optimization(history, config)
+
+    assert set(fit_cutoffs) == set(pd.to_datetime(result.chosen_params["TrainEnd"]))

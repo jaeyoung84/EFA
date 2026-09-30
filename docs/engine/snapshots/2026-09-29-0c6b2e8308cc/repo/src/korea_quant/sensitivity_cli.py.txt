@@ -1,0 +1,66 @@
+"""CLI for EMA30 parameter sensitivity analysis."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+from korea_quant.backtest import BacktestConfig
+from korea_quant.krx import KrxDailyStore
+from korea_quant.sensitivity import run_parameter_sensitivity, write_sensitivity_reports
+
+
+def _integers(value: str) -> tuple[int, ...]:
+    return tuple(int(item.strip()) for item in value.split(",") if item.strip())
+
+
+def _floats(value: str) -> tuple[float, ...]:
+    return tuple(float(item.strip()) for item in value.split(",") if item.strip())
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Check EMA30 strategy parameter sensitivity.")
+    parser.add_argument("--krx-db", type=Path, required=True)
+    parser.add_argument("--symbol", required=True)
+    parser.add_argument("--start", required=True)
+    parser.add_argument("--end", default=None)
+    parser.add_argument("--ema-windows", type=_integers, default=(25, 30, 35))
+    parser.add_argument("--resistance-thresholds", type=_floats, default=(0.003, 0.005, 0.007))
+    parser.add_argument("--body-multipliers", type=_floats, default=(1.25, 1.5, 1.75))
+    parser.add_argument("--market-filter", default=None)
+    parser.add_argument("--market-window", type=int, default=200)
+    parser.add_argument("--cash", type=float, default=10_000_000)
+    parser.add_argument("--fee", type=float, default=0.00015)
+    parser.add_argument("--slippage", type=float, default=0.0005)
+    parser.add_argument("--report", type=Path, default=None)
+    args = parser.parse_args()
+
+    store = KrxDailyStore(args.krx_db)
+    prices = store.daily_prices(args.symbol, args.start, args.end)
+    results = run_parameter_sensitivity(
+        prices,
+        BacktestConfig(
+            strategy="ema30-resistance", initial_cash=args.cash,
+            fee_rate=args.fee, slippage_rate=args.slippage,
+            market_filter_window=args.market_window,
+        ),
+        {
+            "ema_window": args.ema_windows,
+            "resistance_threshold": args.resistance_thresholds,
+            "strong_body_multiplier": args.body_multipliers,
+        },
+        market_close=(
+            store.daily_prices(args.market_filter, args.start, args.end)["Close"]
+            if args.market_filter else None
+        ),
+    )
+    html_output = args.report or Path("reports") / f"{args.symbol}_ema30_sensitivity.html"
+    html, csv = write_sensitivity_reports(
+        results, html_output, html_output.with_suffix(".csv"),
+        title=f"{args.symbol} {store.security_name(args.symbol) or ''} — EMA30 Parameter Sensitivity",
+    )
+    print(f"Sensitivity: {html.resolve()} | {csv.resolve()}")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,277 @@
+"""
+run_forward.py — 변형 v1.0-rc1 전향(prospective) 관측 (D-26(3)·D-33 방식) — 2026-09-12 작성, 실DB 미실행
+사전등록: PREREGISTRATION_v1.md §6 (같은 폴더). 이 파일은 계측·판정 절차만 담고, 규칙(strategy_validation_v1.py)은 건드리지 않는다.
+
+왜 필요한가.
+  관측 #2(run.py, 2022-01-01~2026-09-08)는 관측 #1 의 청산 분포·승률을 보고 규칙을 고친 "아이디어의 표본 내" 결과다.
+  독립 표본은 남아 있지 않다(로그 §1.7 홀드아웃 소진). 따라서 v1 을 적용할지의 실제 판단은
+  FORWARD_START 이후 새로 생기는 가격에서만 가능하다(D-26 3항). 이 파일이 그 절차다.
+
+절차(사전등록, 변경 금지).
+  1. 표본 하한: closed trade 100건(D-33 swing 하한 준용; forced_close 는 미완결이므로 제외). 도달 전에는 PASS/FAIL 을 내지 않고
+     건수만 기록한다("증거 아님").
+  2. 시한: DEADLINE = FORWARD_START + 2년. 그때까지 100건 미도달이면 미도달 사실 자체를 결론으로 기록한다(D-33 개정 1항 방식).
+  3. 판정 지표(도달 시 1회):
+     (a) 자본가중 combined CAGR — capital_metrics.deployment_metrics() + DeploymentConfig() 기본값(D-33 개정 2항 방식).
+         NetReturnPct 는 *분수*(net_return_pct()/100). 하한 cagr_low(순서 표본 5%ile) > 0 이어야 한다.
+     (b) 동일 길이 과거창 밴드(D-33 개정 2 방식): 관측 창 길이 L 로 관측 #2 창(2022-01-01~2026-09-08)을 월 단위로 훑어
+         얻은 CAGR 분포의 5%ile 이상이어야 한다. 밴드는 지금 만들지 않고 판정 시점의 L 로 산출한다(창 길이 사후 선택 방지).
+         밴드 산출용 재계산은 관측 #2 와 같은 코드·같은 창이며 trades 해시가 사전등록 부록의 관측 #2 해시와 같아야 유효하다.
+     (c) 저장소 공식 TrendGoal(strategy_goals) 통과 + D-37 즉시기각선 미해당 (trend_goal_check, 전향 창 기준).
+     PASS = (a)∧(b)∧(c). 하나라도 실패 = FAIL. (b) 산출 불가(해시 불일치) = INCONCLUSIVE.
+  4. 리셋: 코드 해시(사전등록 표)와 현재 파일 해시가 다르면 이전 표본은 다른 전략의 표본 → 카운터 0(D-33 개정 3항). 판정 차단.
+  5. 출력은 건수·불리언·해시만. CAGR·PF·수익률 수치는 dict 에 넣지 않는다(관측 #2 와 같은 공개 규약).
+  6. 20% 연환산 목표(D-9)는 판정 기준이 아니다. 라이브 배선은 이 파일의 결과와 무관하게 별도 결정이다.
+
+실행(달력 시간 경과 후): .venv/bin/python research/daily_trend_pullback_v1/run_forward.py   (읽기 전용, 실DB)
+"""
+
+import hashlib
+import re
+import sqlite3
+import warnings
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+import run as _run                                   # DB 경로·ro 강제·로더 규약 재사용 (import 부작용 없음)
+from data_loader import (
+    load_ohlcv_from_sqlite,
+    load_market_from_sqlite,
+    load_universe_symbols,
+    check_data_coverage,
+)
+from strategy_validation_v1 import (
+    FIXED_CONFIG, TRADE_COLUMNS,
+    run_period, net_return_pct, trend_goal_check,
+)
+
+_HERE             = Path(__file__).resolve().parent
+PREREG_PATH       = _HERE / "PREREGISTRATION_v1.md"
+HASH_LOCK_FILES   = ("strategy_validation_v1.py", "data_loader.py", "run.py", "run_forward.py")
+
+FORWARD_START     = "2026-09-09"                     # 관측 #2 창 종료(2026-09-08) 다음 거래일부터
+DEADLINE          = "2028-09-08"                     # FORWARD_START + 2년 (D-33 시한 방식)
+MIN_CLOSED_TRADES = 100                              # D-33 swing 하한 준용
+BAND_QUANTILE     = 0.05                             # 동일 길이 과거창 밴드 하단
+BACKTEST_START    = _run.START_DATE                  # "2022-01-01" (관측 #2 창)
+BACKTEST_END      = _run.END_DATE                    # "2026-09-08"
+
+
+# ──────────────────────────────────────────────
+# 해시 잠금 (D-33 개정 3항: 코드가 바뀌면 표본 리셋)
+# ──────────────────────────────────────────────
+
+def sha256_file(path) -> str:
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def expected_hashes(doc_path=PREREG_PATH) -> dict:
+    """사전등록 문서의 `| <file>.py | <sha256> |` 행을 읽는다. 문서가 없으면 빈 dict."""
+    doc_path = Path(doc_path)
+    if not doc_path.exists():
+        return {}
+    pat = re.compile(r"^\|\s*`?([A-Za-z0-9_]+\.py)`?\s*\|\s*([0-9a-f]{64})\s*\|", re.M)
+    return {m.group(1): m.group(2) for m in pat.finditer(doc_path.read_text(encoding="utf-8"))}
+
+
+def verify_hash_lock(doc_path=PREREG_PATH, code_dir=_HERE) -> dict:
+    """{file: bool} — 사전등록 해시와 현재 파일 해시 일치 여부. 문서에 없는 파일은 False."""
+    exp = expected_hashes(doc_path)
+    return {
+        f: (f in exp and (Path(code_dir) / f).exists() and sha256_file(Path(code_dir) / f) == exp[f])
+        for f in HASH_LOCK_FILES
+    }
+
+
+# ──────────────────────────────────────────────
+# 판정 입력 변환
+# ──────────────────────────────────────────────
+
+def closed_only(trades: pd.DataFrame) -> pd.DataFrame:
+    """forced_close(기간 종료 강제 청산)는 실제로는 미완결 → 전향 표본에서 제외"""
+    if trades is None or trades.empty:
+        return pd.DataFrame(columns=TRADE_COLUMNS)
+    return trades.loc[trades["exit_reason"] != "forced_close"].reset_index(drop=True)
+
+
+def deployment_frame(trades: pd.DataFrame) -> pd.DataFrame:
+    """capital_metrics.deployment_metrics() 입력 — NetReturnPct 는 분수(퍼센트 아님)"""
+    if trades.empty:
+        return pd.DataFrame(columns=["Entry Timestamp", "Exit Timestamp", "NetReturnPct", "Symbol", "Status"])
+    return pd.DataFrame({
+        "Entry Timestamp": pd.to_datetime(trades["entry_date"]).to_numpy(),
+        "Exit Timestamp":  pd.to_datetime(trades["exit_date"]).to_numpy(),
+        "NetReturnPct":    (net_return_pct(trades) / 100.0).to_numpy(),
+        "Symbol":          trades["ticker"].astype(str).to_numpy(),
+        "Status":          "closed",
+    })
+
+
+def trades_hash(trades: pd.DataFrame) -> str:
+    """관측 #2 요약과 같은 규약: TRADE_COLUMNS 순서 CSV(index 없음) sha256 앞 16"""
+    return hashlib.sha256(trades[TRADE_COLUMNS].to_csv(index=False).encode()).hexdigest()[:16]
+
+
+# ──────────────────────────────────────────────
+# 동일 길이 과거창 밴드 (D-33 개정 2 방식 — 판정 시점에만 산출)
+# ──────────────────────────────────────────────
+
+def same_length_window_cagrs(
+    backtest_trades: pd.DataFrame,
+    window_days: int,
+    bt_start=BACKTEST_START,
+    bt_end=BACKTEST_END,
+    config=None,
+) -> list:
+    """관측 창 길이(달력일)와 같은 길이의 창을 bt_start 부터 월 단위로 옮기며,
+    창 안에서 진입·청산이 모두 끝난 거래만으로 deployment CAGR 을 계산한다. 반환: CAGR 리스트(밴드 재료)."""
+    from korea_quant.capital_metrics import DeploymentConfig, deployment_metrics
+    config = config or DeploymentConfig()
+    bt_start, bt_end = pd.Timestamp(bt_start), pd.Timestamp(bt_end)
+    bt = closed_only(backtest_trades)
+    out = []
+    ws = bt_start
+    while ws + pd.Timedelta(days=window_days) - pd.Timedelta(days=1) <= bt_end:
+        we = ws + pd.Timedelta(days=window_days) - pd.Timedelta(days=1)
+        sub = bt.loc[(bt["entry_date"] >= ws) & (bt["exit_date"] <= we)]
+        if len(sub) > 0:
+            m = deployment_metrics(deployment_frame(sub), config)
+            if np.isfinite(m.cagr):
+                out.append(float(m.cagr))
+        ws += pd.DateOffset(months=1)
+    return out
+
+
+# ──────────────────────────────────────────────
+# 판정 (건수·불리언만 반환)
+# ──────────────────────────────────────────────
+
+def judge_forward(
+    forward_trades: pd.DataFrame,
+    forward_start,
+    forward_end,
+    backtest_trades: pd.DataFrame = None,
+    hash_lock: dict = None,
+    today=None,
+) -> dict:
+    """
+    반환 키(고정): closed_trades, floor_reached, deadline_passed, hash_lock_ok, verdict,
+                   + 도달 시: deployed_trades, cagr_low_positive, within_backtest_band, band_windows,
+                              trend_goal_pass, immediate_reject
+    verdict ∈ {"증거 아님(표본 미달)", "미도달 확정(시한 경과)", "리셋(코드 해시 불일치)", "PASS", "FAIL", "INCONCLUSIVE(밴드 미산출)"}
+    """
+    forward_start, forward_end = pd.Timestamp(forward_start), pd.Timestamp(forward_end)
+    today = pd.Timestamp(today) if today is not None else pd.Timestamp.today().normalize()
+    closed = closed_only(forward_trades)
+    n = int(len(closed))
+    hash_ok = bool(all(hash_lock.values())) if hash_lock else False
+    out = {
+        "closed_trades":   n,
+        "floor_reached":   bool(n >= MIN_CLOSED_TRADES),
+        "deadline_passed": bool(today > pd.Timestamp(DEADLINE)),
+        "hash_lock_ok":    hash_ok,
+    }
+    if not hash_ok:
+        out["verdict"] = "리셋(코드 해시 불일치)"
+        return out
+    if not out["floor_reached"]:
+        out["verdict"] = "미도달 확정(시한 경과)" if out["deadline_passed"] else "증거 아님(표본 미달)"
+        return out
+
+    from korea_quant.capital_metrics import DeploymentConfig, deployment_metrics
+    dm = deployment_metrics(deployment_frame(closed), DeploymentConfig())
+    tg = trend_goal_check(closed, forward_start, forward_end)
+    out["deployed_trades"]   = int(dm.deployed_trades)
+    out["cagr_low_positive"] = bool(np.isfinite(dm.cagr_low) and dm.cagr_low > 0.0)
+    out["trend_goal_pass"]   = bool(tg["trend_goal_pass"])
+    out["immediate_reject"]  = bool(tg["immediate_reject"])
+
+    if backtest_trades is None:
+        out["within_backtest_band"] = None
+        out["band_windows"] = 0
+    else:
+        window_days = int((forward_end - forward_start).days) + 1
+        cagrs = same_length_window_cagrs(backtest_trades, window_days)
+        out["band_windows"] = int(len(cagrs))
+        if cagrs:
+            band_low = float(np.quantile(cagrs, BAND_QUANTILE))
+            out["within_backtest_band"] = bool(np.isfinite(dm.cagr) and dm.cagr >= band_low)
+        else:
+            out["within_backtest_band"] = None
+
+    if out["within_backtest_band"] is None:
+        out["verdict"] = "INCONCLUSIVE(밴드 미산출)"
+    elif out["cagr_low_positive"] and out["within_backtest_band"] and out["trend_goal_pass"] and not out["immediate_reject"]:
+        out["verdict"] = "PASS"
+    else:
+        out["verdict"] = "FAIL"
+    return out
+
+
+# ──────────────────────────────────────────────
+# 실행 진입점 (읽기 전용 실DB) — 지금은 실행하지 않는다
+# ──────────────────────────────────────────────
+
+def main(forward_end: str = None, compute_band: bool = None):
+    sqlite3.connect = _run._readonly_sqlite_connect   # W-2: 읽기 전용 강제
+
+    hash_lock = verify_hash_lock()
+    print("HASH_LOCK:", {k: bool(v) for k, v in hash_lock.items()})
+
+    print("STEP 1. 시장 시리즈 로딩")
+    market_df = load_market_from_sqlite(
+        _run.DB_PATH, index_ticker=_run.MARKET_TICKER,
+        start_date=_run.DB_START, end_date=forward_end or "2099-12-31",
+    )
+    data_end = pd.Timestamp(market_df.index.max())
+    fwd_end  = min(pd.Timestamp(forward_end), data_end) if forward_end else data_end
+    print(f"FORWARD_WINDOW: {FORWARD_START} ~ {fwd_end.date()} (DB 마지막 거래일 {data_end.date()})")
+
+    print("STEP 2. 유니버스 (H-16)")
+    tickers = load_universe_symbols(_run.DB_PATH, exclude=(_run.MARKET_TICKER,))
+    print(f"UNIVERSE: {len(tickers)}")
+
+    print("STEP 3. SQLite DB 로딩 (H-13)")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        ohlcv = load_ohlcv_from_sqlite(
+            _run.DB_PATH, tickers=tickers,
+            start_date=_run.DB_START, end_date=str(fwd_end.date()),
+            market_df=market_df,
+        )
+
+    print("STEP 4. 데이터 정합성 점검 (전향 창)")
+    check_data_coverage(ohlcv, market_df, FORWARD_START, str(fwd_end.date()))
+
+    print("STEP 5. 전향 창 실행 (run_period, FIXED_CONFIG)")
+    _, fwd_trades, _ = run_period(
+        ohlcv, market_df, pd.Timestamp(FORWARD_START), fwd_end, FIXED_CONFIG,
+        initial_capital=_run.CAPITAL, compute_pb_effectiveness=False,
+    )
+    closed = closed_only(fwd_trades)
+    print(f"FORWARD_TRADES: raw={len(fwd_trades)} closed={len(closed)} floor={MIN_CLOSED_TRADES}")
+    if not closed.empty:
+        print("FORWARD_EXIT_REASONS:", dict(closed["exit_reason"].value_counts()))
+        print("FORWARD_TRADES_HASH:", trades_hash(closed))
+
+    backtest_trades = None
+    if compute_band is None:
+        compute_band = len(closed) >= MIN_CLOSED_TRADES
+    if compute_band:
+        # 밴드 재료: 관측 #2 와 같은 코드·같은 창 재계산 (결과를 바꾸지 않음; 해시로 확인)
+        print("STEP 6. 동일 길이 밴드 재료 — 관측 #2 창 재계산 (해시 대조용)")
+        _, backtest_trades, _ = run_period(
+            ohlcv, market_df, pd.Timestamp(BACKTEST_START), pd.Timestamp(BACKTEST_END), FIXED_CONFIG,
+            initial_capital=_run.CAPITAL, compute_pb_effectiveness=False,
+        )
+        print("BACKTEST_TRADES_HASH:", trades_hash(backtest_trades), "(사전등록 부록의 관측 #2 해시와 같아야 유효)")
+
+    verdict = judge_forward(fwd_trades, FORWARD_START, fwd_end, backtest_trades, hash_lock)
+    print("JUDGE_FORWARD:", verdict)
+    return verdict
+
+
+if __name__ == "__main__":
+    main()

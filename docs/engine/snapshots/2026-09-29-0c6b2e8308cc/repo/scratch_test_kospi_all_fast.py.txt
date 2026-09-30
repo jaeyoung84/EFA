@@ -1,0 +1,82 @@
+﻿import pandas as pd
+from pathlib import Path
+from dataclasses import replace
+from korea_quant.krx import KrxDailyStore
+from korea_quant.backtest import BacktestConfig, run_baseline, build_report
+import warnings
+import sys
+import io
+import time
+warnings.filterwarnings("ignore")
+
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
+def main():
+    store = KrxDailyStore(Path("data/krx_daily.sqlite3"))
+    start = "2019-01-01"
+    end = "2024-12-31"
+    
+    history = store.market_history("2024-01-01", "2024-12-31", ("KOSPI",))
+    kospi_symbols = history.drop_duplicates(subset=["Symbol", "Name"])
+    print(f"Total KOSPI stocks: {len(kospi_symbols)}")
+    
+    config = BacktestConfig(
+        market_filter_window=20,
+        minimum_average_trading_value=5_000_000_000,
+        minimum_signal_trading_value=10_000_000_000,
+        rs_window=63,
+        rs_threshold=0.0
+    )
+    
+    market_close = store.daily_prices("069500", start, end)["Close"]
+    
+    results = []
+    
+    t0 = time.time()
+    count = 0
+    for _, row in kospi_symbols.iterrows():
+        sym = row["Symbol"]
+        name = row["Name"]
+        prices = store.daily_prices(sym, start, end)
+        if len(prices) < 200:
+            continue
+            
+        portfolio, signals = run_baseline(prices, replace(config, strategy="confluence"), market_close)
+        report = build_report(portfolio, prices["Close"], config)
+        metrics = report.metrics
+        results.append({
+            "Market": row["Market"],
+            "Symbol": sym,
+            "Name": name,
+            "Strategy": "confluence",
+            "Total Return": metrics["Total Return"],
+            "Win Rate": metrics["Win Rate"],
+            "Trade Count": metrics["Trade Count"]
+        })
+        count += 1
+        if count % 100 == 0:
+            print(f"Processed {count} stocks...", flush=True)
+            
+    df = pd.DataFrame(results)
+    active_df = df[df["Trade Count"] > 0]
+    
+    print(f"\n[Finished in {time.time() - t0:.1f} seconds]", flush=True)
+    print("\n[Strategy Summary (Aggregated across ALL KOSPI Stocks)]", flush=True)
+    agg = active_df.groupby("Strategy").agg({
+        "Total Return": "mean",
+        "Win Rate": "mean",
+        "Trade Count": "sum",
+        "Symbol": "count"
+    }).rename(columns={"Symbol": "Stocks Traded"})
+    
+    print(agg.sort_values("Total Return", ascending=False).to_string(), flush=True)
+    
+    print("\n[Confluence Strategy Details by Stock (Top 20)]", flush=True)
+    conf = active_df.sort_values("Total Return", ascending=False)
+    print(conf[["Market", "Name", "Total Return", "Win Rate", "Trade Count"]].head(20).to_string(index=False), flush=True)
+    
+    print("\n[Confluence Strategy Details by Stock (Bottom 5 - Worst Losses)]", flush=True)
+    print(conf.sort_values("Total Return", ascending=True)[["Market", "Name", "Total Return", "Win Rate", "Trade Count"]].head(5).to_string(index=False), flush=True)
+
+if __name__ == "__main__":
+    main()

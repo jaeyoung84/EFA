@@ -1,0 +1,233 @@
+"""Cross-sectional EMA30 candidate scanning without broker order execution."""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+from html import escape
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+
+from korea_quant.strategy import ema_resistance_signals
+
+
+@dataclass(frozen=True)
+class ScannerConfig:
+    ema_window: int = 30
+    resistance_threshold: float = 0.005
+    resistance_touches: int = 2
+    strong_body_lookback: int = 20
+    strong_body_multiplier: float = 1.5
+    minimum_close_position: float = 0.75
+    liquidity_window: int = 20
+    minimum_average_trading_value: float = 1_000_000_000
+    near_breakout_percent: float = 0.03
+    account_value: float = 10_000_000
+    risk_fraction: float = 0.01
+
+
+def scan_ema30_candidates(history: pd.DataFrame, config: ScannerConfig) -> pd.DataFrame:
+    """Classify active KRX symbols and calculate risk-based research sizing."""
+
+    required = {
+        "Date", "Symbol", "Name", "Market", "Open", "High", "Low", "Close",
+        "TradingValue",
+    }
+    missing = required - set(history.columns)
+    if missing:
+        raise ValueError(f"Scanner history is missing: {', '.join(sorted(missing))}")
+    _validate_config(config)
+    if history.empty:
+        raise ValueError("Scanner history cannot be empty.")
+    dates = pd.DatetimeIndex(history["Date"].drop_duplicates()).sort_values()
+    gaps = dates.to_series().diff().dt.days
+    if not gaps.empty and gaps.max() > 14:
+        gap_end = gaps.idxmax()
+        gap_start = dates[dates.get_loc(gap_end) - 1]
+        raise ValueError(
+            "KRX history has a gap longer than 14 days: "
+            f"{gap_start.date()} to {gap_end.date()}. Collect the missing dates first."
+        )
+    history = history.sort_values(["Symbol", "Date"])
+    as_of = pd.Timestamp(history["Date"].max())
+    minimum_rows = max(config.ema_window, config.strong_body_lookback) + 3
+    rows: list[dict[str, Any]] = []
+
+    for symbol, group in history.groupby("Symbol", sort=True):
+        group = group.sort_values("Date")
+        latest = group.iloc[-1]
+        base = {
+            "as_of": as_of.date().isoformat(),
+            "symbol": symbol,
+            "name": latest["Name"],
+            "market": latest["Market"],
+            "latest_date": pd.Timestamp(latest["Date"]).date().isoformat(),
+            "close": float(latest["Close"]),
+            "average_trading_value": float(
+                pd.to_numeric(group["TradingValue"], errors="coerce")
+                .tail(config.liquidity_window).mean()
+            ),
+            "ema30": None,
+            "resistance": None,
+            "distance_to_resistance": None,
+            "structure_stop": None,
+            "strong_bullish": False,
+            "risk_per_share": None,
+            "stop_loss_percent": None,
+            "suggested_shares": 0,
+        }
+        if pd.Timestamp(latest["Date"]) != as_of:
+            rows.append({**base, "state": "stale_security"})
+            continue
+        if len(group) < minimum_rows:
+            rows.append({**base, "state": "insufficient_data"})
+            continue
+        if base["average_trading_value"] < config.minimum_average_trading_value:
+            rows.append({**base, "state": "low_liquidity"})
+            continue
+
+        prices = group.set_index("Date")[["Open", "High", "Low", "Close"]]
+        signals = ema_resistance_signals(
+            prices,
+            ema_window=config.ema_window,
+            resistance_threshold=config.resistance_threshold,
+            minimum_touches=config.resistance_touches,
+            strong_body_lookback=config.strong_body_lookback,
+            strong_body_multiplier=config.strong_body_multiplier,
+            minimum_close_position=config.minimum_close_position,
+        )
+        current = signals.iloc[-1]
+        position_before_today = int(signals["entries"].iloc[:-1].sum()) > int(
+            signals["exits"].iloc[:-1].sum()
+        )
+        due_entry = bool(current["entries"])
+        due_exit = bool(current["exits"])
+        signal_today = bool(current["breakout"])
+        holding = (position_before_today or due_entry) and not due_exit
+        resistance = _number(current["resistance"])
+        ema = _number(current["ema30"])
+        stop = _number(current["structure_stop"])
+        if stop is None:
+            stop = _number(current["latest_support"])
+        distance = (
+            (resistance - base["close"]) / base["close"]
+            if resistance is not None and base["close"] > 0 else None
+        )
+        if signal_today:
+            state = "signal_today"
+        elif due_entry:
+            state = "entry_due_today"
+        elif due_exit:
+            state = "exit_due_today"
+        elif holding:
+            state = "holding"
+        elif (
+            distance is not None and 0 <= distance <= config.near_breakout_percent
+            and ema is not None and base["close"] > ema
+        ):
+            state = "near_breakout"
+        else:
+            state = "no_signal"
+        risk = _risk_sizing(base["close"], stop, config)
+        rows.append(
+            {
+                **base,
+                "state": state,
+                "ema30": ema,
+                "resistance": resistance,
+                "distance_to_resistance": distance,
+                "structure_stop": stop,
+                "strong_bullish": bool(current["strong_bullish"]),
+                **risk,
+            }
+        )
+    result = pd.DataFrame(rows)
+    priority = {
+        "signal_today": 0, "entry_due_today": 1, "near_breakout": 2,
+        "holding": 3, "exit_due_today": 4, "no_signal": 5,
+        "low_liquidity": 6, "insufficient_data": 7, "stale_security": 8,
+    }
+    result["_priority"] = result["state"].map(priority).fillna(99)
+    return result.sort_values(
+        ["_priority", "distance_to_resistance", "average_trading_value"],
+        ascending=[True, True, False], na_position="last",
+    ).drop(columns="_priority").reset_index(drop=True)
+
+
+def write_scanner_report(
+    scan: pd.DataFrame, html_output: Path, csv_output: Path
+) -> tuple[Path, Path]:
+    """Export all classifications and a readable candidate-first HTML table."""
+
+    if scan.empty:
+        raise ValueError("Scanner result cannot be empty.")
+    html_output.parent.mkdir(parents=True, exist_ok=True)
+    csv_output.parent.mkdir(parents=True, exist_ok=True)
+    scan.to_csv(csv_output, index=False)
+    counts = scan["state"].value_counts().to_dict()
+    cards = "".join(
+        f'<div class="metric"><span>{escape(state)}</span><strong>{count:,}</strong></div>'
+        for state, count in counts.items()
+    )
+    visible = scan[~scan["state"].isin({"no_signal", "low_liquidity", "insufficient_data", "stale_security"})]
+    if visible.empty:
+        visible = scan.head(200)
+    else:
+        visible = visible.head(500)
+    display = visible.copy()
+    for column in ("distance_to_resistance", "stop_loss_percent"):
+        if column in display:
+            display[column] = display[column].map(
+                lambda value: "" if pd.isna(value) else f"{value:.2%}"
+            )
+    for column in ("close", "ema30", "resistance", "structure_stop", "average_trading_value"):
+        if column in display:
+            display[column] = display[column].map(
+                lambda value: "" if pd.isna(value) else f"{value:,.0f}"
+            )
+    table = display.to_html(index=False, border=0, escape=True)
+    html = f'''<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>EMA30 Scanner</title>
+<style>body{{font-family:system-ui;margin:32px;max-width:1600px}}.metrics{{display:grid;
+grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}}.metric{{border:1px solid #ddd;
+border-radius:8px;padding:12px}}.metric span{{display:block;color:#666}}table{{border-collapse:collapse;
+width:100%;font-size:13px}}th,td{{padding:7px;border:1px solid #ddd;text-align:right}}
+th{{position:sticky;top:0;background:#f5f5f5}}th:nth-child(-n+5),td:nth-child(-n+5){{text-align:left}}</style>
+</head><body><h1>EMA30 Structural Breakout Scanner</h1><p>Research candidates only. A close signal
+can execute no earlier than the next session. Position size is a risk estimate, not an order.</p>
+<div class="metrics">{cards}</div><h2>Candidates and active states</h2>{table}</body></html>'''
+    html_output.write_text(html, encoding="utf-8")
+    return html_output, csv_output
+
+
+def _risk_sizing(close: float, stop: float | None, config: ScannerConfig) -> dict[str, Any]:
+    if stop is None or close <= stop or close <= 0:
+        return {"risk_per_share": None, "stop_loss_percent": None, "suggested_shares": 0}
+    risk_per_share = close - stop
+    risk_budget = config.account_value * config.risk_fraction
+    risk_limited = math.floor(risk_budget / risk_per_share)
+    cash_limited = math.floor(config.account_value / close)
+    return {
+        "risk_per_share": risk_per_share,
+        "stop_loss_percent": risk_per_share / close,
+        "suggested_shares": max(0, min(risk_limited, cash_limited)),
+    }
+
+
+def _number(value: Any) -> float | None:
+    return None if pd.isna(value) else float(value)
+
+
+def _validate_config(config: ScannerConfig) -> None:
+    if min(config.ema_window, config.strong_body_lookback, config.liquidity_window) <= 1:
+        raise ValueError("Scanner windows must be greater than one.")
+    if config.resistance_touches < 2:
+        raise ValueError("resistance_touches must be at least two.")
+    if min(
+        config.resistance_threshold, config.strong_body_multiplier,
+        config.minimum_average_trading_value, config.account_value, config.risk_fraction,
+    ) <= 0:
+        raise ValueError("Scanner thresholds, account value, and risk must be positive.")
+    if not 0 < config.minimum_close_position <= 1 or config.near_breakout_percent < 0:
+        raise ValueError("Close position or near-breakout threshold is invalid.")

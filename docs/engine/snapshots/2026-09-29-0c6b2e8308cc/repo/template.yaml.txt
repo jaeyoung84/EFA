@@ -1,0 +1,103 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Scheduled KRX KOSPI/KOSDAQ daily-bar collector
+
+Parameters:
+  KrxAuthKeyParameterName:
+    Type: String
+    Default: /korea-quant/krx-auth-key
+    Description: Existing SSM SecureString parameter containing the KRX API key
+  DataPrefix:
+    Type: String
+    Default: krx/daily
+  LookbackDays:
+    Type: Number
+    Default: 10
+
+Resources:
+  DataBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+
+  SchedulerDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  CollectorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/korea-quant-krx-daily
+      RetentionInDays: 30
+
+  CollectorFunction:
+    Type: AWS::Serverless::Function
+    DependsOn: CollectorLogGroup
+    Metadata:
+      Dockerfile: Dockerfile
+      DockerContext: .
+      DockerTag: python312-v1
+    Properties:
+      FunctionName: korea-quant-krx-daily
+      PackageType: Image
+      Architectures: [x86_64]
+      MemorySize: 1024
+      Timeout: 300
+      ReservedConcurrentExecutions: 1
+      Environment:
+        Variables:
+          DATA_BUCKET: !Ref DataBucket
+          DATA_PREFIX: !Ref DataPrefix
+          LOOKBACK_DAYS: !Ref LookbackDays
+          KRX_AUTH_KEY_PARAMETER: !Ref KrxAuthKeyParameterName
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref DataBucket
+        - Statement:
+            - Sid: ReadKrxApiKey
+              Effect: Allow
+              Action: ssm:GetParameter
+              Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${KrxAuthKeyParameterName}
+            - Sid: DecryptParameterStoreValue
+              Effect: Allow
+              Action: kms:Decrypt
+              Resource: '*'
+              Condition:
+                StringEquals:
+                  kms:ViaService: !Sub ssm.${AWS::Region}.amazonaws.com
+      Events:
+        DailySchedule:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: cron(30 18 ? * MON-FRI *)
+            ScheduleExpressionTimezone: Asia/Seoul
+            FlexibleTimeWindow:
+              Mode: 'OFF'
+            RetryPolicy:
+              MaximumRetryAttempts: 2
+              MaximumEventAgeInSeconds: 3600
+            DeadLetterConfig:
+              Arn: !GetAtt SchedulerDeadLetterQueue.Arn
+
+Outputs:
+  DataBucketName:
+    Value: !Ref DataBucket
+  FunctionName:
+    Value: !Ref CollectorFunction
+  DeadLetterQueueUrl:
+    Value: !Ref SchedulerDeadLetterQueue

@@ -1,0 +1,88 @@
+# KQS 사용자 판단 데이터셋 v1
+
+개인 판단 원장의 학습 전 검토용 다운로드 계약이다. 자동 학습이나 매매 실행은 포함하지 않는다.
+
+## API
+
+`GET /api/kqs/decisions/training-dataset` (로그인 필요)
+
+응답은 UTF-8 JSON Lines 파일이다. 첫 줄은 manifest, 이후 각 줄은 한 건의 사용자 판단이다.
+다른 사용자의 데이터와 계정 식별자는 내보내지 않는다. 자유 메모는 기본 제외되며,
+필요한 경우에만 `?include_notes=true`로 포함한다.
+
+## 예시 구조
+
+```json
+{"record_type":"manifest","schema_version":"kqs-human-decisions/v1","example_count":1,"features_exclude_future_outcomes":true}
+{"record_type":"example","features":{"data_as_of":"2026-09-26","signal_type":"swing","reasons":[]},"labels":{"human_decision":"hold","forward_returns":{"1":{"observed":false,"return_pct":null}}}}
+```
+
+- `features`: 결정 시점에 알 수 있었던 추천 근거·엔진 메타데이터와 사용자 근거 태그
+- `labels.human_decision`: 사용자가 남긴 buy/hold/exclude/sell/review_again 판단
+- `labels.forward_returns`: 기준일 뒤 확정된 1·5·20 거래일 성과. 미관측은 `observed=false`, 수익률은 `null`
+- `labels.realized_trade`: 사용자가 입력한 매수·매도 기록을 매칭한 실현 손익. 매칭 전에는 `null`
+- `label_quality`: 표본별 20일·실현 손익 관측 여부
+
+미관측 성과를 0으로 채우지 않는다. 미래 성과는 피처에 포함하지 않는다. 메모는 자유형
+텍스트라 기본 학습 입력에서 제외한다. 이 파일은 사용자 개인 기록이므로 안전한 위치에 보관한다.
+실제 모델 학습은 별도의 데이터 품질·표본 수·시간순 분리 검토가 끝난 뒤 진행한다.
+
+## 79단계: 시간순 학습 분할
+
+`GET /api/kqs/decisions/training-readiness`는 학습 시작 전의 표본 상태를 반환한다.
+
+- 20거래일 결과가 확정된 표본만 학습 분할 후보가 된다.
+- 기준일 순서로 train 60%, validation 20%, test 20%를 배정한다.
+- train의 20일 결과가 validation 기간에 닿거나 validation 결과가 test 기간에 닿는 표본은 제외한다.
+- 기본 기준은 확정 표본 120건 이상, 각 분할 20건 이상, 서로 다른 기준일 5일 이상이다.
+
+준비 상태가 충족되면 다음 파일을 받을 수 있다.
+
+```text
+GET /api/kqs/decisions/training-dataset?split=train
+GET /api/kqs/decisions/training-dataset?split=validation
+GET /api/kqs/decisions/training-dataset?split=test
+```
+
+각 파일의 manifest에는 적용한 분할 정책과 제외 표본 수가 남는다. 이 기준은 학습 코드가
+검증·테스트 구간을 보고 파라미터를 고르는 일을 막기 위한 최소 조건이며, 모델 성과를 보장하지 않는다.
+
+## 80단계: 오프라인 기준 모델 실험 기록
+
+`POST /api/kqs/training-experiments`는 외부 또는 별도 연구 환경에서 수행한 모델 실험의
+재현 메타데이터와 구간별 성과를 기록한다. 이 API는 79단계 준비 기준을 통과한 경우에만
+동작하며, 기록하는 `train`·`validation`·`test`의 `sample_count`도 현재 고정 분할과 같아야 한다.
+
+- 허용 모델 구분: `majority_class_baseline`, `logistic_regression`, `tree_ensemble`, `external_offline`
+- 각 실험에는 모델 버전, 단순 학습 설정, 구간별 표본 수·정확도·균형 정확도·평균 수익률을 남긴다.
+- 서버는 사용된 학습 표본, 20일 레이블, 시간 분할 정책의 SHA-256 지문을 계산해 결과에 묶는다.
+- `GET /api/kqs/training-experiments`는 본인 실험 이력만 반환한다.
+
+기록된 성과는 사용자가 보고한 연구 결과이며 자동 재검증된 모델 성과가 아니다. 모든 실험은
+`recorded_offline` 및 `not_requested` 상태로 저장되며, 이 단계에서는 추천 생성, 모델 승인,
+포트폴리오 변경, 모의체결, 주문 및 자동매매 연결을 제공하지 않는다.
+
+## 81단계: 오프라인 기준 모델 러너
+
+`scripts/run_kqs_offline_baseline.py`는 인증된 API에서 고정된 세 분할을 직접 내려받아
+기준 모델을 학습하고 평가한다. 데이터 준비 기준이 미충족이면 중단하며, 내려받은 표본 수가
+준비도 API와 다르면 결과를 기록하지 않는다.
+
+```bash
+export KQS_API_TOKEN='로그인_토큰'
+python scripts/run_kqs_offline_baseline.py --model majority_class_baseline --version baseline-v1
+python scripts/run_kqs_offline_baseline.py --model logistic_regression --version logistic-v1
+```
+
+기본 실행은 결과 JSON만 출력하는 dry-run이다. 검토가 끝난 결과만 다음처럼 명시적으로 기록한다.
+
+```bash
+python scripts/run_kqs_offline_baseline.py --model logistic_regression --version logistic-v1 --record
+```
+
+- `majority_class_baseline`: train 구간에서 가장 많이 나온 사용자 판단 하나를 항상 예측한다.
+- `logistic_regression`: 시장·신호·선정 상태·추천 근거 태그 등 결정 시점 피처만 사용한다.
+- 모델 선택과 설정 변경은 train·validation까지만 사용해야 하며, test는 최종 1회 보고용이다.
+- `average_return_pct`는 모델이 `buy`로 예측한 표본의 확정 20거래일 사후 수익률일 뿐, 매수 지시나 예상 수익률이 아니다.
+
+이 도구는 모델 파일을 추천 엔진이나 홈페이지에 배포하지 않으며, 자동 추천·자동 체결·주문을 수행하지 않는다.

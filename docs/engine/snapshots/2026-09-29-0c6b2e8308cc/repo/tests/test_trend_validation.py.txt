@@ -1,0 +1,246 @@
+from dataclasses import replace
+
+import pandas as pd
+import pytest
+
+from korea_quant.capital_metrics import DeploymentConfig
+from korea_quant.trend_validation import (
+    TrendGoal,
+    TrendValidationConfig,
+    _label_windows,
+    _prepare_checkpoint_dir,
+    run_trend_validation,
+    summarize_trend_trades,
+    write_trend_validation_reports,
+)
+
+
+def _trades() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "Segment": ["out_of_sample"] * 40,
+            "Market": ["KOSPI"] * 30 + ["KOSDAQ"] * 10,
+            "Strategy": ["darvas-box"] * 30 + ["turtle"] * 10,
+            "NetReturnPct": [0.35] * 22 + [-0.10] * 8 + [0.30] * 7 + [-0.10] * 3,
+        }
+    )
+
+
+def _price_history(periods: int = 120) -> pd.DataFrame:
+    # A sawtooth uptrend: the long climbs push through the prior 20-session high
+    # so turtle enters, and the sharper drops break the 10-session low so it
+    # exits -- giving the regime-gate tests real closed trades to suppress.
+    price = 100.0
+    closes = []
+    for number in range(periods):
+        price += 2.0 if number % 40 < 25 else -3.0
+        closes.append(price)
+    return pd.DataFrame(
+        {
+            "Date": pd.bdate_range("2024-01-01", periods=periods),
+            "Symbol": "000001", "Name": "A", "Market": "KOSPI",
+            "Open": closes, "High": [value + 1 for value in closes],
+            "Low": [value - 1 for value in closes], "Close": closes,
+            "Volume": 10_000, "TradingValue": 6_000_000_000, "MarketCap": 1_000_000_000_000,
+        }
+    )
+
+
+def test_goal_summary_uses_costed_trade_return_and_single_trade_floor():
+    summary = summarize_trend_trades(_trades(), TrendGoal(minimum_trades=30))
+    darvas = summary[(summary["Market"] == "KOSPI") & (summary["Strategy"] == "darvas-box")].iloc[0]
+    turtle = summary[(summary["Market"] == "KOSDAQ") & (summary["Strategy"] == "turtle")].iloc[0]
+    assert darvas["Closed Trade Count"] == 30
+    assert darvas["Win Rate"] == pytest.approx(22 / 30)
+    assert darvas["Payoff Ratio"] == pytest.approx(0.35 / 0.10)
+    assert darvas["Expectancy"] > 0
+    assert bool(darvas["Passes Goal"])
+    assert turtle["Closed Trade Count"] == 10
+    assert not bool(turtle["Passes Goal"])
+
+
+def test_trend_acceptance_ignores_win_rate_and_median_because_this_family_loses_often():
+    # Darvas Box and Turtle win 35.1% and 34.6% of trades out of sample with
+    # negative medians. That is what a payoff ratio near 2.7 looks like, not a
+    # defect, so judging them on win rate could only ever print FAIL. The bar is
+    # that the wins are multiples of the losses and the total comes out ahead.
+    losing_but_profitable = pd.DataFrame(
+        {
+            "Segment": "out_of_sample", "Market": "KOSPI", "Strategy": "darvas-box",
+            "Window": [1] * 20 + [2] * 20,
+            "NetReturnPct": ([0.60] * 7 + [-0.10] * 13) * 2,
+        }
+    )
+    row = summarize_trend_trades(losing_but_profitable, TrendGoal()).iloc[0]
+    assert row["Win Rate"] < 0.40, "reported, but deliberately not a criterion"
+    assert row["Median Net Return"] < 0, "likewise reported and likewise not a criterion"
+    assert row["Payoff Ratio"] == pytest.approx(6.0)
+    assert bool(row["Passes Goal"])
+
+
+def test_trend_goal_rejects_a_strategy_that_is_not_actually_trend_shaped():
+    # Small, frequent wins paid for by rare large losses is the opposite payoff
+    # profile. It can still show a positive total over a lucky sample, so the
+    # payoff-ratio floor is the identity guard that keeps it out of this family.
+    inverted = pd.DataFrame(
+        {
+            "Segment": "out_of_sample", "Market": "KOSPI", "Strategy": "darvas-box",
+            "Window": [1] * 20 + [2] * 20,
+            "NetReturnPct": ([0.10] * 18 + [-0.40] * 2) * 2,
+        }
+    )
+    row = summarize_trend_trades(inverted, TrendGoal()).iloc[0]
+    assert row["Profit Factor"] > 1.30, "profitable, and still the wrong shape"
+    assert row["Payoff Ratio"] == pytest.approx(0.25)
+    assert not bool(row["Passes Goal"])
+
+
+def test_goal_fails_when_closed_trade_sample_is_too_small():
+    summary = summarize_trend_trades(_trades().iloc[:29], TrendGoal(minimum_trades=30))
+    row = summary[(summary["Market"] == "KOSPI") & (summary["Strategy"] == "darvas-box")].iloc[0]
+    assert not bool(row["Passes Goal"])
+
+
+def test_validation_requires_expected_history_and_out_of_sample_sessions():
+    history = pd.DataFrame({"Date": pd.date_range("2024-01-01", periods=3)})
+    with pytest.raises(ValueError, match="missing"):
+        run_trend_validation(history)
+
+    complete = pd.DataFrame(
+        {
+            "Date": pd.date_range("2024-01-01", periods=3), "Symbol": ["000001"] * 3,
+            "Name": ["A"] * 3, "Market": ["KOSPI"] * 3, "Open": [100] * 3,
+            "High": [100] * 3, "Low": [100] * 3, "Close": [100] * 3,
+            "Volume": [1] * 3, "TradingValue": [100] * 3, "MarketCap": [100] * 3,
+        }
+    )
+    with pytest.raises(ValueError, match="after the training"):
+        run_trend_validation(complete, TrendValidationConfig(training_sessions=3))
+
+
+def test_validation_report_writes_summary_and_trade_records(tmp_path):
+    trades = _trades()
+    result = type("Result", (), {"trades": trades, "summary": summarize_trend_trades(trades)})()
+    html, csv = write_trend_validation_reports(
+        result, tmp_path / "validation.html", tmp_path / "validation.csv"
+    )
+    assert "continuous backtest" in html.read_text(encoding="utf-8")
+    assert {"summary", "trade"} <= set(pd.read_csv(csv)["RecordType"])
+
+
+def test_checkpoint_manifest_reuses_matching_inputs_and_rejects_mismatch(tmp_path):
+    history = pd.DataFrame({"Date": pd.to_datetime(["2024-01-02", "2024-01-03"])})
+    checkpoint = tmp_path / "checkpoints"
+    config = TrendValidationConfig(checkpoint_dir=checkpoint)
+
+    assert _prepare_checkpoint_dir(history, config) == checkpoint
+    assert _prepare_checkpoint_dir(history, config) == checkpoint
+    changed = TrendValidationConfig(
+        checkpoint_dir=checkpoint, market_cap_tiers=(("KOSPI", 50), ("KOSDAQ", 50))
+    )
+    with pytest.raises(ValueError, match="different validation inputs"):
+        _prepare_checkpoint_dir(history, changed)
+
+
+def test_checkpoint_manifest_rejects_a_changed_benchmark_series(tmp_path):
+    # The filter window lives in the config, but the benchmark prices arrive as a
+    # runtime argument, so without a fingerprint a rerun against re-pointed
+    # benchmark data would silently reuse chunks built from the old regime.
+    history = pd.DataFrame({"Date": pd.to_datetime(["2024-01-02", "2024-01-03"])})
+    checkpoint = tmp_path / "checkpoints"
+    config = TrendValidationConfig(checkpoint_dir=checkpoint, market_filter_window=200)
+    benchmark = {"KOSPI": pd.Series([1.0, 2.0], index=pd.to_datetime(["2024-01-02", "2024-01-03"]))}
+
+    assert _prepare_checkpoint_dir(history, config, benchmark) == checkpoint
+    changed = {"KOSPI": benchmark["KOSPI"] * 2}
+    with pytest.raises(ValueError, match="different validation inputs"):
+        _prepare_checkpoint_dir(history, config, changed)
+
+
+def test_market_filter_window_must_be_disabled_or_usable():
+    history = _price_history()
+    with pytest.raises(ValueError, match="zero .disabled. or at least two"):
+        run_trend_validation(history, TrendValidationConfig(market_filter_window=1))
+
+
+def test_market_regime_gate_blocks_entries_without_touching_the_baseline():
+    history = _price_history()
+    config = TrendValidationConfig(
+        training_sessions=40, testing_sessions=20, liquidity_window=5,
+        minimum_history_sessions=10, minimum_average_trading_value=0,
+        market_cap_tiers=(("KOSPI", 1),), strategies=("turtle",),
+    )
+    baseline = run_trend_validation(history, config)
+    assert not baseline.trades.empty, "fixture must trade, or the gate test proves nothing"
+
+    dates = pd.DatetimeIndex(history["Date"].drop_duplicates())
+    # A benchmark that only ever falls never rises above its own average, so the
+    # plain orientation blocks every entry and the inverted one allows them.
+    falling = {"KOSPI": pd.Series(range(len(dates), 0, -1), index=dates, dtype=float)}
+    gated = replace(config, market_filter_window=5)
+    assert run_trend_validation(history, gated, falling).trades.empty
+    inverted = replace(gated, market_filter_inverted=True)
+    assert not run_trend_validation(history, inverted, falling).trades.empty
+
+
+def test_label_windows_keeps_boundary_spanning_trades_by_entry_date():
+    dates = pd.DatetimeIndex(pd.date_range("2024-01-01", periods=10, freq="D"))
+    config = TrendValidationConfig(training_sessions=5, testing_sessions=2)
+    trades = pd.DataFrame(
+        {
+            # index 4 = still warm-up; 5,6 = window 1; 7,8 = window 2; 9 = window 3 (open-ended)
+            "Entry Timestamp": [dates[4], dates[5], dates[6], dates[7], dates[9]],
+            "NetReturnPct": [0.50, 0.60, -0.05, 0.70, 0.80],
+        }
+    )
+    labeled = _label_windows(trades, dates, config)
+    assert labeled["Window"].tolist() == [pd.NA, 1, 1, 2, 3]
+
+
+def test_label_windows_never_drops_a_trade_spanning_what_would_be_a_window_edge():
+    # A trade entered one session before a window boundary and held long past it
+    # must still be labeled into the window of its entry, not excluded.
+    dates = pd.DatetimeIndex(pd.date_range("2024-01-01", periods=10, freq="D"))
+    config = TrendValidationConfig(training_sessions=5, testing_sessions=2)
+    trades = pd.DataFrame(
+        {"Entry Timestamp": [dates[6]], "Exit Timestamp": [dates[9]], "NetReturnPct": [1.20]}
+    )
+    labeled = _label_windows(trades, dates, config)
+    assert len(labeled) == 1
+    assert labeled["Window"].iloc[0] == 1
+
+
+def _dated_trades() -> pd.DataFrame:
+    """A passing darvas-box scope whose signals all arrive on one session."""
+    trades = _trades()
+    trades = trades[trades["Strategy"] == "darvas-box"].reset_index(drop=True)
+    return trades.assign(
+        Symbol=[f"{number:06d}" for number in range(len(trades))],
+        Status="closed",
+        **{
+            "Entry Timestamp": pd.Timestamp("2024-01-02"),
+            "Exit Timestamp": pd.Timestamp("2024-06-03"),
+        },
+    )
+
+
+def test_the_deployment_rule_changes_the_capital_columns_and_never_the_verdict():
+    # Same guarantee as reversion_validation's matching test: capital metrics
+    # are reported, not enforced, so tightening deployment must move the
+    # capital numbers without moving which rows PASS.
+    trades = _dated_trades()
+    narrow = summarize_trend_trades(trades, None, DeploymentConfig(daily_entry_cap=1))
+    wide = summarize_trend_trades(trades, None, DeploymentConfig(daily_entry_cap=100))
+
+    assert narrow["Deployed Trade Count"].sum() < wide["Deployed Trade Count"].sum()
+    assert narrow["Skipped Daily Cap"].sum() > wide["Skipped Daily Cap"].sum()
+    assert narrow["Passes Goal"].tolist() == wide["Passes Goal"].tolist()
+
+
+def test_a_summary_without_entry_dates_reports_blanks_rather_than_failing():
+    # _trades() carries no dates, matching every real caller of this helper
+    # today -- the capital layer must not start rejecting them.
+    summary = summarize_trend_trades(_trades())
+    assert summary["CAGR"].isna().all()
+    assert summary["Greedy Hindsight High CAGR"].isna().all()
+    assert summary["Passes Goal"].notna().all()

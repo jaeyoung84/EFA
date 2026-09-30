@@ -1,0 +1,11 @@
+[Unit]
+Description=KQS state backup with restore check, then optional private S3 upload
+Wants=docker.service
+After=docker.service kqs-daily-pipeline.service
+OnFailure=kqs-alert@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker compose -f /opt/investing-app/infra/docker/docker-compose.engine.yml --profile engine run --rm kqs-backup
+ExecStartPost=/opt/investing-app/infra/ops/kqs-backup-upload.sh
+TimeoutStartSec=60min

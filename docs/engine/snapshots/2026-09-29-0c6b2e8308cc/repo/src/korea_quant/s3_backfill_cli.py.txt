@@ -1,0 +1,41 @@
+"""Run the long initial KRX backfill locally and write partitions to S3."""
+
+from __future__ import annotations
+
+import argparse
+import os
+from datetime import UTC, date, datetime
+
+from korea_quant.aws_storage import S3ParquetDailyStore
+from korea_quant.krx import KrxCollector, KrxOpenApiClient
+
+
+def main() -> None:
+    import boto3
+    from botocore.config import Config
+
+    parser = argparse.ArgumentParser(description="Backfill KRX daily bars directly to S3.")
+    parser.add_argument("--bucket", required=True)
+    parser.add_argument("--prefix", default="krx/daily")
+    parser.add_argument("--start", default="2010-01-04")
+    parser.add_argument("--end", default=datetime.now(UTC).date().isoformat())
+    parser.add_argument("--delay", type=float, default=0.1)
+    args = parser.parse_args()
+
+    key = os.environ.get("KRX_AUTH_KEY", "").strip()
+    if not key:
+        raise SystemExit("Set KRX_AUTH_KEY in the current shell before backfilling.")
+    config = Config(retries={"total_max_attempts": 4, "mode": "adaptive"})
+    store = S3ParquetDailyStore(
+        args.bucket, boto3.client("s3", config=config), args.prefix
+    )
+    totals = KrxCollector(KrxOpenApiClient(key), store, args.delay).collect_range(
+        date.fromisoformat(args.start),
+        date.fromisoformat(args.end),
+        progress=lambda day, market, count: print(day, market, count),
+    )
+    print(totals)
+
+
+if __name__ == "__main__":
+    main()

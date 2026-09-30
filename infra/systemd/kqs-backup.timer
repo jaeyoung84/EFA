@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily KQS state backup after the pipeline window
+
+[Timer]
+OnCalendar=*-*-* 11:30:00 Asia/Seoul
+Persistent=true
+
+[Install]
+WantedBy=timers.target

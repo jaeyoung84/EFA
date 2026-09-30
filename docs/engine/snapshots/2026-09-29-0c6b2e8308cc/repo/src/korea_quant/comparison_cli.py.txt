@@ -1,0 +1,46 @@
+"""CLI for comparing every single-symbol daily strategy."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+from korea_quant.backtest import BacktestConfig
+from korea_quant.comparison import run_all_strategies, write_comparison_reports
+from korea_quant.krx import KrxDailyStore
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Compare all daily strategies on one KRX symbol.")
+    parser.add_argument("--krx-db", type=Path, required=True)
+    parser.add_argument("--symbol", required=True)
+    parser.add_argument("--start", required=True)
+    parser.add_argument("--end", default=None)
+    parser.add_argument("--cash", type=float, default=10_000_000)
+    parser.add_argument("--fee", type=float, default=0.00015)
+    parser.add_argument("--slippage", type=float, default=0.0005)
+    parser.add_argument("--market-filter", default=None)
+    parser.add_argument("--market-window", type=int, default=200)
+    parser.add_argument("--output-dir", type=Path, default=None)
+    args = parser.parse_args()
+
+    store = KrxDailyStore(args.krx_db)
+    prices = store.daily_prices(args.symbol, args.start, args.end)
+    config = BacktestConfig(
+        initial_cash=args.cash, fee_rate=args.fee, slippage_rate=args.slippage,
+        market_filter_window=args.market_window,
+    )
+    market_close = (
+        store.daily_prices(args.market_filter, args.start, args.end)["Close"]
+        if args.market_filter else None
+    )
+    results = run_all_strategies(prices, config, market_close=market_close)
+    output_dir = args.output_dir or Path("reports/comparison") / args.symbol
+    html, csv = write_comparison_reports(
+        results, prices, output_dir, args.symbol, store.security_name(args.symbol)
+    )
+    print(f"Comparison: {html.resolve()} | {csv.resolve()}")
+
+
+if __name__ == "__main__":
+    main()
