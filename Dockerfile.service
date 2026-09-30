@@ -19,6 +19,8 @@ COPY image/ ./image/
 COPY hyundai-results/ ./hyundai-results/
 COPY lean-results/ ./lean-results/
 COPY data/ ./data/
+COPY engine/kqs/ ./engine/kqs/
+RUN pip install --no-deps ./engine/kqs
 COPY app/ ./app/
 COPY scripts/ ./scripts/
 

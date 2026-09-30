@@ -51,6 +51,8 @@ services:
       MARKET_DATA_DAILY_REFRESH_MINUTE_KST: ${MARKET_DATA_DAILY_REFRESH_MINUTE_KST:-25}
       MARKET_DATA_REFRESH_DAYS: ${MARKET_DATA_REFRESH_DAYS:-370}
       MARKET_DATA_CORE_TICKERS: ${MARKET_DATA_CORE_TICKERS:-^KS11,^KQ11,^GSPC,^IXIC,KRW=X}
+      KQS_RECOMMENDATION_SOURCE: ${KQS_RECOMMENDATION_SOURCE:-snapshot}
+      KQS_SNAPSHOT_DB: /app/state/kqs/recommendations.sqlite3
       KQS_BRIDGE_URL: ${KQS_BRIDGE_URL:-http://127.0.0.1:18100}
       KQS_REVIEW_SLA_HOURS: ${KQS_REVIEW_SLA_HOURS:-4}
       KQS_REVIEW_DUE_SOON_MINUTES: ${KQS_REVIEW_DUE_SOON_MINUTES:-60}
@@ -93,6 +95,8 @@ services:
       - ./docs:/app/docs:ro
       # 백업 파일은 실행 컨테이너에 쓰지 않고, 복구 준비 상태 점검용으로만 읽는다.
       - ./backups:/app/backups:ro
+      # Only the separate worker publishes; the website cannot modify snapshots.
+      - ./state/kqs:/app/state/kqs:ro
     depends_on:
       mongo:
         condition: service_healthy

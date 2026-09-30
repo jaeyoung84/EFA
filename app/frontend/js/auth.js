@@ -11,6 +11,20 @@ export async function authRequest(path, options = {}) {
   return payload;
 }
 
+export async function authDownload(path, fallbackFilename = 'download') {
+  const response = await fetch(path, { headers: headers() });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.detail || '파일을 내려받지 못했습니다.');
+  }
+  const disposition = response.headers.get('Content-Disposition') || '';
+  const filename = disposition.match(/filename="([^"]+)"/)?.[1] || fallbackFilename;
+  const objectUrl = URL.createObjectURL(await response.blob());
+  const link = document.createElement('a');
+  link.href = objectUrl; link.download = filename; link.click();
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
+
 export function isAuthenticated() { return Boolean(token()); }
 
 function updateBadge() {
