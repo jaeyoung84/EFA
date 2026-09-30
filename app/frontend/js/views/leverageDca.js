@@ -62,11 +62,57 @@ function tradesHtml(items) {
   return `<div class="lvdca-table-wrap"><table><thead><tr><th>일시(KST)</th><th>종목</th><th>구분</th><th>수량</th><th>체결가</th><th>금액</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
+const ALPACA_STATUS_LABEL = { filled: '체결', partially_filled: '부분 체결', error: '오류', rejected: '거부', unfilled: '미체결' };
+
+function alpacaTradesHtml(items, configured) {
+  if (!configured) {
+    return '<p class="lvdca-empty">서버에 Alpaca 페이퍼 API 키가 설정되지 않았습니다. "Alpaca 페이퍼 브로커로 체결하기"를 켜도 이 목록은 비어 있습니다.</p>';
+  }
+  if (!items?.length) return '<p class="lvdca-empty">아직 Alpaca 페이퍼 계좌에 낸 주문이 없습니다. "Alpaca 페이퍼 브로커로 체결하기"를 켜야 기록됩니다.</p>';
+  const rows = items.map((item) => `
+    <tr>
+      <td>${escapeHtml(item.date)}</td>
+      <td>${escapeHtml(item.ticker)}${item.is_reserve ? ' <small>(예비비)</small>' : ''}</td>
+      <td class="${item.direction === 'buy' ? 'is-up' : 'is-down'}">${item.direction === 'buy' ? '매수' : '매도'}</td>
+      <td>${escapeHtml(ALPACA_STATUS_LABEL[item.status] || item.status)}</td>
+      <td>${num(item.quantity, 6)}주<small> / 요청 ${num(item.requested_quantity, 6)}주</small></td>
+      <td>${item.fill_price ? `$${num(item.fill_price, 4)}` : '-'}</td>
+      <td>${item.notional_krw ? money(item.notional_krw) : '-'}</td>
+      <td>${escapeHtml(item.reason || '-')}</td>
+    </tr>`).join('');
+  return `<div class="lvdca-table-wrap"><table><thead><tr><th>일시(KST)</th><th>종목</th><th>구분</th><th>상태</th><th>체결 수량</th><th>체결가</th><th>금액</th><th>사유</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
 function positionsHtml(positions) {
   if (!positions?.length) return '<p class="lvdca-empty">현재 모의 보유 포지션이 없습니다.</p>';
   const rows = positions.map((item) => `
     <div class="lvdca-position"><span>${escapeHtml(item.ticker)}</span><strong>${num(item.quantity, 4)}주</strong><small>평균단가 ${money(item.average_cost_krw)}</small></div>`).join('');
   return `<div class="lvdca-position-grid">${rows}</div>`;
+}
+
+const usd = (value) => (value == null ? '-' : `$${Number(value).toFixed(2)}`);
+const signedMoney = (value) => (value == null ? '-' : `${Number(value) >= 0 ? '+' : '-'}${money(Math.abs(value))}`);
+const signedPct = (value) => (value == null ? '-' : `${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(2)}%`);
+const tone = (value) => (value == null ? '' : Number(value) >= 0 ? 'is-up' : 'is-down');
+
+function holdingSummaryHtml(summary, emptyText) {
+  if (!summary) return `<p class="lvdca-empty">${emptyText}</p>`;
+  const rows = summary.tickers || [];
+  const errors = summary.errors?.length ? `<p class="lvdca-note is-warn">${escapeHtml(summary.errors.join('; '))}</p>` : '';
+  const notes = summary.notes?.length ? `<p class="lvdca-config-note">${escapeHtml(summary.notes.join('; '))}</p>` : '';
+  if (!rows.length) return `${errors}<p class="lvdca-empty">${emptyText}</p>`;
+  const totals = summary.totals || {}; const tax = summary.after_tax;
+  const tableRows = rows.map((row) => `<tr><td>${escapeHtml(row.ticker)}</td><td>${num(row.quantity, 4)}주</td><td>${usd(row.average_cost_usd)}<br><small>${money(row.average_cost_krw)}</small></td><td>${usd(row.current_price_usd)}</td><td>${row.market_value_krw == null ? '-' : money(row.market_value_krw)}</td><td class="${tone(row.unrealized_pnl_krw)}">${signedMoney(row.unrealized_pnl_krw)}</td><td class="${tone(row.return_pct)}">${signedPct(row.return_pct)}</td></tr>`).join('');
+  return `
+    <div class="lvdca-metric-grid">
+      <article class="lvdca-metric"><span>누적 매수 원가</span><strong>${money(totals.cost_basis_krw)}</strong></article>
+      <article class="lvdca-metric"><span>현재 평가금액</span><strong>${totals.market_value_krw == null ? '-' : money(totals.market_value_krw)}</strong></article>
+      <article class="lvdca-metric ${tone(totals.return_pct)}"><span>현재 수익률 (평가손익)</span><strong>${signedPct(totals.return_pct)}</strong><small>${signedMoney(totals.unrealized_pnl_krw)}</small></article>
+      <article class="lvdca-metric ${tone(tax?.net_profit_after_tax_krw)}"><span>세후 실순수익 (지금 전량 매도 가정)</span><strong>${tax ? signedMoney(tax.net_profit_after_tax_krw) : '-'}</strong><small>${tax ? `세후 ${signedPct(tax.net_return_pct)}` : ''}</small></article>
+    </div>
+    <div class="lvdca-table-wrap"><table><thead><tr><th>종목</th><th>수량</th><th>누적 평단</th><th>현재가</th><th>평가금액</th><th>평가손익</th><th>수익률</th></tr></thead><tbody>${tableRows}</tbody></table></div>
+    ${tax ? `<p class="lvdca-config-note">세후 실순수익 = 평가손익 ${signedMoney(tax.gross_profit_krw)} − 매도수수료 ${money(tax.sell_fee_krw)} − 예상 양도세 ${money(tax.estimated_tax_krw)}. 과세 기준: ${escapeHtml(tax.tax_rule)}. 올해 실현손익 ${signedMoney(tax.realized_gain_ytd_krw)}, 남은 기본공제 ${money(tax.deduction_remaining_krw)}. 환율 ${summary.fx_rate ? Number(summary.fx_rate).toFixed(2) : '-'}원/$. 다른 해외주식 손익과 합산되는 실제 신고 세액과는 다를 수 있습니다.</p>` : ''}
+    ${notes}${errors}`;
 }
 
 function reserveHtml(reserve, reserveResult) {
@@ -114,6 +160,14 @@ function statusView(status) {
     </div>
     ${status.pricing_errors?.length ? `<p class="lvdca-note is-warn">시세 조회 오류: ${escapeHtml(status.pricing_errors.join('; '))}</p>` : ''}
     <section class="lvdca-section"><h3><i class="fa-solid fa-layer-group"></i> 현재 모의 보유</h3>${positionsHtml(status.positions)}</section>
+    <section class="lvdca-section" id="lvdca-holding-summary">
+      <h3><i class="fa-solid fa-calculator"></i> 누적 평단·수익률 — 홈페이지 모의 계좌 <small>(주전략+예비비 합산)</small></h3>
+      ${holdingSummaryHtml(status.holding_summary, '아직 보유 중인 모의 체결이 없습니다.')}
+    </section>
+    <section class="lvdca-section" id="lvdca-alpaca-holding-summary">
+      <h3><i class="fa-solid fa-building-columns"></i> 누적 평단·수익률 — Alpaca 페이퍼 계좌 <small>(계좌 실제 보유)</small></h3>
+      ${holdingSummaryHtml(status.alpaca_holding_summary, 'Alpaca 페이퍼 계좌가 연결되지 않았거나 보유가 없습니다.')}
+    </section>
     <section class="lvdca-section">
       <h3><i class="fa-solid fa-piggy-bank"></i> 예비비 단계 투입</h3>
       ${reserveHtml(status.reserve, log?.result?.reserve?.reserve_result)}
@@ -147,6 +201,12 @@ export function leverageDcaView(container) {
       이 화면과 자동 실행은 <b>실거래 권한을 만들지 않는 교육·연구용 모의 체결</b>이며, 실제 투자 권유가 아닙니다.</p>
     </section>
 
+    <section class="risk-basis-note lvdca-warning" id="lvdca-change-lock">
+      <i class="fa-solid fa-lock"></i>
+      <p><b>변경 잠금.</b> 레버리지 DCA 전략(매수·매도 규칙, 실행 시각, 체결 방식, Alpaca 연동)은 <b>사용자 승인 없이 변경할 수 없습니다.</b>
+      엔진·KQS 등 다른 작업 중에도 이 전략의 코드와 데이터는 사용자가 직접 요청·승인한 경우에만 수정합니다.</p>
+    </section>
+
     <section class="lvdca-config">
       <h2><i class="fa-solid fa-sliders"></i> 자동매매 설정</h2>
       <form id="lvdca-config-form">
@@ -164,8 +224,8 @@ export function leverageDcaView(container) {
         </div>
         <p class="lvdca-config-note">연준 금리·VIX·10년물 금리·SOXL 괴리·고용지표·낙폭속도 6개 지표가 모두 충족되면 S&amp;P 낙폭 -20/-30/-40%에 맞춰 예비비를 1~3단계로 나눠 UPRO만 매수합니다. 자동 매도는 하지 않습니다.</p>
         <hr class="lvdca-divider" />
-        <label class="lvdca-toggle"><input type="checkbox" id="lvdca-alpaca-enabled" /> <span>Alpaca 페이퍼 브로커로 체결하기</span></label>
-        <p class="lvdca-config-note" id="lvdca-alpaca-note">서버에 <code>ALPACA_PAPER_API_KEY</code>/<code>ALPACA_PAPER_API_SECRET</code>가 설정된 경우에만 동작합니다. Alpaca의 자체 모의 계좌(가짜 자금)로 지정가→시장가 전환을 실제 주문 엔진에서 체결하며, 키가 없거나 오류가 나면 자동으로 자체 모의 체결로 대체됩니다. 실거래 엔드포인트는 절대 호출하지 않습니다.</p>
+        <label class="lvdca-toggle"><input type="checkbox" id="lvdca-alpaca-enabled" /> <span>Alpaca 페이퍼 브로커에도 동시에 체결하기</span></label>
+        <p class="lvdca-config-note" id="lvdca-alpaca-note">켜면 <b>홈페이지 자체 모의 체결</b>과 <b>Alpaca 페이퍼 계좌 체결</b>이 서로 독립적으로 각각 실행됩니다. 두 엔진의 체결가·수량은 완전히 별개라 정확히 같지 않을 수 있습니다(아래 두 표에 각각 표시). 서버에 <code>ALPACA_PAPER_API_KEY</code>/<code>ALPACA_PAPER_API_SECRET</code>가 설정된 경우에만 Alpaca 쪽이 동작하며, 키가 없거나 Alpaca 쪽에서 오류가 나도 홈페이지 자체 체결에는 영향이 없습니다. 실거래 엔드포인트는 절대 호출하지 않습니다.</p>
         <button type="submit" class="run-btn" id="lvdca-save"><i class="fa-solid fa-floppy-disk"></i> 설정 저장</button>
         <span id="lvdca-config-status" class="lvdca-config-status"></span>
       </form>
@@ -174,8 +234,15 @@ export function leverageDcaView(container) {
     <div id="lvdca-status-body"><p class="lvdca-empty">현황을 불러오는 중…</p></div>
 
     <section class="lvdca-section">
-      <h3><i class="fa-solid fa-list"></i> 매수·매도 내역</h3>
+      <div class="lvdca-section-head">
+        <h3><i class="fa-solid fa-list"></i> 매수·매도 내역</h3>
+        <button type="button" class="lvdca-reset-btn" id="lvdca-reset"><i class="fa-solid fa-trash-can"></i> 테스트 기록 초기화</button>
+      </div>
+      <p class="lvdca-config-note">지금까지 "지금 실행"으로 테스트한 모의 체결·포지션·실행 기록을 모두 지웁니다(Alpaca 체결 기록 포함). 설정값은 유지되며, 실거래 계좌에는 영향이 없습니다.</p>
+      <h4>홈페이지 자체 모의 체결</h4>
       <div id="lvdca-trades-body"><p class="lvdca-empty">내역을 불러오는 중…</p></div>
+      <h4>Alpaca 페이퍼 체결</h4>
+      <div id="lvdca-alpaca-trades-body"><p class="lvdca-empty">내역을 불러오는 중…</p></div>
     </section>
   </section>`;
 
@@ -190,6 +257,7 @@ export function leverageDcaView(container) {
   const configStatus = container.querySelector('#lvdca-config-status');
   const statusBody = container.querySelector('#lvdca-status-body');
   const tradesBody = container.querySelector('#lvdca-trades-body');
+  const alpacaTradesBody = container.querySelector('#lvdca-alpaca-trades-body');
   const runButton = container.querySelector('#lvdca-run-now');
 
   const loadConfig = async () => {
@@ -204,7 +272,7 @@ export function leverageDcaView(container) {
       alpacaEnabledInput.checked = Boolean(config.alpaca_enabled);
       alpacaNote.classList.toggle('is-warn', !config.alpaca_paper_configured);
       if (!config.alpaca_paper_configured) {
-        alpacaNote.textContent = '서버에 Alpaca 페이퍼 API 키가 설정되지 않아, 켜도 자체 모의 체결로만 동작합니다.';
+        alpacaNote.textContent = '서버에 Alpaca 페이퍼 API 키가 설정되지 않아, 켜도 Alpaca 쪽은 실행되지 않고 홈페이지 자체 체결만 정상 진행됩니다.';
       }
     } catch (error) {
       configStatus.textContent = error.message;
@@ -225,8 +293,10 @@ export function leverageDcaView(container) {
     try {
       const trades = await authRequest('/api/strategy/leverage-dca/trades');
       tradesBody.innerHTML = tradesHtml(trades.items);
+      alpacaTradesBody.innerHTML = alpacaTradesHtml(trades.alpaca_items, trades.alpaca_paper_configured);
     } catch (error) {
       tradesBody.innerHTML = `<p class="lvdca-empty" style="color:var(--red)">${escapeHtml(error.message)}</p>`;
+      alpacaTradesBody.innerHTML = '';
     }
   };
 
@@ -253,6 +323,22 @@ export function leverageDcaView(container) {
     } catch (error) {
       configStatus.textContent = error.message;
       configStatus.className = 'lvdca-config-status is-error';
+    }
+  });
+
+  const resetButton = container.querySelector('#lvdca-reset');
+  resetButton.addEventListener('click', async () => {
+    if (!window.confirm('테스트로 실행한 모의 체결·포지션·실행 기록을 모두 지울까요? 설정값은 유지됩니다.')) return;
+    resetButton.disabled = true;
+    resetButton.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 초기화 중…';
+    try {
+      await authRequest('/api/strategy/leverage-dca/trades', { method: 'DELETE' });
+      await Promise.all([loadStatus(), loadTrades()]);
+    } catch (error) {
+      tradesBody.innerHTML = `<p class="lvdca-empty" style="color:var(--red)">${escapeHtml(error.message)}</p>`;
+    } finally {
+      resetButton.disabled = false;
+      resetButton.innerHTML = '<i class="fa-solid fa-trash-can"></i> 테스트 기록 초기화';
     }
   });
 

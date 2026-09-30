@@ -58,6 +58,11 @@ def get_order(order_id: str) -> dict:
     return _request("GET", f"/v2/orders/{order_id}")
 
 
+def list_positions() -> list[dict]:
+    """페이퍼 계좌의 현재 보유 포지션(읽기 전용)."""
+    return _request("GET", "/v2/positions") or []
+
+
 def cancel_order(order_id: str) -> None:
     _request("DELETE", f"/v2/orders/{order_id}")
 

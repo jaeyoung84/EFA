@@ -82,7 +82,8 @@ def test_execute_paper_order_sync_falls_back_to_market_when_limit_unfilled(monke
 
 
 @pytest.mark.asyncio
-async def test_leverage_dca_buy_routes_through_alpaca_when_enabled_and_configured(client, make_user, monkeypatch):
+async def test_leverage_dca_buy_fills_both_alpaca_and_website_independently(client, make_user, monkeypatch):
+    """Alpaca 페이퍼 체결과 홈페이지 자체 모의 체결이 각각 독립적으로 기록돼야 한다."""
     _mock_quotes(monkeypatch)
     monkeypatch.setattr(strategy, "fetch_market_signals", _async_signals())
     monkeypatch.setenv("ALPACA_PAPER_API_KEY", "key")
@@ -108,17 +109,34 @@ async def test_leverage_dca_buy_routes_through_alpaca_when_enabled_and_configure
     result = run.json()["result"]
     assert result["status"] == "bought"
     assert all(action["status"] == "filled" for action in result["actions"])
+    # 각 액션에 홈페이지 체결 결과와 별개로 Alpaca 쪽 요약이 함께 담긴다.
+    for action in result["actions"]:
+        assert action["alpaca"]["status"] == "filled"
+        assert action["alpaca"]["quantity"] == 30.0
 
     user = await get_db().users.find_one({"email": "leverage-dca-alpaca@example.com"})
+    # 홈페이지 자체 모의 체결(paper_fills)은 Alpaca 여부와 무관하게 항상 내부 엔진으로 기록된다.
     fills = await get_db().paper_fills.find({"user_id": user["_id"]}).to_list(10)
     assert len(fills) == 2
-    assert {fill["source"] for fill in fills} == {"leverage_dca_alpaca_paper"}
-    assert all(fill["execution_simulation"]["model"] == "alpaca_paper_broker" for fill in fills)
+    assert {fill["source"] for fill in fills} == {"leverage_dca_auto"}
+
+    # Alpaca 체결은 별도 컬렉션에 독립적으로 기록되고, 홈페이지 수량과 다를 수 있다(여기선 30주).
+    alpaca_fills = await get_db().leverage_dca_alpaca_fills.find({"user_id": user["_id"]}).to_list(10)
+    assert len(alpaca_fills) == 2
+    assert {fill["fill_quantity"] for fill in alpaca_fills} == {30.0}
+    assert {fill["status"] for fill in alpaca_fills} == {"filled"}
+    assert all(fill["alpaca_order_id"] == "order-xyz" for fill in alpaca_fills)
+
+    trades = await client.get("/api/strategy/leverage-dca/trades", headers=headers)
+    trades_body = trades.json()
+    assert len(trades_body["items"]) == 2  # 홈페이지 자체 체결
+    assert len(trades_body["alpaca_items"]) == 2  # Alpaca 체결
+    assert all(item["quantity"] == 30.0 for item in trades_body["alpaca_items"])
 
 
 @pytest.mark.asyncio
-async def test_leverage_dca_buy_falls_back_to_internal_when_alpaca_not_configured(client, make_user, monkeypatch):
-    """alpaca_enabled=True 라도 서버 환경변수가 없으면 자체 모의 체결로 안전하게 동작한다."""
+async def test_leverage_dca_buy_skips_alpaca_mirror_when_not_configured(client, make_user, monkeypatch):
+    """alpaca_enabled=True 라도 서버 환경변수가 없으면 Alpaca 쪽은 아예 시도하지 않고, 홈페이지 체결만 정상 진행된다."""
     _mock_quotes(monkeypatch)
     monkeypatch.setattr(strategy, "fetch_market_signals", _async_signals())
     monkeypatch.delenv("ALPACA_PAPER_API_KEY", raising=False)
@@ -133,14 +151,18 @@ async def test_leverage_dca_buy_falls_back_to_internal_when_alpaca_not_configure
     run = await client.post("/api/strategy/leverage-dca/run-now", headers=headers)
     result = run.json()["result"]
     assert result["status"] == "bought"
+    assert all(action["alpaca"] is None for action in result["actions"])
 
     user = await get_db().users.find_one({"email": "lvdca-alpaca-off@example.com"})
     fills = await get_db().paper_fills.find({"user_id": user["_id"]}).to_list(10)
     assert {fill["source"] for fill in fills} == {"leverage_dca_auto"}
+    alpaca_fills = await get_db().leverage_dca_alpaca_fills.find({"user_id": user["_id"]}).to_list(10)
+    assert alpaca_fills == []
 
 
 @pytest.mark.asyncio
-async def test_leverage_dca_buy_falls_back_to_internal_when_alpaca_errors(client, make_user, monkeypatch):
+async def test_leverage_dca_buy_records_alpaca_error_without_affecting_website_fill(client, make_user, monkeypatch):
+    """Alpaca 쪽이 에러가 나도 홈페이지 자체 체결은 영향받지 않고, 에러는 별도로 기록된다."""
     _mock_quotes(monkeypatch)
     monkeypatch.setattr(strategy, "fetch_market_signals", _async_signals())
     monkeypatch.setenv("ALPACA_PAPER_API_KEY", "key")
@@ -163,8 +185,15 @@ async def test_leverage_dca_buy_falls_back_to_internal_when_alpaca_errors(client
     run = await client.post("/api/strategy/leverage-dca/run-now", headers=headers)
     result = run.json()["result"]
     assert result["status"] == "bought"
+    assert all(action["alpaca"]["status"] == "error" for action in result["actions"])
+    assert all(action["alpaca"]["reason"] == "네트워크 오류" for action in result["actions"])
 
     user = await get_db().users.find_one({"email": "leverage-dca-alpaca-error@example.com"})
     fills = await get_db().paper_fills.find({"user_id": user["_id"]}).to_list(10)
     assert {fill["source"] for fill in fills} == {"leverage_dca_auto"}
-    assert all(fill["execution_simulation"]["alpaca_fallback_reason"] == "네트워크 오류" for fill in fills)
+    assert len(fills) == 2  # Alpaca 오류와 무관하게 홈페이지 체결은 정상 진행
+
+    alpaca_fills = await get_db().leverage_dca_alpaca_fills.find({"user_id": user["_id"]}).to_list(10)
+    assert len(alpaca_fills) == 2
+    assert {fill["status"] for fill in alpaca_fills} == {"error"}
+    assert all(fill["reason"] == "네트워크 오류" for fill in alpaca_fills)

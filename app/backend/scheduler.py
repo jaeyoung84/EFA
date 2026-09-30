@@ -23,14 +23,14 @@ try:
     from .market_data import MarketDataError, capture_market_data_lineage_snapshot, get_daily_ohlcv, market_factor_snapshot, sync_market_data_alerts
     from .quote_cache import fetch_quote_cached
     from .routers.strategy import capture_paper_snapshot, refresh_paper_alerts, capture_monthly_operations_reports, capture_monthly_revalidation_evidence, run_leverage_dca_daily_cycle
-    from .routers.kqs import capture_all_portfolio_reconciliation_snapshots, capture_candidate_queue_snapshot, capture_candidate_outcome_snapshots
+    from .routers.kqs import capture_all_portfolio_reconciliation_snapshots, capture_candidate_queue_snapshot, capture_candidate_outcome_snapshots, capture_kqs_decision_outcomes, _candidate_collection
     from .market_calendar import is_within_execution_window
 except ImportError:
     from db import get_db
     from market_data import MarketDataError, capture_market_data_lineage_snapshot, get_daily_ohlcv, market_factor_snapshot, sync_market_data_alerts
     from quote_cache import fetch_quote_cached
     from routers.strategy import capture_paper_snapshot, refresh_paper_alerts, capture_monthly_operations_reports, capture_monthly_revalidation_evidence, run_leverage_dca_daily_cycle
-    from routers.kqs import capture_all_portfolio_reconciliation_snapshots, capture_candidate_queue_snapshot, capture_candidate_outcome_snapshots
+    from routers.kqs import capture_all_portfolio_reconciliation_snapshots, capture_candidate_queue_snapshot, capture_candidate_outcome_snapshots, capture_kqs_decision_outcomes, _candidate_collection
     from market_calendar import is_within_execution_window
 
 logger = logging.getLogger("jy_investing.scheduler")
@@ -96,12 +96,19 @@ async def collect_active_tickers() -> set[str]:
 
     # 후보 사후성과 관측에 필요한 종목만 일봉 대상에 더한다. 이 작업은
     # 홈페이지 DB의 캐시를 갱신할 뿐 외부 엔진·후보 스냅샷을 수정하지 않는다.
-    async for snapshot in db.kqs_candidate_queue_snapshots.find({}, {"candidates": 1}):
+    async for snapshot in _candidate_collection(db, "kqs_candidate_queue_snapshots").find({}, {"candidates": 1}):
         for candidate in snapshot.get("candidates", []):
             symbol = str(candidate.get("symbol") or "").strip().upper()
             market = str(candidate.get("market") or "").strip().upper()
             if symbol and "." not in symbol and market in {"KOSPI", "KOSDAQ"}:
                 tickers.add(f"{symbol}.KS" if market == "KOSPI" else f"{symbol}.KQ")
+
+    # 개인 판단 원장(kqs_paper_decisions)의 사후 수익률 관측에 필요한 종목도 더한다.
+    async for decision in db.kqs_paper_decisions.find({}, {"symbol": 1, "market": 1}):
+        symbol = str(decision.get("symbol") or "").strip().upper()
+        market = str(decision.get("market") or "").strip().upper()
+        if symbol and "." not in symbol and market in {"KOSPI", "KOSDAQ"}:
+            tickers.add(f"{symbol}.KS" if market == "KOSPI" else f"{symbol}.KQ")
 
     if needs_fx:
         tickers.add("KRW=X")
@@ -199,6 +206,11 @@ async def refresh_daily_market_data() -> dict:
     except Exception:
         # 사후성과 산출 실패가 이미 검증된 일봉 수집 결과를 실패로 바꾸지는 않는다.
         logger.warning("후보 사후성과 스냅샷 저장 실패", exc_info=True)
+    try:
+        await capture_kqs_decision_outcomes()
+    except Exception:
+        # 개인 판단 원장 사후성과 산출 실패가 이미 검증된 일봉 수집 결과를 실패로 바꾸지는 않는다.
+        logger.warning("개인 판단 원장 사후성과 저장 실패", exc_info=True)
     try:
         await capture_market_data_lineage_snapshot(tickers)
     except Exception:

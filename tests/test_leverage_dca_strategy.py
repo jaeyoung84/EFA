@@ -103,6 +103,41 @@ def test_no_stop_under_normal_conditions():
     assert state["reasons"] == []
 
 
+def test_soxl_first_entry_allows_buy_within_relaxed_threshold():
+    """SOXL을 한 번도 매수하지 않았다면 괴리가 -20%p를 넘어도 -50%p 이내면 진입을 허용한다."""
+    state = evaluate_buy_stop_conditions(spx_drawdown_pct=-2.0, vix=15.0, soxl_drawdown_pct=-35.0,
+                                          upro_drawdown_pct=-5.0, policy=DEFAULT_LEVERAGE_DCA_POLICY,
+                                          has_soxl_position=False)
+    assert state["divergence_pct"] == -30.0
+    assert state["stop_all"] is False
+    assert state["stop_soxl_only"] is False
+
+
+def test_soxl_first_entry_still_stops_beyond_relaxed_threshold():
+    state = evaluate_buy_stop_conditions(spx_drawdown_pct=-2.0, vix=15.0, soxl_drawdown_pct=-60.0,
+                                          upro_drawdown_pct=-5.0, policy=DEFAULT_LEVERAGE_DCA_POLICY,
+                                          has_soxl_position=False)
+    assert state["divergence_pct"] == -55.0
+    assert state["stop_soxl_only"] is True
+
+
+def test_soxl_after_entry_uses_stricter_threshold_and_own_drawdown():
+    """이미 SOXL을 보유 중이면 괴리 -20%p + SOXL 자체 낙폭 -20% 조건을 모두 충족해야 중단한다."""
+    # 괴리는 -20%p를 넘지만 SOXL 자체 낙폭이 아직 -20%에 못 미치면 중단하지 않는다.
+    state = evaluate_buy_stop_conditions(spx_drawdown_pct=-2.0, vix=15.0, soxl_drawdown_pct=-15.0,
+                                          upro_drawdown_pct=1.0, policy=DEFAULT_LEVERAGE_DCA_POLICY,
+                                          has_soxl_position=True)
+    assert state["divergence_pct"] == -16.0
+    assert state["stop_soxl_only"] is False
+
+    # 괴리도 -20%p를 넘고 SOXL 자체 낙폭도 -20%를 넘으면 중단한다.
+    state = evaluate_buy_stop_conditions(spx_drawdown_pct=-2.0, vix=15.0, soxl_drawdown_pct=-35.0,
+                                          upro_drawdown_pct=-5.0, policy=DEFAULT_LEVERAGE_DCA_POLICY,
+                                          has_soxl_position=True)
+    assert state["divergence_pct"] == -30.0
+    assert state["stop_soxl_only"] is True
+
+
 def test_resume_condition_requires_both_ma_streak_and_low_vix():
     policy = DEFAULT_LEVERAGE_DCA_POLICY
     assert evaluate_resume_condition(spx_above_ma_consecutive_days=3, vix=25.0, policy=policy) is True
@@ -209,3 +244,25 @@ def test_reserve_deployment_blocked_when_soxl_specific_collapse():
     )
     assert result["checks"]["no_sector_specific_collapse"] is False
     assert result["eligible"] is False
+
+
+def test_after_tax_profit_applies_annual_deduction_then_22_percent():
+    from app.backend.leverage_dca_strategy import DEFAULT_LEVERAGE_DCA_POLICY, estimate_after_tax_profit
+    policy = dict(DEFAULT_LEVERAGE_DCA_POLICY)
+    # 평가 11,000,000 / 원가 10,000,000 → 차익 1,000,000, 수수료 22,000 → 공제(250만) 이내라 세금 0
+    small = estimate_after_tax_profit(market_value_krw=11_000_000, cost_basis_krw=10_000_000, realized_gain_ytd_krw=0, policy=policy)
+    assert small["estimated_tax_krw"] == 0
+    assert small["net_profit_after_tax_krw"] == 978_000
+    assert small["return_pct"] == 10.0
+    # 차익 5,000,000, 수수료 30,000 → 과세표준 4,970,000-2,500,000 = 2,470,000 x 22% = 543,400
+    large = estimate_after_tax_profit(market_value_krw=15_000_000, cost_basis_krw=10_000_000, realized_gain_ytd_krw=0, policy=policy)
+    assert large["estimated_tax_krw"] == 543_400
+    assert large["net_profit_after_tax_krw"] == 5_000_000 - 30_000 - 543_400
+    # 올해 이미 300만원을 실현했으면 공제가 소진돼 이번 차익 전액(수수료 차감 후)에 22%
+    used = estimate_after_tax_profit(market_value_krw=11_000_000, cost_basis_krw=10_000_000, realized_gain_ytd_krw=3_000_000, policy=policy)
+    assert used["deduction_remaining_krw"] == 0
+    assert used["estimated_tax_krw"] == round(978_000 * 0.22, 2)
+    # 손실이면 세금 없음, 수수료만 추가 손실
+    loss = estimate_after_tax_profit(market_value_krw=9_000_000, cost_basis_krw=10_000_000, realized_gain_ytd_krw=0, policy=policy)
+    assert loss["estimated_tax_krw"] == 0
+    assert loss["net_profit_after_tax_krw"] == -1_018_000

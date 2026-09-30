@@ -15,6 +15,7 @@ import csv
 import hashlib
 import io
 import json
+import math
 from datetime import datetime, timezone, timedelta
 import os
 from pathlib import Path
@@ -28,7 +29,7 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from pymongo import ReturnDocument
-from pymongo.errors import DuplicateKeyError
+from pymongo.errors import DuplicateKeyError, PyMongoError
 
 try:
     from ..backtest_engine import BacktestConfig, benchmark_validation, run_ma_crossover, transaction_cost_sensitivity
@@ -46,11 +47,12 @@ try:
     from ..strategy_allocation import build_rebalance_plan, build_strategy_allocation, compare_strategy_versions
     from ..leverage_dca_strategy import (
         DEFAULT_LEVERAGE_DCA_POLICY, compute_daily_buy_allocation, evaluate_buy_stop_conditions,
-        evaluate_reserve_deployment_stage, evaluate_resume_condition, evaluate_sell_trigger, resolve_effective_stop_all,
+        estimate_after_tax_profit, evaluate_reserve_deployment_stage, evaluate_resume_condition, evaluate_sell_trigger,
+        resolve_effective_stop_all,
     )
     from ..leverage_dca_signals import fetch_market_signals, fetch_reserve_signals
-    from ..market_calendar import get_buy_time_kst, get_market_close_kst, get_sell_check_time_kst, is_us_market_open_today, today_kst_iso
-    from ..alpaca_broker import alpaca_paper_configured, execute_paper_order_sync
+    from ..market_calendar import get_next_execution_schedule, today_kst_iso
+    from ..alpaca_broker import alpaca_paper_configured, execute_paper_order_sync, list_positions as alpaca_list_positions
     from .auth import current_user
 except ImportError:
     from backtest_engine import BacktestConfig, benchmark_validation, run_ma_crossover, transaction_cost_sensitivity  # type: ignore
@@ -68,11 +70,12 @@ except ImportError:
     from strategy_allocation import build_rebalance_plan, build_strategy_allocation, compare_strategy_versions  # type: ignore
     from leverage_dca_strategy import (  # type: ignore
         DEFAULT_LEVERAGE_DCA_POLICY, compute_daily_buy_allocation, evaluate_buy_stop_conditions,
-        evaluate_reserve_deployment_stage, evaluate_resume_condition, evaluate_sell_trigger, resolve_effective_stop_all,
+        estimate_after_tax_profit, evaluate_reserve_deployment_stage, evaluate_resume_condition, evaluate_sell_trigger,
+        resolve_effective_stop_all,
     )
     from leverage_dca_signals import fetch_market_signals, fetch_reserve_signals  # type: ignore
-    from market_calendar import get_buy_time_kst, get_market_close_kst, get_sell_check_time_kst, is_us_market_open_today, today_kst_iso  # type: ignore
-    from alpaca_broker import alpaca_paper_configured, execute_paper_order_sync  # type: ignore
+    from market_calendar import get_next_execution_schedule, today_kst_iso  # type: ignore
+    from alpaca_broker import alpaca_paper_configured, execute_paper_order_sync, list_positions as alpaca_list_positions  # type: ignore
     from routers.auth import current_user
 
 router = APIRouter(prefix="/api/strategy", tags=["전략"])
@@ -1582,6 +1585,25 @@ async def _paper_position_quantity(user_id, strategy_id, ticker: str) -> float:
     return max(0.0, quantity)
 
 
+PAPER_FILL_PROPOSAL_INDEX = "proposal_id_unique_when_set"
+
+
+async def _ensure_paper_fill_proposal_index(db) -> None:
+    """주문 제안 1건당 체결 1건만 허용하되, 제안 없이 생기는 체결(레버리지 DCA 등)은 제외한다.
+
+    예전 인덱스(``proposal_id_1``)는 필드가 없거나 null인 문서도 한 값으로 묶어, 제안 없는 체결이
+    두 번째부터 중복 키 오류로 저장되지 않았다. 부분 인덱스로 교체한다.
+    """
+    existing = await db.paper_fills.index_information()
+    legacy = existing.get("proposal_id_1")
+    if legacy and not legacy.get("partialFilterExpression"):
+        await db.paper_fills.drop_index("proposal_id_1")
+    await db.paper_fills.create_index(
+        "proposal_id", unique=True, name=PAPER_FILL_PROPOSAL_INDEX,
+        partialFilterExpression={"proposal_id": {"$type": "objectId"}},
+    )
+
+
 @router.on_event("startup")
 async def _ensure_strategy_indexes() -> None:
     try:
@@ -1594,7 +1616,7 @@ async def _ensure_strategy_indexes() -> None:
         await db.research_revalidation_monthly_snapshots.create_index([("user_id", 1), ("month", 1)], unique=True)
         await db.broker_sandbox_contract_checks.create_index([("user_id", 1), ("checked_at", -1)])
         await db.paper_fills.create_index([("user_id", 1), ("filled_at", -1)])
-        await db.paper_fills.create_index("proposal_id", unique=True)
+        await _ensure_paper_fill_proposal_index(db)
         await db.paper_accounts.create_index("user_id", unique=True)
         await db.paper_daily_snapshots.create_index([("user_id", 1), ("snapshot_date", 1)], unique=True)
         await db.paper_daily_snapshots.create_index([("user_id", 1), ("snapshot_date", -1)])
@@ -2821,17 +2843,27 @@ async def _leverage_dca_position_state(user_id, strategy_id) -> dict[str, dict]:
     for fill in fills:
         ticker = fill["ticker"]
         item = positions.setdefault(ticker, {"ticker": ticker, "quantity": 0.0, "average_cost_krw": 0.0,
+                                              "average_cost_usd": 0.0, "realized_gain_ytd_krw": 0.0,
                                               "currency": fill.get("currency", _infer_currency(ticker))})
         quantity = float(fill.get("quantity", 0))
         notional_krw = float(fill.get("notional_krw", fill.get("notional", 0)))
+        notional_usd = float(fill.get("notional", 0))
         if fill.get("direction") == "buy":
             old_cost = item["average_cost_krw"] * item["quantity"]
+            old_cost_usd = item["average_cost_usd"] * item["quantity"]
             item["quantity"] += quantity
             item["average_cost_krw"] = (old_cost + notional_krw) / item["quantity"] if item["quantity"] else 0.0
+            item["average_cost_usd"] = (old_cost_usd + notional_usd) / item["quantity"] if item["quantity"] else 0.0
         else:
+            # 평균단가 방식 실현손익. 올해(KST) 매도분만 연간 양도차익 공제 계산에 쓴다.
+            sold = min(quantity, item["quantity"])
+            filled_at = fill.get("filled_at")
+            if filled_at and filled_at.replace(tzinfo=filled_at.tzinfo or timezone.utc).astimezone(PAPER_SNAPSHOT_TIMEZONE).year == _now().astimezone(PAPER_SNAPSHOT_TIMEZONE).year:
+                item["realized_gain_ytd_krw"] += notional_krw * (sold / quantity if quantity else 0) - item["average_cost_krw"] * sold
             item["quantity"] = max(0.0, item["quantity"] - quantity)
             if item["quantity"] <= 1e-8:
                 item["average_cost_krw"] = 0.0
+                item["average_cost_usd"] = 0.0
     return positions
 
 
@@ -2862,16 +2894,128 @@ async def _leverage_dca_valuation(positions: dict[str, dict]) -> tuple[float, fl
     return round(cost_basis_krw, 2), round(market_value_krw, 2), errors
 
 
+def _holding_summary(rows: list[dict], *, realized_gain_ytd_krw: float, policy: dict, fx_rate: float | None,
+                     errors: list[str]) -> dict:
+    """종목별 평단·평가금액·수익률과 합계·세후 실순수익(지금 전량 매도 가정)을 만든다."""
+    cost_basis_krw = sum(row["cost_basis_krw"] for row in rows)
+    market_value_krw = sum(row["market_value_krw"] or 0.0 for row in rows)
+    priced = not errors and all(row["market_value_krw"] is not None for row in rows)
+    totals = {"quantity_by_ticker": {row["ticker"]: row["quantity"] for row in rows},
+              "cost_basis_krw": round(cost_basis_krw, 2), "market_value_krw": round(market_value_krw, 2) if priced else None,
+              "unrealized_pnl_krw": round(market_value_krw - cost_basis_krw, 2) if priced else None,
+              "return_pct": round((market_value_krw - cost_basis_krw) / cost_basis_krw * 100, 4) if priced and cost_basis_krw > 0 else None}
+    after_tax = (estimate_after_tax_profit(market_value_krw=market_value_krw, cost_basis_krw=cost_basis_krw,
+                                           realized_gain_ytd_krw=realized_gain_ytd_krw, policy=policy)
+                 if priced and rows else None)
+    return {"tickers": rows, "totals": totals, "after_tax": after_tax, "fx_rate": fx_rate, "errors": errors,
+            "realized_gain_ytd_krw": round(realized_gain_ytd_krw, 2)}
+
+
+def _quote_row(ticker: str, quantity: float, average_cost_usd: float, cost_basis_krw: float, fx_rate: float | None,
+               errors: list[str]) -> dict:
+    quote = fetch_quote_cached(ticker)
+    price = float(quote["price"]) if quote["status"] == "ok" else None
+    if price is None:
+        errors.append(f"{ticker} 시세 조회 실패")
+    market_value_krw = price * quantity * fx_rate if price is not None and fx_rate else None
+    return {"ticker": ticker, "quantity": round(quantity, 6), "average_cost_usd": round(average_cost_usd, 4),
+            "average_cost_krw": round(cost_basis_krw / quantity, 2) if quantity else 0.0,
+            "current_price_usd": price, "cost_basis_krw": round(cost_basis_krw, 2),
+            "market_value_krw": round(market_value_krw, 2) if market_value_krw is not None else None,
+            "unrealized_pnl_krw": round(market_value_krw - cost_basis_krw, 2) if market_value_krw is not None else None,
+            "return_pct": (round((price - average_cost_usd) / average_cost_usd * 100, 4)
+                           if price is not None and average_cost_usd > 0 else None)}
+
+
+def _leverage_dca_fx_rate(errors: list[str]) -> float | None:
+    fx_quote = fetch_quote_cached("KRW=X")
+    if fx_quote["status"] != "ok":
+        errors.append("USD/KRW 환율 조회 실패")
+        return None
+    return float(fx_quote["price"])
+
+
+async def _leverage_dca_website_holding_summary(user_id, strategy_ids: list, policy: dict) -> dict:
+    """홈페이지 자체 모의 체결(주전략+예비비 합산) 기준 보유 요약."""
+    merged: dict[str, dict] = {}
+    realized = 0.0
+    for strategy_id in strategy_ids:
+        for ticker, item in (await _leverage_dca_position_state(user_id, strategy_id)).items():
+            realized += item.get("realized_gain_ytd_krw", 0.0)
+            if item["quantity"] <= 1e-8:
+                continue
+            row = merged.setdefault(ticker, {"quantity": 0.0, "cost_usd": 0.0, "cost_krw": 0.0})
+            row["quantity"] += item["quantity"]
+            row["cost_usd"] += item.get("average_cost_usd", 0.0) * item["quantity"]
+            row["cost_krw"] += item["average_cost_krw"] * item["quantity"]
+    errors: list[str] = []
+    fx_rate = _leverage_dca_fx_rate(errors) if merged else None
+    rows = [_quote_row(ticker, row["quantity"], row["cost_usd"] / row["quantity"], row["cost_krw"], fx_rate, errors)
+            for ticker, row in sorted(merged.items())]
+    return {"source": "website_paper_fills", **_holding_summary(rows, realized_gain_ytd_krw=realized, policy=policy,
+                                                                fx_rate=fx_rate, errors=errors)}
+
+
+async def _leverage_dca_alpaca_holding_summary(user_id, policy: dict) -> dict | None:
+    """Alpaca 페이퍼 계좌 실제 보유(UPRO/SOXL) 기준 요약. 원화 원가는 체결 기록의 환율로 계산한다."""
+    if not alpaca_paper_configured():
+        return None
+    errors: list[str] = []
+    try:
+        positions = await asyncio.to_thread(alpaca_list_positions)
+    except Exception as exc:
+        return {"source": "alpaca_paper_account", "tickers": [], "totals": None, "after_tax": None,
+                "errors": [f"Alpaca 포지션 조회 실패: {exc}"]}
+    fills = await get_db().leverage_dca_alpaca_fills.find(
+        {"user_id": user_id, "fill_quantity": {"$gt": 0}}).sort("filled_at", 1).to_list(10_000)
+    # 체결 기록으로 원화 평균원가(체결 시점 환율)와 올해 실현손익을 평균단가 방식으로 계산한다.
+    book: dict[str, dict] = {}
+    realized = 0.0
+    this_year = _now().astimezone(PAPER_SNAPSHOT_TIMEZONE).year
+    for fill in fills:
+        item = book.setdefault(fill["ticker"], {"quantity": 0.0, "cost_krw": 0.0})
+        quantity, notional_krw = float(fill["fill_quantity"]), float(fill.get("notional_krw") or 0.0)
+        if fill["direction"] == "buy":
+            item["quantity"] += quantity
+            item["cost_krw"] += notional_krw
+        elif item["quantity"] > 1e-8:
+            sold = min(quantity, item["quantity"])
+            average = item["cost_krw"] / item["quantity"]
+            filled_at = fill["filled_at"].replace(tzinfo=fill["filled_at"].tzinfo or timezone.utc)
+            if filled_at.astimezone(PAPER_SNAPSHOT_TIMEZONE).year == this_year:
+                realized += notional_krw * (sold / quantity) - average * sold
+            item["quantity"] -= sold
+            item["cost_krw"] -= average * sold
+    fx_rate = _leverage_dca_fx_rate(errors)
+    rows, notes = [], []
+    for position in positions:
+        ticker = position.get("symbol")
+        if ticker not in LEVERAGE_DCA_TICKERS:
+            continue
+        quantity = float(position.get("qty") or 0)
+        average_usd = float(position.get("avg_entry_price") or 0)
+        recorded = book.get(ticker)
+        if recorded and abs(recorded["quantity"] - quantity) < 1e-6 and recorded["quantity"] > 0:
+            cost_krw = recorded["cost_krw"]
+        else:
+            # 체결 기록과 계좌 수량이 다르면(체결 대기 주문 등) 현재 환율로 원가를 환산하고 표시한다.
+            cost_krw = average_usd * quantity * (fx_rate or 0.0)
+            notes.append(f"{ticker}: 체결 기록과 계좌 수량이 달라 원화 원가를 현재 환율로 환산했습니다.")
+        rows.append(_quote_row(ticker, quantity, average_usd, cost_krw, fx_rate, errors))
+    return {"source": "alpaca_paper_account", "notes": notes,
+            **_holding_summary(rows, realized_gain_ytd_krw=realized, policy=policy, fx_rate=fx_rate, errors=errors)}
+
+
 def _leverage_dca_build_fill(*, user: dict, strategy_id, ticker: str, direction: str, quantity: float,
                              execution_simulation: dict, fx_rate: float, risk_control: dict) -> dict:
     fill_price = float(execution_simulation["fill_price"])
     return {
-        "user_id": user["_id"], "strategy_id": strategy_id, "proposal_id": None, "ticker": ticker, "direction": direction,
+        "user_id": user["_id"], "strategy_id": strategy_id, "ticker": ticker, "direction": direction,
         "quantity": round(quantity, 8), "requested_quantity": round(quantity, 8), "fill_price": fill_price,
         "notional": round(fill_price * quantity, 8), "notional_krw": round(fill_price * fx_rate * quantity, 8),
         "currency": "USD", "sector": LEVERAGE_DCA_SECTOR, "risk_control": risk_control,
         "execution_simulation": execution_simulation,
-        "source": "leverage_dca_alpaca_paper" if execution_simulation.get("external_execution") else "leverage_dca_auto",
+        "source": "leverage_dca_auto",
         "filled_at": _now(),
     }
 
@@ -2900,15 +3044,25 @@ def _leverage_dca_submit_order_internal(*, side: str, quote_price: float, reques
     )
 
 
-async def _leverage_dca_submit_order(*, user: dict, ticker: str, side: str, quote_price: float, requested_quantity: float) -> dict:
-    """설정에 따라 Alpaca 페이퍼 브로커 또는 자체 모의 체결 엔진으로 주문을 실행한다.
+def _alpaca_mirror_summary(alpaca_result: dict | None) -> dict | None:
+    if alpaca_result is None:
+        return None
+    return {"status": alpaca_result["status"], "quantity": alpaca_result["fill_quantity"],
+            "notional_krw": alpaca_result["notional_krw"], "reason": alpaca_result.get("reason")}
 
-    Alpaca 실패·미체결 시에는 자체 시뮬레이터로 안전하게 대체한다 — 모의 체결이라
-    허용되는 폴백이며, 실거래에서는 이런 자동 대체를 절대 두지 않는다.
+
+async def _leverage_dca_submit_alpaca_mirror(*, user: dict, strategy_id, ticker: str, side: str,
+                                              quote_price: float, requested_quantity: float, fx_rate: float) -> dict | None:
+    """설정이 켜져 있으면 Alpaca 페이퍼 브로커에도 같은 주문을 독립적으로 낸다.
+
+    홈페이지 자체 모의 체결(paper_fills)과 완전히 분리된 기록(leverage_dca_alpaca_fills)이며,
+    홈페이지 쪽 포지션·현금 계산에는 전혀 영향을 주지 않는다. Alpaca 쪽이 실패해도 홈페이지
+    자체 체결은 항상 별도로 진행되고, 반대로 Alpaca가 성공해도 홈페이지 수량·가격은 바뀌지 않는다.
+    Alpaca 미설정 시 아무 기록도 남기지 않고 None을 반환한다.
     """
     config = await _leverage_dca_config(user["_id"])
     if not (config and config.get("alpaca_enabled") and alpaca_paper_configured()):
-        return _leverage_dca_submit_order_internal(side=side, quote_price=quote_price, requested_quantity=requested_quantity)
+        return None
     offset = _leverage_dca_limit_offset_rate()
     limit_price = round(quote_price * (1 + offset if side == "buy" else 1 - offset), 2)
     try:
@@ -2917,12 +3071,21 @@ async def _leverage_dca_submit_order(*, user: dict, ticker: str, side: str, quot
         )
     except Exception as exc:
         result = {"status": "error", "reason": str(exc)}
-    if result.get("status") == "filled" and float(result.get("fill_quantity") or 0) > 0:
-        return {**result, "quote_price": quote_price, "requested_quantity": requested_quantity,
-                "model": "alpaca_paper_broker"}
-    fallback = _leverage_dca_submit_order_internal(side=side, quote_price=quote_price, requested_quantity=requested_quantity)
-    fallback["alpaca_fallback_reason"] = result.get("reason", result.get("status", "알 수 없는 오류"))
-    return fallback
+    fill_quantity = float(result.get("fill_quantity") or 0)
+    fill_price = float(result.get("fill_price") or 0)
+    doc = {
+        "user_id": user["_id"], "strategy_id": strategy_id, "ticker": ticker, "direction": side,
+        "requested_quantity": round(requested_quantity, 8), "status": result.get("status", "error"),
+        "fill_quantity": round(fill_quantity, 8), "fill_price": round(fill_price, 8),
+        "notional_usd": round(fill_price * fill_quantity, 8), "notional_krw": round(fill_price * fill_quantity * fx_rate, 8),
+        "alpaca_order_id": result.get("alpaca_order_id"), "reason": result.get("reason"), "filled_at": _now(),
+    }
+    await get_db().leverage_dca_alpaca_fills.insert_one(doc)
+    await append_execution_audit(user["_id"], "leverage_dca_alpaca_mirror_order", ticker, {
+        "strategy_id": str(strategy_id), "side": side, "status": doc["status"],
+        "fill_quantity": doc["fill_quantity"], "live_trading_authorized": False,
+    })
+    return doc
 
 
 async def _leverage_dca_auto_buy(*, user: dict, strategy_id, ticker: str, amount_krw: float) -> dict:
@@ -2935,31 +3098,48 @@ async def _leverage_dca_auto_buy(*, user: dict, strategy_id, ticker: str, amount
     if fx_quote["status"] != "ok":
         return {"ticker": ticker, "direction": "buy", "status": "skipped", "reason": "USD/KRW 환율 조회 실패"}
     fx_rate = float(fx_quote["price"])
-    requested_quantity = amount_krw / (float(quote["price"]) * fx_rate)
-    execution_simulation = await _leverage_dca_submit_order(user=user, ticker=ticker, side="buy", quote_price=float(quote["price"]), requested_quantity=requested_quantity)
-    if execution_simulation["status"] not in {"filled", "partially_filled"}:
-        return {"ticker": ticker, "direction": "buy", "status": "skipped", "reason": execution_simulation.get("reason", "체결되지 않았습니다.")}
-    ledger, positions = await _paper_positions_at_market(user)
-    policy = await _get_risk_policy(user["_id"])
-    risk_control = limit_buy_quantity(
-        requested_quantity=float(execution_simulation["fill_quantity"]),
-        unit_notional_krw=float(execution_simulation["fill_price"]) * fx_rate,
-        cash_krw=ledger["cash_krw"], positions=positions, ticker=ticker, currency="USD",
-        sector=LEVERAGE_DCA_SECTOR, policy=policy,
+    # 실제 미국 주식 시장가·지정가 주문은 정수 주 단위만 가능하다(Alpaca 등). 배정 금액을
+    # 정확히 맞추지 않고, 그 금액으로 살 수 있는 정수 주 수만큼만 내림해 주문한다.
+    requested_quantity = math.floor(amount_krw / (float(quote["price"]) * fx_rate))
+    if requested_quantity < 1:
+        return {"ticker": ticker, "direction": "buy", "status": "skipped", "reason": "배정 금액으로 1주도 살 수 없습니다."}
+    # Alpaca 페이퍼 브로커 체결과 홈페이지 자체 모의 체결은 서로 독립적으로 각각 진행된다.
+    alpaca_result = await _leverage_dca_submit_alpaca_mirror(
+        user=user, strategy_id=strategy_id, ticker=ticker, side="buy",
+        quote_price=float(quote["price"]), requested_quantity=requested_quantity, fx_rate=fx_rate,
     )
-    fill_quantity = float(risk_control["approved_quantity"])
-    if risk_control["action"] == "blocked" or fill_quantity <= 0:
+    execution_simulation = _leverage_dca_submit_order_internal(side="buy", quote_price=float(quote["price"]), requested_quantity=requested_quantity)
+    alpaca_summary = _alpaca_mirror_summary(alpaca_result)
+    if execution_simulation["status"] not in {"filled", "partially_filled"}:
+        return {"ticker": ticker, "direction": "buy", "status": "skipped",
+                "reason": execution_simulation.get("reason", "체결되지 않았습니다."), "alpaca": alpaca_summary}
+    # 레버리지 DCA는 포트폴리오 전반의 종목·업종·외화 집중도 한도(35%/50%/60%)와는 별개의
+    # 독립 전략으로 운영한다. 예산은 이 전략 자체의 daily_buy_krw/max_position_krw로만
+    # 통제하고, 여기서는 모의 계좌 현금이 실제로 부족해 음수가 되지 않는지만 확인한다.
+    ledger, _positions = await _paper_positions_at_market(user)
+    unit_notional_krw = float(execution_simulation["fill_price"]) * fx_rate
+    affordable_quantity = math.floor(ledger["cash_krw"] / unit_notional_krw) if unit_notional_krw > 0 else 0
+    fill_quantity = min(math.floor(float(execution_simulation["fill_quantity"])), affordable_quantity)
+    if fill_quantity < 1:
         return {"ticker": ticker, "direction": "buy", "status": "blocked",
-                "reason": "; ".join(risk_control["reasons"]) or "위험 한도로 매수 가능 수량이 0입니다."}
+                "reason": "모의 계좌 사용 가능 현금이 부족합니다.", "alpaca": alpaca_summary}
+    risk_control = {"action": "approved" if fill_quantity == requested_quantity else "reduced",
+                     "reasons": [] if fill_quantity == requested_quantity else ["모의 계좌 사용 가능 현금 범위로 수량을 줄였습니다."],
+                     "scope": "leverage_dca_independent_strategy"}
     fill = _leverage_dca_build_fill(user=user, strategy_id=strategy_id, ticker=ticker, direction="buy",
                                     quantity=fill_quantity, execution_simulation=execution_simulation,
                                     fx_rate=fx_rate, risk_control=risk_control)
-    await get_db().paper_fills.insert_one(fill)
+    try:
+        await get_db().paper_fills.insert_one(fill)
+    except PyMongoError as exc:
+        return {"ticker": ticker, "direction": "buy", "status": "error",
+                "reason": f"자체 모의 체결 저장 실패: {exc}", "alpaca": alpaca_summary}
     await append_execution_audit(user["_id"], "leverage_dca_auto_buy", ticker, {
         "strategy_id": str(strategy_id), "quantity": fill["quantity"], "notional_krw": fill["notional_krw"],
         "live_trading_authorized": False,
     })
-    return {"ticker": ticker, "direction": "buy", "status": "filled", "quantity": fill["quantity"], "notional_krw": fill["notional_krw"]}
+    return {"ticker": ticker, "direction": "buy", "status": "filled", "quantity": fill["quantity"],
+            "notional_krw": fill["notional_krw"], "alpaca": alpaca_summary}
 
 
 async def _leverage_dca_auto_sell(*, user: dict, strategy_id, ticker: str, quantity: float) -> dict:
@@ -2972,19 +3152,31 @@ async def _leverage_dca_auto_sell(*, user: dict, strategy_id, ticker: str, quant
     if fx_quote["status"] != "ok":
         return {"ticker": ticker, "direction": "sell", "status": "skipped", "reason": "USD/KRW 환율 조회 실패"}
     fx_rate = float(fx_quote["price"])
-    execution_simulation = await _leverage_dca_submit_order(user=user, ticker=ticker, side="sell", quote_price=float(quote["price"]), requested_quantity=quantity)
+    # Alpaca 페이퍼 브로커 체결과 홈페이지 자체 모의 체결은 서로 독립적으로 각각 진행된다.
+    alpaca_result = await _leverage_dca_submit_alpaca_mirror(
+        user=user, strategy_id=strategy_id, ticker=ticker, side="sell",
+        quote_price=float(quote["price"]), requested_quantity=quantity, fx_rate=fx_rate,
+    )
+    alpaca_summary = _alpaca_mirror_summary(alpaca_result)
+    execution_simulation = _leverage_dca_submit_order_internal(side="sell", quote_price=float(quote["price"]), requested_quantity=quantity)
     if execution_simulation["status"] not in {"filled", "partially_filled"}:
-        return {"ticker": ticker, "direction": "sell", "status": "skipped", "reason": execution_simulation.get("reason", "체결되지 않았습니다.")}
+        return {"ticker": ticker, "direction": "sell", "status": "skipped",
+                "reason": execution_simulation.get("reason", "체결되지 않았습니다."), "alpaca": alpaca_summary}
     fill_quantity = float(execution_simulation["fill_quantity"])
     fill = _leverage_dca_build_fill(user=user, strategy_id=strategy_id, ticker=ticker, direction="sell",
                                     quantity=fill_quantity, execution_simulation=execution_simulation,
                                     fx_rate=fx_rate, risk_control={"action": "approved", "reasons": []})
-    await get_db().paper_fills.insert_one(fill)
+    try:
+        await get_db().paper_fills.insert_one(fill)
+    except PyMongoError as exc:
+        return {"ticker": ticker, "direction": "sell", "status": "error",
+                "reason": f"자체 모의 체결 저장 실패: {exc}", "alpaca": alpaca_summary}
     await append_execution_audit(user["_id"], "leverage_dca_auto_sell", ticker, {
         "strategy_id": str(strategy_id), "quantity": fill["quantity"], "notional_krw": fill["notional_krw"],
         "live_trading_authorized": False,
     })
-    return {"ticker": ticker, "direction": "sell", "status": "filled", "quantity": fill["quantity"], "notional_krw": fill["notional_krw"]}
+    return {"ticker": ticker, "direction": "sell", "status": "filled", "quantity": fill["quantity"],
+            "notional_krw": fill["notional_krw"], "alpaca": alpaca_summary}
 
 
 async def _run_leverage_dca_reserve_cycle(*, user: dict, config: dict, policy: dict, signals: dict,
@@ -3054,6 +3246,15 @@ async def run_leverage_dca_cycle_for_user(user: dict, signals: dict, reserve_sig
     if pricing_errors:
         return {"status": "pricing_unavailable", "errors": pricing_errors}
 
+    # 주문(Alpaca·자체 모의 체결)을 내기 전에 오늘 실행을 원자적으로 선점한다. 이후 어떤 단계가
+    # 실패해도 같은 날 재시도가 주문을 다시 내지 않는다(2026-09-30: 자체 체결 저장 실패 뒤 5분마다
+    # 재시도하며 Alpaca에서만 4번 매수된 사고의 재발 방지). 주문 전 일시 오류는 위에서 이미 반환했다.
+    claimed = await get_db().leverage_dca_configs.update_one(
+        {"user_id": user["_id"], "last_run_date": {"$ne": today}}, {"$set": {"last_run_date": today}},
+    )
+    if claimed.modified_count != 1:
+        return {"status": "already_run_today", "last_run_date": today}
+
     sell_result = evaluate_sell_trigger(position_value_krw=market_value_krw, cost_basis_krw=cost_basis_krw, policy=policy)
     actions: list[dict] = []
     if sell_result["trigger"]:
@@ -3063,9 +3264,11 @@ async def run_leverage_dca_cycle_for_user(user: dict, signals: dict, reserve_sig
                 actions.append(await _leverage_dca_auto_sell(user=user, strategy_id=strategy["_id"], ticker=ticker, quantity=quantity))
         result = {"status": "sold", "sell_trigger": sell_result, "actions": actions}
     else:
+        has_soxl_position = positions.get("SOXL", {}).get("quantity", 0.0) > 1e-8
         raw_stop_state = evaluate_buy_stop_conditions(
             spx_drawdown_pct=signals["spx_drawdown_pct"], vix=signals["vix"],
             soxl_drawdown_pct=signals["soxl_drawdown_pct"], upro_drawdown_pct=signals["upro_drawdown_pct"], policy=policy,
+            has_soxl_position=has_soxl_position,
         )
         # S&P/VIX발 매수 전면중지는 재개 조건(50일선 위 3일 연속 + VIX 재개 기준 미만)을
         # 충족하기 전까지 유지한다 — 오늘 지표만 보고 바로 재개하지 않는 히스테리시스.
@@ -3093,9 +3296,6 @@ async def run_leverage_dca_cycle_for_user(user: dict, signals: dict, reserve_sig
 
     result["reserve"] = await _run_leverage_dca_reserve_cycle(user=user, config=config, policy=policy, signals=signals,
                                                               reserve_signals=reserve_signals)
-    # 확정된 결정(매수·매도·무동작)만 "오늘 실행 완료"로 기록한다. 신호·시세 조회
-    # 실패 같은 일시적 오류는 기록하지 않아, 같은 날 다시 시도할 수 있게 둔다.
-    await get_db().leverage_dca_configs.update_one({"user_id": user["_id"]}, {"$set": {"last_run_date": today}})
     result["last_run_date"] = today
     return result
 
@@ -3203,19 +3403,16 @@ async def get_leverage_dca_status(user: dict = Depends(require_leverage_dca_acce
     )
     if latest_log and latest_log.get("captured_at"):
         latest_log["captured_at"] = latest_log["captured_at"].isoformat()
-    market_open_today = is_us_market_open_today()
-    buy_time = get_buy_time_kst() if market_open_today else None
-    close_time = get_market_close_kst() if market_open_today else None
-    sell_check_time = get_sell_check_time_kst() if market_open_today else None
+    execution_schedule = get_next_execution_schedule()
+    policy = _leverage_dca_policy(config)
+    strategy_ids = [item["_id"] for item in (strategy, reserve_strategy) if item]
+    holding_summary = await _leverage_dca_website_holding_summary(user["_id"], strategy_ids, policy) if strategy_ids else None
+    alpaca_holding_summary = await _leverage_dca_alpaca_holding_summary(user["_id"], policy)
     return {
+        "holding_summary": holding_summary, "alpaca_holding_summary": alpaca_holding_summary,
         "enabled": bool((config or {}).get("enabled", False)), "buy_stopped": bool((config or {}).get("buy_stopped", False)),
         "last_run_date": (config or {}).get("last_run_date"),
-        "execution_schedule": {
-            "market_open_today": market_open_today,
-            "buy_time_kst": buy_time.isoformat() if buy_time else None,
-            "market_close_kst": close_time.isoformat() if close_time else None,
-            "sell_check_time_kst": sell_check_time.isoformat() if sell_check_time else None,
-        },
+        "execution_schedule": execution_schedule,
         "strategy_id": str(strategy["_id"]) if strategy else None,
         "positions": [{"ticker": ticker, "quantity": item["quantity"], "average_cost_krw": round(item["average_cost_krw"], 4)}
                       for ticker, item in positions.items() if item["quantity"] > 1e-8],
@@ -3247,17 +3444,57 @@ async def run_leverage_dca_now(user: dict = Depends(require_leverage_dca_access)
     return {"signals": signals, "reserve_signals": reserve_signals, "result": result}
 
 
+@router.delete("/leverage-dca/trades")
+async def reset_leverage_dca_trades(user: dict = Depends(require_leverage_dca_access)) -> dict:
+    """테스트로 실행한 모의 체결 내역·포지션·일일 로그를 모두 지우고 처음 상태로 되돌린다.
+
+    설정값(daily_buy_krw 등)은 유지하고, 체결 기록·포지션·정지/예비비 진행 상태·오늘 실행 여부만 초기화한다.
+    실거래 주문이나 브로커 연동에는 영향을 주지 않는다.
+    """
+    db = get_db()
+    strategies = await db.strategies.find(
+        {"user_id": user["_id"], "type": {"$in": ["leverage_dca", "leverage_dca_reserve"]}}, {"_id": 1},
+    ).to_list(10)
+    strategy_ids = [doc["_id"] for doc in strategies]
+    deleted_fills = 0
+    deleted_alpaca_fills = 0
+    if strategy_ids:
+        fills_result = await db.paper_fills.delete_many({"user_id": user["_id"], "strategy_id": {"$in": strategy_ids}})
+        deleted_fills = fills_result.deleted_count
+        alpaca_fills_result = await db.leverage_dca_alpaca_fills.delete_many({"user_id": user["_id"], "strategy_id": {"$in": strategy_ids}})
+        deleted_alpaca_fills = alpaca_fills_result.deleted_count
+        await db.strategies.delete_many({"_id": {"$in": strategy_ids}})
+    logs_result = await db.leverage_dca_daily_logs.delete_many({"user_id": user["_id"]})
+    await db.leverage_dca_configs.update_one(
+        {"user_id": user["_id"]},
+        {"$set": {"buy_stopped": False, "reserve_deployed_stage": 0, "reserve_deployed_krw": 0.0},
+         "$unset": {"last_run_date": ""}},
+    )
+    await append_execution_audit(user["_id"], "leverage_dca_reset", "leverage_dca_config", {
+        "deleted_fills": deleted_fills, "deleted_alpaca_fills": deleted_alpaca_fills,
+        "deleted_logs": logs_result.deleted_count, "live_trading_authorized": False,
+    })
+    return {"status": "reset", "deleted_fills": deleted_fills, "deleted_alpaca_fills": deleted_alpaca_fills,
+            "deleted_logs": logs_result.deleted_count}
+
+
 @router.get("/leverage-dca/trades")
 async def list_leverage_dca_trades(user: dict = Depends(require_leverage_dca_access)) -> dict:
-    """레버리지 DCA(주전략+예비비) 모의 체결 내역을 날짜·가격·수량 그대로 보여준다."""
+    """레버리지 DCA(주전략+예비비) 모의 체결 내역을 날짜·가격·수량 그대로 보여준다.
+
+    ``items``는 홈페이지 자체 모의 체결(paper_fills) 기준이고, ``alpaca_items``는 Alpaca
+    페이퍼 브로커에 독립적으로 낸 주문의 실제 체결 결과다. 두 목록은 서로 다른 계좌·엔진의
+    결과라 수량·가격이 정확히 같지 않을 수 있다.
+    """
     strategies = await get_db().strategies.find(
         {"user_id": user["_id"], "type": {"$in": ["leverage_dca", "leverage_dca_reserve"]}}, {"type": 1},
     ).to_list(10)
     strategy_kind = {doc["_id"]: doc["type"] for doc in strategies}
     if not strategy_kind:
-        return {"items": []}
+        return {"items": [], "alpaca_items": [], "alpaca_paper_configured": alpaca_paper_configured()}
+    strategy_ids = list(strategy_kind.keys())
     rows = await get_db().paper_fills.find(
-        {"user_id": user["_id"], "strategy_id": {"$in": list(strategy_kind.keys())}},
+        {"user_id": user["_id"], "strategy_id": {"$in": strategy_ids}},
     ).sort("filled_at", -1).to_list(1000)
     items = [{
         "date": row["filled_at"].astimezone(PAPER_SNAPSHOT_TIMEZONE).strftime("%Y-%m-%d %H:%M"),
@@ -3267,4 +3504,16 @@ async def list_leverage_dca_trades(user: dict = Depends(require_leverage_dca_acc
         "is_reserve": strategy_kind.get(row["strategy_id"]) == "leverage_dca_reserve",
         "source": row.get("source", "leverage_dca_auto"),
     } for row in rows if row.get("filled_at")]
-    return {"items": items}
+    alpaca_rows = await get_db().leverage_dca_alpaca_fills.find(
+        {"user_id": user["_id"], "strategy_id": {"$in": strategy_ids}},
+    ).sort("filled_at", -1).to_list(1000)
+    alpaca_items = [{
+        "date": row["filled_at"].astimezone(PAPER_SNAPSHOT_TIMEZONE).strftime("%Y-%m-%d %H:%M"),
+        "ticker": row["ticker"], "direction": row["direction"], "status": row["status"],
+        "requested_quantity": round(float(row.get("requested_quantity", 0)), 6),
+        "quantity": round(float(row.get("fill_quantity", 0)), 6), "fill_price": round(float(row.get("fill_price", 0)), 4),
+        "notional_krw": round(float(row.get("notional_krw", 0)), 2),
+        "is_reserve": strategy_kind.get(row["strategy_id"]) == "leverage_dca_reserve",
+        "alpaca_order_id": row.get("alpaca_order_id"), "reason": row.get("reason"),
+    } for row in alpaca_rows if row.get("filled_at")]
+    return {"items": items, "alpaca_items": alpaca_items, "alpaca_paper_configured": alpaca_paper_configured()}
