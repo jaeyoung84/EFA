@@ -4,6 +4,7 @@ import base64
 from datetime import datetime, timedelta, timezone
 import io
 import json
+import asyncio
 import os
 import re
 import time
@@ -21,7 +22,7 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent / ".env")
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, Response
@@ -40,9 +41,11 @@ except ImportError:
 
 try:
     from .sector_rotation import read_sector_rotation
+    from .stock_sector import sector_status
     from .instrument_catalog import SEARCH_ALIASES, get_krx_catalog, resolve_krx_name, search_krx_instruments
 except ImportError:
     from sector_rotation import read_sector_rotation  # type: ignore
+    from stock_sector import sector_status  # type: ignore
     from instrument_catalog import SEARCH_ALIASES, get_krx_catalog, resolve_krx_name, search_krx_instruments  # type: ignore
 
 try:
@@ -145,13 +148,13 @@ async def add_security_headers(request: Request, call_next):
 
 
 try:
-    from .routers.auth import router as auth_router
+    from .routers.auth import router as auth_router, current_user
     from .routers.portfolio import router as portfolio_router
     from .routers.strategy import router as strategy_router
     from .routers.kqs import router as kqs_router
     from .routers.research import router as research_router
 except ImportError:  # Allows `uvicorn main:app` from app/backend.
-    from routers.auth import router as auth_router  # type: ignore
+    from routers.auth import router as auth_router, current_user  # type: ignore
     from routers.portfolio import router as portfolio_router  # type: ignore
     from routers.strategy import router as strategy_router  # type: ignore
     from routers.kqs import router as kqs_router  # type: ignore
@@ -431,6 +434,35 @@ def dart_company_search(req: DartCompanySearchRequest) -> dict[str, object]:
 def market_sector_rotation() -> JSONResponse:
     """섹터 순환(RRG) 참고 자료: 엔진이 매 거래일 계산한 섹터 ETF의 상대강도·모멘텀과 최근 이동 궤적."""
     return JSONResponse(content=read_sector_rotation(), headers={"Cache-Control": "no-cache"})
+
+
+@lru_cache(maxsize=10000)
+def _stock_ksic(stock_code: str) -> str | None:
+    """종목코드 → DART 업종코드(KSIC). 실패하면 None(다음 프로세스 재시작까지 캐시)."""
+    corp = next((row for row in _load_dart_corp_codes() if row.get("stock_code") == stock_code), None)
+    if not corp:
+        return None
+    return (_fetch_company_detail(corp["corp_code"]) or {}).get("induty_code") or None
+
+
+@app.get("/api/market/stock-sectors")
+async def market_stock_sectors(symbols: str = "", user: dict = Depends(current_user)) -> dict:
+    """EINT-022: 종목(6자리 코드, 쉼표로 최대 30개)의 업종 섹터와 섹터 순환 현재 구역. 참고 표시용."""
+    codes = list(dict.fromkeys(code.strip() for code in symbols.split(",") if re.fullmatch(r"[0-9A-Z]{6}", code.strip())))[:30]
+    rotation = read_sector_rotation()
+
+    def lookup(code: str) -> dict:
+        try:
+            ksic = _stock_ksic(code)
+        except HTTPException:
+            ksic = None
+        return sector_status(code, ksic, rotation)
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        items = await asyncio.get_running_loop().run_in_executor(None, lambda: list(pool.map(lookup, codes)))
+    return {"items": items, "rotation_as_of": rotation.get("latest_week"),
+            "note": "업종은 DART 기업개황의 업종코드(한국표준산업분류) 기준, 구역은 섹터 순환(RRG) 기준입니다. 참고용입니다."}
 
 
 @app.get("/api/market/instruments")

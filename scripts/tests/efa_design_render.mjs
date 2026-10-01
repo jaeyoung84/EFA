@@ -8,6 +8,7 @@ const STUBS = {
   DECISION_LABEL: "{ buy: ['매수', 'is-hold'], hold: ['관망', 'is-muted'], exclude: ['제외', 'is-muted'] }",
   decisionForm: `(pick) => '<form data-sb-decision data-signal-id="' + pick.signal_id + '"></form>'`, bindDecisionForm: '() => {}',
   attachStockSearch: '() => {}', PENDING_STOCK_KEY: "'k'",
+  sectorSlot: '(s) => `<span data-sector-symbol="${s}"></span>`', fillSectorBadges: '() => {}',
 };
 async function load(file) {
   const source = (await readFile(new URL(`../../app/frontend/js/${file}`, import.meta.url), 'utf8')).replace(/^import .*$/gm, '');
@@ -78,6 +79,15 @@ assert.ok(watchRows.includes('is-down') && watchRows.includes('-1.20%') && !watc
 assert.ok(notes.notesListHtml([]).includes('노트가 없습니다'));
 const noteRows = notes.notesListHtml([{ id: 'n1', title: XSS, body: 'b'.repeat(100), tickers: [{ name: '삼성전자' }], tags: ['AI'], updated_at: '2026-10-01T00:00:00Z' }], 'n1');
 assert.ok(noteRows.includes('is-active') && noteRows.includes('#AI') && noteRows.includes('…') && !noteRows.includes('<img'));
+
+// 추천 종목 섹터 배지
+const badges = await load('utils/sectorBadges.js');
+const leading = badges.sectorBadgeHtml({ sector_name: '반도체', quadrant: 'leading', quadrant_4w_ago: 'improving', ksic: '2612', rotation_as_of: '2026-09-30' });
+assert.ok(leading.includes('<b>반도체</b>') && leading.includes('>주도</i>') && leading.includes('(개선→주도)'));
+assert.ok(badges.sectorBadgeHtml({ sector_name: null, note: '업종 분류 없음', ksic: '64992' }).includes('업종 분류 없음'));
+assert.ok(!badges.sectorBadgeHtml({ sector_name: '<img src=x>', quadrant: 'lagging' }).includes('<img'));
+assert.ok(badges.sectorSlot('010170').includes('data-sector-symbol="010170"'));
+assert.ok(queue.includes('data-sector-symbol="010170"'));
 
 // 재무 차트: x축 라벨 간격(좁으면 건너뛰기)
 const finSource = (await readFile(new URL('../../app/frontend/js/utils/financialCharts.js', import.meta.url), 'utf8'));

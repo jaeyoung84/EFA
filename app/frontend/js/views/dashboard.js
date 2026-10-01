@@ -4,6 +4,7 @@
 import { authRequest, currentUserInfo, isAuthenticated, openAuthModal } from '../auth.js';
 import { portfolioInsights, portfolioValuation } from './portfolioHoldings.js';
 import { DECISION_LABEL, bindDecisionForm, decisionForm } from './strategyBoard.js';
+import { fillSectorBadges, sectorSlot } from '../utils/sectorBadges.js';
 
 const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
@@ -66,7 +67,7 @@ export function briefingHtml(tab, { board, outcomes, loggedIn }) {
     if (!picks.length) return '<div class="dash-empty"><p>오늘은 3개 아이템 모두 조건을 만족한 종목이 없습니다.</p></div>';
     return `<ol class="dash-brief-list">${picks.map((pick, index) => `<li>
       <span class="dash-rank">${index + 1}</span>
-      <span class="dash-brief-name"><strong>${esc(pick.name)}</strong><small>${esc(pick.symbol)} · ${esc(ITEM_SHORT[pick.item])} ${esc(pick.rank)}위</small></span>
+      <span class="dash-brief-name"><strong>${esc(pick.name)}</strong><small>${esc(pick.symbol)} · ${esc(ITEM_SHORT[pick.item])} ${esc(pick.rank)}위</small>${sectorSlot(pick.symbol)}</span>
       ${decisionBadge(board.my_decisions?.[pick.signal_id])}
       <span class="dash-brief-price">${fmt(pick.close)}<small>기준일 종가</small></span>
       <ul class="dash-brief-reasons" title="${esc((pick.reasons || []).join('\n'))}">${(pick.reason_labels?.length ? pick.reason_labels : pick.reasons || []).filter(Boolean).slice(0, 3).map((reason) => `<li>${esc(reason)}</li>`).join('')}</ul>
@@ -164,7 +165,7 @@ export function queueHtml({ board, loggedIn, filter = 'all' }, now = Date.now())
   return picks.map((pick, index) => `<article class="dash-queue-card">
     <header><span class="dash-rank">${index + 1}</span>${decisionBadge(board.my_decisions?.[pick.signal_id])}
       <span class="dash-queue-meta"><b>${esc(ITEM_SHORT[pick.item])}</b> ${esc(pick.rank)}위 · 만료 ${esc(expiresIn(board.expires_at, now))}</span></header>
-    <p class="dash-queue-name"><span>${esc(pick.symbol)}</span><strong>${esc(pick.name)}</strong></p>
+    <p class="dash-queue-name"><span>${esc(pick.symbol)}</span><strong>${esc(pick.name)}</strong>${sectorSlot(pick.symbol)}</p>
     <p class="dash-queue-price">${fmt(pick.close)}<small>기준일 ${esc(board.as_of || '')} 종가</small></p>
     <div class="dash-chips"><span>추천 근거</span>${(pick.reason_labels || []).filter(Boolean).slice(0, 3).map((label) => `<i>${esc(label)}</i>`).join('')}</div>
     ${decisionForm(pick)}
@@ -300,6 +301,7 @@ export function dashboardView(container) {
     const el = $('[data-dash-brief]');
     el.innerHTML = briefingHtml(state.briefTab, state);
     bindCommon(el);
+    fillSectorBadges(el);
     $('[data-brief-count]').textContent = state.board ? `(${picksOf(state.board).length})` : '';
     const sells = (state.board?.sell_signals || []).filter((row) => row.state === 'exit_signal').length;
     $('[data-sell-count]').textContent = sells ? `(${sells})` : '';
@@ -315,6 +317,7 @@ export function dashboardView(container) {
     el.innerHTML = queueHtml({ board: state.board, loggedIn: state.loggedIn, filter: state.queueFilter });
     bindCommon(el);
     el.querySelectorAll('[data-sb-decision]').forEach((form) => bindDecisionForm(form, loadBoard));
+    fillSectorBadges(el);
     $('[data-queue-count]').textContent = String(picksOf(state.board).length);
   };
   const renderSystem = () => {

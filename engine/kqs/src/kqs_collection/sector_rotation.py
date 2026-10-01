@@ -34,12 +34,14 @@ TAIL_WEEKS = 12                     # trail points published per sector
 HISTORY_WEEKS = WARMUP + TAIL_WEEKS + 4
 SECTORS = (           # (key, display name, ETF symbol)
     ("semis", "반도체", "091160"),
+    ("it_hw", "IT하드웨어", "266370"),
     ("battery", "2차전지", "305720"),
     ("it_sw", "소프트웨어", "157490"),
     ("internet", "인터넷", "365000"),
     ("auto", "자동차", "091180"),
     ("shipbuilding", "조선", "494670"),
     ("defense", "방산", "463250"),
+    ("machinery", "기계장비", "102960"),
     ("construction", "건설", "117700"),
     ("steel", "철강", "117680"),
     ("energy_chem", "에너지화학", "117460"),

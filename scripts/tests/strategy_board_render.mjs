@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 
 const path = new URL('../../app/frontend/js/views/strategyBoard.js', import.meta.url);
 const source = (await readFile(path, 'utf8')).replace(/^import .*$/gm, '').replace(/^/,
-  'const authRequest = async () => ({}); const isAuthenticated = () => true; const openAuthModal = () => {}; const manualRequest = (f, b) => b;\n');
+  'const authRequest = async () => ({}); const isAuthenticated = () => true; const openAuthModal = () => {}; const manualRequest = (f, b) => b; const sectorSlot = (s) => `<span data-sector-symbol="${s}"></span>`; const fillSectorBadges = () => {};\n');
 const { boardHtml: render } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 const item = (key, picks, published = true) => ({ item: key, label: key, title: key, summary: 's', order: 'o', exit: 'e',
