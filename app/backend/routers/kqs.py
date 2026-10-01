@@ -30,6 +30,7 @@ try:
                                       publication_status, publication_candidates, publication_packet,
                                       native_positions_not_applicable)
     from ..kqs_strategy_board import board_items, holding_signals, read_outcome_report
+    from ..kqs_pipeline_health import pipeline_health
     from .auth import current_user
 except ImportError:
     from db import get_db  # type: ignore
@@ -40,6 +41,7 @@ except ImportError:
                                     publication_status, publication_candidates, publication_packet,
                                     native_positions_not_applicable)  # type: ignore
     from kqs_strategy_board import board_items, holding_signals, read_outcome_report  # type: ignore
+    from kqs_pipeline_health import pipeline_health  # type: ignore
     from routers.auth import current_user  # type: ignore
 
 
@@ -1356,9 +1358,22 @@ async def get_kqs_strategy_board(user: dict = Depends(current_user)) -> dict:
     except RuntimeError as exc:
         detail = str(exc)
     book = await _user_lot_book(user["_id"])
+    items = board_items(payload) if payload else board_items({"signals": []})
+    # EINT-020: 오늘 추천에 이미 남긴 내 판단(카드에서 바로 기록한 매수·관망·제외 포함).
+    signal_ids = [pick["signal_id"] for item in items for pick in item["picks"]]
+    decided = await get_db().kqs_paper_decisions.find(
+        {"user_id": user["_id"], "signal_id": {"$in": signal_ids}, "record_origin": "recommendation"},
+        {"signal_id": 1, "decision": 1, "quantity": 1, "fill_price": 1, "decided_at": 1},
+    ).sort("decided_at", 1).to_list(len(signal_ids) * 20 or 1)
+    my_decisions: dict[str, list[dict]] = {}
+    for row in decided:
+        my_decisions.setdefault(row["signal_id"], []).append({
+            "decision": row["decision"], "quantity": row.get("quantity"), "fill_price": row.get("fill_price"),
+            "decided_at": row["decided_at"].isoformat() if row.get("decided_at") else None})
     response = {
         "available": payload is not None, "detail": detail,
-        "items": board_items(payload) if payload else board_items({"signals": []}),
+        "items": items, "my_decisions": my_decisions,
+        "health": await asyncio.to_thread(pipeline_health),
         "sell_signals": holding_signals(book, payload, _trade_day),
         "disclaimer": "아이템별 최대 5개 추천과 보유 종목 매도 신호는 판단을 돕는 정보입니다. 순서는 각 아이템의 기존 선정 규칙이며 수익률 예측이 아닙니다. 자동 주문·자동 모의체결은 없습니다.",
     }
@@ -1367,6 +1382,12 @@ async def get_kqs_strategy_board(user: dict = Depends(current_user)) -> dict:
                         generated_at=payload["generated_at"], expires_at=payload["expires_at"],
                         snapshot_id=payload.get("snapshot_id"), package_version=payload["engine"].get("package_version"))
     return JSONResponse(content=response, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/pipeline-health")
+async def get_kqs_pipeline_health(user: dict = Depends(current_user)) -> dict:
+    """EINT-020: 엔진 일일 실행·게시 상태와 사용자에게 보여 줄 경고. 읽기 전용이며 실행·재시도하지 않는다."""
+    return JSONResponse(content=await asyncio.to_thread(pipeline_health), headers={"Cache-Control": "no-store"})
 
 
 @router.get("/recommendation-outcomes")

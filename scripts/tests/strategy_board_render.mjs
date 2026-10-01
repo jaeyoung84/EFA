@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const path = new URL('../../app/frontend/js/views/strategyBoard.js', import.meta.url);
-const source = (await readFile(path, 'utf8')).replace(/^import .*$/m,
-  'const authRequest = async () => ({}); const isAuthenticated = () => true; const openAuthModal = () => {};');
+const source = (await readFile(path, 'utf8')).replace(/^import .*$/gm, '').replace(/^/,
+  'const authRequest = async () => ({}); const isAuthenticated = () => true; const openAuthModal = () => {}; const manualRequest = (f, b) => b;\n');
 const { boardHtml: render } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 const item = (key, picks, published = true) => ({ item: key, label: key, title: key, summary: 's', order: 'o', exit: 'e',
@@ -28,4 +28,18 @@ assert.ok(html.includes('매도 신호') && html.includes('손절 96'));
 assert.ok(html.includes('class="sb-count is-alert">1건'));
 const down = render({ available: false, detail: '<i>gone</i>', items: [], sell_signals: [], disclaimer: '' });
 assert.ok(down.includes('검증된 추천을 사용할 수 없습니다') && !down.includes('<i>gone</i>'));
-console.log('Strategy board: three items, empty/unpublished items, sell badges, escaping passed');
+// EINT-020: 카드의 판단 버튼·내 기록 배지·엔진 경고 배너
+const withDecisions = render({
+  available: true, as_of: '2026-09-30', items: [item('swing', [{ rank: 1, signal_id: 'sig-1', name: 'A', symbol: '005930', market: 'KOSPI', reasons: [] }])],
+  my_decisions: { 'sig-1': [{ decision: 'buy', quantity: 3, fill_price: 70000 }, { decision: 'hold' }] },
+  sell_signals: [], disclaimer: '',
+  health: { level: 'error', alerts: [{ level: 'error', title: '오늘 추천이 게시되지 않았습니다', message: '<b>x</b>' }] },
+});
+assert.ok(withDecisions.includes('data-sb-decision data-signal-id="sig-1"'));
+assert.ok(withDecisions.includes('매수 3주 @70,000') && withDecisions.includes('>관망</span>'));
+assert.ok(withDecisions.includes('data-sb-health="error"') && withDecisions.includes('오늘 추천이 게시되지 않았습니다'));
+assert.ok(!withDecisions.includes('<b>x</b>'));
+const healthy = render({ available: true, as_of: '2026-09-30', items: [], sell_signals: [], disclaimer: '',
+  health: { level: 'ok', alerts: [], last_run_finished_at: '2026-10-01T00:00:00+00:00' } });
+assert.ok(!healthy.includes('data-sb-health') && healthy.includes('엔진 정상'));
+console.log('Strategy board: three items, empty/unpublished items, sell badges, decisions, health banner, escaping passed');
