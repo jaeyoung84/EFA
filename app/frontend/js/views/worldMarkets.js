@@ -86,10 +86,10 @@ function barChartOptions() {
     series: [{ name: '시가총액', data: data.map((market) => market.cap) }],
     colors: data.map((market) => market.color),
     plotOptions: { bar: { horizontal: true, borderRadius: 4, barHeight: '58%', distributed: true } },
-    dataLabels: { enabled: true, formatter: (value) => `$${Number(value).toFixed(1)}조`, style: { colors: ['#334155'], fontSize: '11px', fontWeight: 750 }, offsetX: 8 },
+    dataLabels: { enabled: true, formatter: (value) => `$${Number(value).toFixed(1)}조`, style: { colors: ['#dfe5ee'], fontSize: '11px', fontWeight: 750 }, offsetX: 8 },
     xaxis: { categories: data.map((market) => market.country), max: 70, labels: { formatter: (value) => `$${value}조`, style: { colors: '#94a3b8', fontSize: '10px' } }, axisBorder: { show: false }, axisTicks: { show: false } },
-    yaxis: { labels: { style: { colors: '#475569', fontSize: '11px', fontWeight: 700 } } },
-    grid: { borderColor: '#eef2f7', strokeDashArray: 3, padding: { left: 4, right: 38 } },
+    yaxis: { labels: { style: { colors: '#c3cbd8', fontSize: '11px', fontWeight: 700 } } },
+    grid: { borderColor: '#1e2b42', strokeDashArray: 3, padding: { left: 4, right: 38 } },
     legend: { show: false }, tooltip: { y: { formatter: (value) => marketCap(Number(value)) } },
   };
 }
@@ -210,7 +210,7 @@ export function worldMarketsView(container) {
         stroke: { curve: 'smooth', width: [1, 1.7, 0] },
         xaxis: { type: 'datetime', labels: { format: 'MM-dd', style: { fontSize: '10px', colors: '#94a3b8' }, hideOverlappingLabels: true, datetimeUTC: false }, axisBorder: { show: false }, axisTicks: { show: false } },
         yaxis: [{ labels: { formatter: (value) => value ? Math.round(value).toLocaleString() : '', style: { fontSize: '10px', colors: '#94a3b8' } } }, { show: false }, { show: false }],
-        grid: { borderColor: '#eef2f7', strokeDashArray: 3, padding: { right: 10, left: 4 } },
+        grid: { borderColor: '#1e2b42', strokeDashArray: 3, padding: { right: 10, left: 4 } },
         tooltip: { shared: false, x: { format: 'yyyy-MM-dd' }, y: { formatter: (value) => value == null ? '' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 }) } },
         legend: { show: false },
       });

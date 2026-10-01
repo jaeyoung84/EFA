@@ -1,31 +1,9 @@
 <nav class="sidebar-nav">
-  <!-- index.html 상단 메뉴(mainnav)와 같은 4개 메뉴 구조. 메뉴를 바꾸면 함께 고친다. -->
+  <!-- index.html 상단 메뉴(mainnav)와 같은 7개 메뉴 구조(+ 시스템 상태). 메뉴를 바꾸면 함께 고친다. -->
   <a href="../index.html?view=home" class="nav-item nav-home" data-view="home"><i class="fa-solid fa-table-cells-large"></i><span>대시보드</span></a>
   <div class="nav-section">
-    <button class="nav-section-hdr" onclick="toggleNav('decisions')"><span>추천·판단</span><i class="fa-solid fa-chevron-down nav-chev" id="chev-decisions"></i></button>
-    <div class="nav-children" id="nav-decisions">
-      <a href="../index.html?view=strategy-board" class="nav-item" data-view="strategy-board"><i class="fa-solid fa-bullseye"></i>전략 추천</a>
-      <a href="../index.html?view=my-strategies" class="nav-item" data-view="my-strategies"><i class="fa-solid fa-book"></i>매매 기록·연구</a>
-      <a href="../index.html?view=strategy-backtest" class="nav-item" data-view="strategy-backtest"><i class="fa-solid fa-chart-line"></i>실제 가격 백테스트</a>
-      <a href="../index.html?view=leverage-dca" class="nav-item" data-view="leverage-dca"><i class="fa-solid fa-bolt"></i>레버리지 DCA 자동매매(모의)</a>
-    </div>
-  </div>
-  <div class="nav-section">
-    <button class="nav-section-hdr" onclick="toggleNav('assets')"><span>내 자산</span><i class="fa-solid fa-chevron-down nav-chev" id="chev-assets"></i></button>
-    <div class="nav-children" id="nav-assets">
-      <a href="../index.html?view=portfolio-holdings" class="nav-item" data-view="portfolio-holdings"><i class="fa-solid fa-wallet"></i>내 보유자산</a>
-      <a href="../index.html?view=portfolio-risk" class="nav-item" data-view="portfolio-risk"><i class="fa-solid fa-shield-halved"></i>보유자산 리스크</a>
-      <a href="../index.html?view=portfolio-combination" class="nav-item" data-view="portfolio-combination"><i class="fa-solid fa-circle-nodes"></i>자산 조합 (상관관계)</a>
-    </div>
-  </div>
-  <div class="nav-section">
-    <button class="nav-section-hdr" onclick="toggleNav('market')"><span>시장·종목</span><i class="fa-solid fa-chevron-down nav-chev" id="chev-market"></i></button>
-    <div class="nav-children" id="nav-market">
-      <a href="../index.html?view=world-markets" class="nav-item" data-view="world-markets"><i class="fa-solid fa-earth-asia"></i>시장 현황</a>
-      <a href="../index.html?view=asset-classes" class="nav-item" data-view="asset-classes"><i class="fa-solid fa-layer-group"></i>자산군 차트</a>
-      <a href="../index.html?view=today-gainers" class="nav-item" data-view="today-gainers"><i class="fa-solid fa-arrow-trend-up"></i>오늘의 상승 종목</a>
-      <a href="../index.html?view=today-sobujang" class="nav-item" data-view="today-sobujang"><i class="fa-solid fa-microchip"></i>소부장 종목</a>
-      <a href="../index.html?view=macro-realtime" class="nav-item" data-view="macro-realtime"><i class="fa-solid fa-globe"></i>거시경제</a>
+    <button class="nav-section-hdr" onclick="toggleNav('analysis')"><span>종목 분석</span><i class="fa-solid fa-chevron-down nav-chev" id="chev-analysis"></i></button>
+    <div class="nav-children" id="nav-analysis">
       <a href="../index.html?view=company-financial" class="nav-item" data-view="company-financial"><i class="fa-solid fa-building-columns"></i>기업 재무</a>
       <a href="../index.html?view=dart-company-search" class="nav-item" data-view="dart-company-search"><i class="fa-solid fa-file-lines"></i>DART 기업 검색</a>
       <a href="../index.html?view=dart-financial-analysis" class="nav-item" data-view="dart-financial-analysis"><i class="fa-solid fa-file-invoice-dollar"></i>DART 재무 분석</a>
@@ -33,9 +11,33 @@
     </div>
   </div>
   <div class="nav-section">
-    <button class="nav-section-hdr" onclick="toggleNav('settings')"><span>운영</span><i class="fa-solid fa-chevron-down nav-chev" id="chev-settings"></i></button>
-    <div class="nav-children" id="nav-settings">
-      <a href="../index.html?view=server-resources" class="nav-item" data-view="server-resources"><i class="fa-solid fa-server"></i>시스템 상태</a>
+    <button class="nav-section-hdr" onclick="toggleNav('portfolio')"><span>포트폴리오</span><i class="fa-solid fa-chevron-down nav-chev" id="chev-portfolio"></i></button>
+    <div class="nav-children" id="nav-portfolio">
+      <a href="../index.html?view=portfolio-holdings" class="nav-item" data-view="portfolio-holdings"><i class="fa-solid fa-wallet"></i>내 보유자산</a>
+      <a href="../index.html?view=portfolio-risk" class="nav-item" data-view="portfolio-risk"><i class="fa-solid fa-shield-halved"></i>보유자산 리스크</a>
+      <a href="../index.html?view=portfolio-combination" class="nav-item" data-view="portfolio-combination"><i class="fa-solid fa-circle-nodes"></i>자산 조합 (상관관계)</a>
     </div>
   </div>
+  <div class="nav-section">
+    <button class="nav-section-hdr" onclick="toggleNav('kqs')"><span>KQS 전략</span><i class="fa-solid fa-chevron-down nav-chev" id="chev-kqs"></i></button>
+    <div class="nav-children" id="nav-kqs">
+      <a href="../index.html?view=strategy-board" class="nav-item" data-view="strategy-board"><i class="fa-solid fa-bullseye"></i>전략 추천</a>
+      <a href="../index.html?view=my-strategies" class="nav-item" data-view="my-strategies"><i class="fa-solid fa-book"></i>매매 기록·연구</a>
+      <a href="../index.html?view=strategy-backtest" class="nav-item" data-view="strategy-backtest"><i class="fa-solid fa-chart-line"></i>실제 가격 백테스트</a>
+      <a href="../index.html?view=leverage-dca" class="nav-item" data-view="leverage-dca"><i class="fa-solid fa-bolt"></i>레버리지 DCA 자동매매(모의)</a>
+    </div>
+  </div>
+  <div class="nav-section">
+    <button class="nav-section-hdr" onclick="toggleNav('market')"><span>시장 리뷰</span><i class="fa-solid fa-chevron-down nav-chev" id="chev-market"></i></button>
+    <div class="nav-children" id="nav-market">
+      <a href="../index.html?view=world-markets" class="nav-item" data-view="world-markets"><i class="fa-solid fa-earth-asia"></i>시장 현황</a>
+      <a href="../index.html?view=asset-classes" class="nav-item" data-view="asset-classes"><i class="fa-solid fa-layer-group"></i>자산군 차트</a>
+      <a href="../index.html?view=today-gainers" class="nav-item" data-view="today-gainers"><i class="fa-solid fa-arrow-trend-up"></i>오늘의 상승 종목</a>
+      <a href="../index.html?view=today-sobujang" class="nav-item" data-view="today-sobujang"><i class="fa-solid fa-microchip"></i>소부장 종목</a>
+      <a href="../index.html?view=macro-realtime" class="nav-item" data-view="macro-realtime"><i class="fa-solid fa-globe"></i>거시경제</a>
+    </div>
+  </div>
+  <a href="../index.html?view=watchlist" class="nav-item" data-view="watchlist"><i class="fa-solid fa-star"></i><span>관심종목</span></a>
+  <a href="../index.html?view=research-notes" class="nav-item" data-view="research-notes"><i class="fa-solid fa-book-open"></i><span>리서치 노트</span></a>
+  <a href="../index.html?view=server-resources" class="nav-item" data-view="server-resources"><i class="fa-solid fa-server"></i><span>시스템 상태</span></a>
 </nav>

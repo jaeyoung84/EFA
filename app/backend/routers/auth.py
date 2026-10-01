@@ -347,7 +347,7 @@ class DeleteAccountRequest(BaseModel):
 
 @router.delete("/me")
 async def delete_account(request: DeleteAccountRequest, user: dict = Depends(current_user)) -> dict:
-    """회원 탈퇴: 계정(네이버 식별자·이름·이메일)·로그인 세션·이용 내역을 즉시 삭제한다.
+    """회원 탈퇴: 계정(네이버 식별자·이름·이메일)·로그인 세션·이용 내역·관심종목·리서치 노트를 즉시 삭제한다.
 
     개인정보처리방침(/privacy.html)과 같은 범위다. 판단 기록·학습 데이터셋·레버리지 DCA 등은
     운영 지침상 자동 삭제하지 않으며, 계정이 지워지면 더 이상 회원과 연결되지 않는다.
@@ -357,6 +357,9 @@ async def delete_account(request: DeleteAccountRequest, user: dict = Depends(cur
     db = get_db()
     sessions = await db.auth_sessions.delete_many({"user_id": user["_id"]})
     activity = await db.user_activity.delete_many({"user_id": user["_id"]})
+    # 관심종목·리서치 노트는 회원이 쓴 개인 메모라 계정과 함께 지운다.
+    await db.user_watchlist.delete_many({"user_id": user["_id"]})
+    await db.research_notes.delete_many({"user_id": user["_id"]})
     await db.users.delete_one({"_id": user["_id"]})
     return {"deleted": True, "sessions_deleted": sessions.deleted_count, "activity_deleted": activity.deleted_count}
 

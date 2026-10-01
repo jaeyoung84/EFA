@@ -26,6 +26,7 @@ export async function authDownload(path, fallbackFilename = 'download') {
 }
 
 export function isAuthenticated() { return Boolean(token()); }
+export function currentUserInfo() { return user; }
 
 function updateBadge() {
   const badge = document.getElementById('auth-badge');
@@ -101,7 +102,7 @@ export async function initAuth() {
         </div>
         <div data-auth-panel="profile" hidden><h2>내 계정</h2><p id="auth-profile-name"></p><small id="auth-profile-email"></small><span id="auth-profile-provider" class="auth-provider"></span><h3>최근 사용 내역</h3><ul id="auth-activity" class="auth-activity"></ul><button type="button" id="auth-logout" class="auth-logout">로그아웃</button>
           <details class="auth-legacy auth-withdraw"><summary>회원 탈퇴</summary>
-            <form id="auth-withdraw-form"><p class="auth-naver-note">탈퇴하면 계정 정보(네이버 식별자·이름·이메일), 로그인 세션, 이용 내역이 즉시 삭제됩니다. 자세한 내용은 <a href="/privacy.html" target="_blank" rel="noopener">개인정보처리방침</a>을 확인하세요.</p>
+            <form id="auth-withdraw-form"><p class="auth-naver-note">탈퇴하면 계정 정보(네이버 식별자·이름·이메일), 로그인 세션, 이용 내역, 관심종목, 리서치 노트가 즉시 삭제됩니다. 자세한 내용은 <a href="/privacy.html" target="_blank" rel="noopener">개인정보처리방침</a>을 확인하세요.</p>
               <label>확인을 위해 '탈퇴'를 입력하세요<input id="auth-withdraw-confirm" autocomplete="off" required></label>
               <p id="auth-withdraw-error" class="auth-error" aria-live="polite"></p>
               <button type="submit" class="auth-submit auth-withdraw-submit">회원 탈퇴</button></form>

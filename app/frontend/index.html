@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
-  <link rel="stylesheet" href="styles.css?v=32" />
+  <link rel="stylesheet" href="styles.css?v=33" />
 </head>
 <body>
 
@@ -19,22 +19,14 @@
   <div id="overlay" class="overlay" onclick="closeMainnav()"></div>
 
   <!-- ═══════════════════════════════════════════
-       TOPBAR
+       HEADER — 로고 · 메인 메뉴 7개 · 종목 검색 · 알림 · 설정 · 로그인
+       화면 목록은 js/app.js의 routes·NAV_SECTIONS, pages/partials/sidebar-nav.html과 같아야 한다.
   ═══════════════════════════════════════════ -->
-  <header class="topbar">
-    <button
-      id="mainnav-toggle"
-      class="topbar-toggle mainnav-toggle-mobile"
-      type="button"
-      onclick="toggleMainnav()"
-      aria-label="메뉴 열기"
-      aria-controls="mainnav"
-      aria-expanded="false"
-    >
-      <i class="fa-solid fa-bars"></i>
-    </button>
+  <header class="topbar efa-header">
+    <button id="mainnav-toggle" class="topbar-toggle mainnav-toggle-mobile" type="button" onclick="toggleMainnav()"
+            aria-label="메뉴 열기" aria-controls="mainnav" aria-expanded="false"><i class="fa-solid fa-bars"></i></button>
 
-    <button class="brand" type="button" onclick="navigate('home')" aria-label="대시보드로 이동">
+    <button class="brand" type="button" onclick="navigate('home')" aria-label="EFA 대시보드로 이동">
       <span class="brand-mark"><img src="/assets/brand/efa-symbol.png" alt="" width="46" height="36"></span>
       <span class="brand-text">
         <span class="brand-name">EFA</span>
@@ -42,83 +34,87 @@
       </span>
     </button>
 
-    <div class="topbar-ticker" aria-label="시장 현황">
-      <span class="ticker-item" data-market-label="KOSPI">
-        <span class="ticker-label">KOSPI</span><b>-</b><em>조회 중</em>
-      </span>
-      <span class="ticker-item" data-market-label="NASDAQ">
-        <span class="ticker-label">NASDAQ</span><b>-</b><em>조회 중</em>
-      </span>
-      <span class="ticker-item" data-market-label="USD/KRW">
-        <span class="ticker-label">USD/KRW</span><b>-</b><em>조회 중</em>
-      </span>
-      <span class="ticker-stamp" id="ticker-stamp">조회 시각 --</span>
+    <nav id="mainnav" class="mainnav" aria-label="메인 메뉴">
+      <div class="mainnav-inner">
+        <a class="mainnav-item nav-item nav-home" data-view="home"><span>대시보드</span></a>
+
+        <div class="mainnav-group" data-group="analysis">
+          <button class="mainnav-item mainnav-trigger" data-first-view="company-financial" aria-haspopup="true" aria-expanded="false"><span>종목 분석</span><i class="fa-solid fa-chevron-down mainnav-chev"></i></button>
+          <div class="mainnav-dropdown">
+            <a class="nav-item" data-view="company-financial"><i class="fa-solid fa-building-columns"></i>기업 재무</a>
+            <a class="nav-item" data-view="dart-company-search"><i class="fa-solid fa-file-lines"></i>DART 기업 검색</a>
+            <a class="nav-item" data-view="dart-financial-analysis"><i class="fa-solid fa-file-invoice-dollar"></i>DART 재무 분석</a>
+            <a class="nav-item" data-view="industry-analysis"><i class="fa-solid fa-industry"></i>산업 비교</a>
+          </div>
+        </div>
+
+        <div class="mainnav-group" data-group="portfolio">
+          <button class="mainnav-item mainnav-trigger" data-first-view="portfolio-holdings" aria-haspopup="true" aria-expanded="false"><span>포트폴리오</span><i class="fa-solid fa-chevron-down mainnav-chev"></i></button>
+          <div class="mainnav-dropdown">
+            <a class="nav-item" data-view="portfolio-holdings"><i class="fa-solid fa-wallet"></i>내 보유자산</a>
+            <a class="nav-item" data-view="portfolio-risk"><i class="fa-solid fa-shield-halved"></i>보유자산 리스크</a>
+            <a class="nav-item" data-view="portfolio-combination"><i class="fa-solid fa-circle-nodes"></i>자산 조합 (상관관계)</a>
+          </div>
+        </div>
+
+        <div class="mainnav-group" data-group="kqs">
+          <button class="mainnav-item mainnav-trigger" data-first-view="strategy-board" aria-haspopup="true" aria-expanded="false"><span>KQS 전략</span><i class="fa-solid fa-chevron-down mainnav-chev"></i></button>
+          <div class="mainnav-dropdown">
+            <a class="nav-item" data-view="strategy-board"><i class="fa-solid fa-bullseye"></i>전략 추천</a>
+            <a class="nav-item" data-view="my-strategies"><i class="fa-solid fa-book"></i>매매 기록·연구</a>
+            <a class="nav-item" data-view="strategy-backtest"><i class="fa-solid fa-chart-line"></i>실제 가격 백테스트</a>
+            <a class="nav-item" data-view="leverage-dca"><i class="fa-solid fa-bolt"></i>레버리지 DCA 자동매매(모의)</a>
+          </div>
+        </div>
+
+        <div class="mainnav-group" data-group="market">
+          <button class="mainnav-item mainnav-trigger" data-first-view="world-markets" aria-haspopup="true" aria-expanded="false"><span>시장 리뷰</span><i class="fa-solid fa-chevron-down mainnav-chev"></i></button>
+          <div class="mainnav-dropdown">
+            <a class="nav-item" data-view="world-markets"><i class="fa-solid fa-earth-asia"></i>시장 현황</a>
+            <a class="nav-item" data-view="asset-classes"><i class="fa-solid fa-layer-group"></i>자산군 차트</a>
+            <a class="nav-item" data-view="today-gainers"><i class="fa-solid fa-arrow-trend-up"></i>오늘의 상승 종목</a>
+            <a class="nav-item" data-view="today-sobujang"><i class="fa-solid fa-microchip"></i>소부장 종목</a>
+            <a class="nav-item" data-view="macro-realtime"><i class="fa-solid fa-globe"></i>거시경제</a>
+          </div>
+        </div>
+
+        <a class="mainnav-item nav-item" data-view="watchlist"><span>관심종목</span></a>
+        <a class="mainnav-item nav-item" data-view="research-notes"><span>리서치 노트</span></a>
+        <a class="mainnav-item nav-item mainnav-mobile-only" data-view="server-resources"><span>시스템 상태</span></a>
+      </div>
+    </nav>
+
+    <div class="efa-tools">
+      <div class="efa-search" role="search">
+        <input id="efa-global-search" type="search" placeholder="종목명 또는 코드 검색" aria-label="종목명 또는 코드 검색">
+        <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+      </div>
+      <div class="efa-bell-wrap">
+        <button type="button" id="efa-bell" class="efa-icon-btn" aria-label="알림" aria-haspopup="true" aria-expanded="false">
+          <i class="fa-regular fa-bell"></i><span id="efa-bell-count" class="efa-bell-count" hidden>0</span>
+        </button>
+        <div id="efa-bell-panel" class="efa-bell-panel" hidden></div>
+      </div>
+      <a class="efa-icon-btn nav-item" data-view="server-resources" aria-label="시스템 상태" title="시스템 상태"><i class="fa-solid fa-gear"></i></a>
+      <button type="button" id="auth-badge" class="auth-badge" aria-label="로그인">
+        <i class="fa-solid fa-user"></i><span>로그인</span>
+      </button>
     </div>
 
-    <div id="visitor-count" class="visitor-badge" aria-live="polite" title="최근 90초 안에 활동 신호를 보낸 브라우저 수">
-      <i class="fa-solid fa-users" aria-hidden="true"></i><span>현재 접속 확인 중</span>
-    </div>
-
-    <a id="health-indicator" class="health-badge health-docs-link" href="/docs" target="_new" rel="noopener noreferrer" aria-label="Swagger API 문서를 별도 창으로 열기" title="Swagger API 문서 열기">
-      <span id="health-dot" class="health-dot"></span>
-      <span id="health-text" class="health-text">확인 중</span>
-    </a>
-
-    <button type="button" id="auth-badge" class="auth-badge" aria-label="로그인">
-      <i class="fa-solid fa-user"></i><span>로그인</span>
-    </button>
+    <div id="visitor-count" class="visitor-badge" hidden aria-live="polite"><span></span></div>
+    <span id="health-dot" hidden></span><span id="health-text" hidden></span>
   </header>
 
-  <!-- ═══════════════════════════════════════════
-       TOP MENU BAR — 대시보드 → 추천·판단 → 내 자산 → 시장·종목 (+ 시스템 상태)
-       화면 목록은 js/app.js의 routes·NAV_SECTIONS와 같아야 한다.
-  ═══════════════════════════════════════════ -->
-  <nav id="mainnav" class="mainnav" aria-label="메인 메뉴">
-    <div class="mainnav-inner">
-      <a class="mainnav-item nav-item nav-home" data-view="home"><i class="fa-solid fa-table-cells-large"></i><span>대시보드</span></a>
-
-      <div class="mainnav-group" data-group="decisions">
-        <button class="mainnav-item mainnav-trigger" aria-haspopup="true" aria-expanded="false"><i class="fa-solid fa-list-check"></i><span>추천·판단</span><i class="fa-solid fa-chevron-down mainnav-chev"></i></button>
-        <div class="mainnav-dropdown">
-          <a class="nav-item" data-view="strategy-board"><i class="fa-solid fa-bullseye"></i>전략 추천</a>
-          <a class="nav-item" data-view="my-strategies"><i class="fa-solid fa-book"></i>매매 기록·연구</a>
-          <a class="nav-item" data-view="strategy-backtest"><i class="fa-solid fa-chart-line"></i>실제 가격 백테스트</a>
-          <a class="nav-item" data-view="leverage-dca"><i class="fa-solid fa-bolt"></i>레버리지 DCA 자동매매(모의)</a>
-        </div>
-      </div>
-
-      <div class="mainnav-group" data-group="assets">
-        <button class="mainnav-item mainnav-trigger" aria-haspopup="true" aria-expanded="false"><i class="fa-solid fa-briefcase"></i><span>내 자산</span><i class="fa-solid fa-chevron-down mainnav-chev"></i></button>
-        <div class="mainnav-dropdown">
-          <a class="nav-item" data-view="portfolio-holdings"><i class="fa-solid fa-wallet"></i>내 보유자산</a>
-          <a class="nav-item" data-view="portfolio-risk"><i class="fa-solid fa-shield-halved"></i>보유자산 리스크</a>
-          <a class="nav-item" data-view="portfolio-combination"><i class="fa-solid fa-circle-nodes"></i>자산 조합 (상관관계)</a>
-        </div>
-      </div>
-
-      <div class="mainnav-group" data-group="market">
-        <button class="mainnav-item mainnav-trigger" aria-haspopup="true" aria-expanded="false"><i class="fa-solid fa-magnifying-glass-chart"></i><span>시장·종목</span><i class="fa-solid fa-chevron-down mainnav-chev"></i></button>
-        <div class="mainnav-dropdown">
-          <a class="nav-item" data-view="world-markets"><i class="fa-solid fa-earth-asia"></i>시장 현황</a>
-          <a class="nav-item" data-view="asset-classes"><i class="fa-solid fa-layer-group"></i>자산군 차트</a>
-          <a class="nav-item" data-view="today-gainers"><i class="fa-solid fa-arrow-trend-up"></i>오늘의 상승 종목</a>
-          <a class="nav-item" data-view="today-sobujang"><i class="fa-solid fa-microchip"></i>소부장 종목</a>
-          <a class="nav-item" data-view="macro-realtime"><i class="fa-solid fa-globe"></i>거시경제</a>
-          <a class="nav-item" data-view="company-financial"><i class="fa-solid fa-building-columns"></i>기업 재무</a>
-          <a class="nav-item" data-view="dart-company-search"><i class="fa-solid fa-file-lines"></i>DART 기업 검색</a>
-          <a class="nav-item" data-view="dart-financial-analysis"><i class="fa-solid fa-file-invoice-dollar"></i>DART 재무 분석</a>
-          <a class="nav-item" data-view="industry-analysis"><i class="fa-solid fa-industry"></i>산업 비교</a>
-        </div>
-      </div>
-
-      <div class="mainnav-group mainnav-group-utility" data-group="settings">
-        <button class="mainnav-item mainnav-trigger" aria-haspopup="true" aria-expanded="false"><i class="fa-solid fa-gear"></i><span>운영</span><i class="fa-solid fa-chevron-down mainnav-chev"></i></button>
-        <div class="mainnav-dropdown mainnav-dropdown-end">
-          <a class="nav-item" data-view="server-resources"><i class="fa-solid fa-server"></i>시스템 상태</a>
-        </div>
-      </div>
-    </div>
-  </nav>
+  <!-- 시세 띠: /api/market/snapshot 지연 시세(실시간 아님) -->
+  <div class="efa-ticker" aria-label="주요 지수 시세">
+    <span class="efa-ticker-live"><i class="efa-live-dot" aria-hidden="true"></i>시세 <small>(15분 지연)</small></span>
+    <span class="ticker-stamp" id="ticker-stamp">조회 중</span>
+    <span class="ticker-item" data-market-label="KOSPI"><span class="ticker-label">KOSPI</span><b>-</b><em>조회 중</em></span>
+    <span class="ticker-item" data-market-label="KOSDAQ"><span class="ticker-label">KOSDAQ</span><b>-</b><em></em></span>
+    <span class="ticker-item" data-market-label="NASDAQ"><span class="ticker-label">NASDAQ</span><b>-</b><em></em></span>
+    <span class="ticker-item" data-market-label="S&amp;P500"><span class="ticker-label">S&amp;P500</span><b>-</b><em></em></span>
+    <span class="ticker-item" data-market-label="USD/KRW"><span class="ticker-label">USD/KRW</span><b>-</b><em></em></span>
+  </div>
 
   <!-- ═══════════════════════════════════════════
        LAYOUT SHELL

@@ -19,7 +19,7 @@ const STATE_LABEL = {
   not_monitored: ['모니터 대상 아님', 'is-muted'], unavailable: ['판단 불가', 'is-muted'],
 };
 const ITEM_SHORT = { swing: 'Bollinger-RSI', long_term: 'RSI-OBV', pullback_v4: 'Pullback v4' };
-const DECISION_LABEL = { buy: ['매수', 'is-hold'], hold: ['관망', 'is-muted'], exclude: ['제외', 'is-muted'],
+export const DECISION_LABEL = { buy: ['매수', 'is-hold'], hold: ['관망', 'is-muted'], exclude: ['제외', 'is-muted'],
   sell: ['매도', 'is-sell'], review_again: ['재검토', 'is-muted'] };
 const todayKst = () => new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 
@@ -32,7 +32,7 @@ function decisionBadges(decisions) {
   }).join(' ')}</p>`;
 }
 
-function decisionForm(pick) {
+export function decisionForm(pick) {
   return `<form class="sb-note" data-sb-decision data-signal-id="${esc(pick.signal_id)}" style="display:grid; gap:6px;">
     <div style="display:flex; gap:6px; flex-wrap:wrap;">
       <button type="button" class="run-btn" data-sb-open-buy>매수 기록</button>
@@ -130,7 +130,7 @@ export function boardHtml(data) {
     <p class="sb-disclaimer">${esc(data.disclaimer)}</p>`;
 }
 
-function bindDecisionForm(form, reload) {
+export function bindDecisionForm(form, reload) {
   const status = form.querySelector('[data-sb-decision-status]');
   const fields = form.querySelector('[data-sb-buy-fields]');
   const submit = async (body) => {

@@ -5,6 +5,7 @@ import {
 } from '../utils/financialCharts.js';
 import { dataSourceNote } from './dataSourceNote.js';
 import { attachStockSearch } from '../utils/stockSearch.js';
+import { takePendingStock } from '../shell.js';
 
 function escapeHtml(v) {
   return String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -34,7 +35,7 @@ export function companyFinancialView(container) {
           <label class="param-label">기간</label>
           <div style="display:flex;border:1.5px solid var(--border);border-radius:8px;overflow:hidden;">
             <button id="cf-annual"
-              style="padding:7px 16px;font-size:0.82rem;background:#2563eb;color:#fff;border:none;cursor:pointer;">연간</button>
+              style="padding:7px 16px;font-size:0.82rem;background:var(--primary);color:#111;border:none;cursor:pointer;">연간</button>
             <button id="cf-quarterly"
               style="padding:7px 16px;font-size:0.82rem;background:var(--surface);color:var(--text);border:none;cursor:pointer;">분기별</button>
           </div>
@@ -67,10 +68,10 @@ export function companyFinancialView(container) {
   function setPeriod(p) {
     currentPeriod = p;
     const isAnn = p === 'annual';
-    annualBtn.style.background    = isAnn ? '#2563eb' : '#fff';
-    annualBtn.style.color         = isAnn ? '#fff'    : '#374151';
-    quarterlyBtn.style.background = isAnn ? '#fff'    : '#2563eb';
-    quarterlyBtn.style.color      = isAnn ? '#374151' : '#fff';
+    annualBtn.style.background    = isAnn ? 'var(--primary)' : 'var(--surface-soft)';
+    annualBtn.style.color         = isAnn ? '#111'           : 'var(--text-muted)';
+    quarterlyBtn.style.background = isAnn ? 'var(--surface-soft)' : 'var(--primary)';
+    quarterlyBtn.style.color      = isAnn ? 'var(--text-muted)'   : '#111';
   }
 
   annualBtn.addEventListener('click',    () => setPeriod('annual'));
@@ -120,5 +121,8 @@ export function companyFinancialView(container) {
 
   runBtn.addEventListener('click', fetchData);
   tickerInput.addEventListener('keydown', e => { if (e.key === 'Enter') fetchData(); });
+  // 상단 종목 검색에서 고른 종목이 있으면 그 종목으로 바로 조회한다.
+  const pending = takePendingStock();
+  if (pending) { tickerInput.value = pending.name; tickerInput.dataset.ticker = pending.ticker; }
   fetchData();
 }

@@ -54,6 +54,7 @@ def board_items(payload: dict) -> list[dict]:
             "rank": signal.get("selection_rank"), "signal_id": signal["signal_id"], "symbol": signal["symbol"],
             "name": signal.get("name") or signal["symbol"], "market": signal.get("market", ""),
             "reasons": [reason["evidence"] for reason in signal.get("reasons", [])],
+            "reason_labels": [reason.get("label", "") for reason in signal.get("reasons", [])],
             "exit_reference": signal.get("exit_reference"), "selection_note": signal.get("selection_note"),
             "close": (signal.get("features") or {}).get("close"),
         })

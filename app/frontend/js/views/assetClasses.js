@@ -154,7 +154,7 @@ export function assetClassesView(container) {
       }));
 
       const idxChart = new ApexCharts(chartEl, {
-        chart: { type: 'candlestick', height: 250, toolbar: { show: false }, zoom: { enabled: false }, animations: { enabled: false }, background: '#fff', fontFamily: 'Pretendard, -apple-system, "Malgun Gothic", sans-serif' },
+        chart: { type: 'candlestick', height: 250, toolbar: { show: false }, zoom: { enabled: false }, animations: { enabled: false }, background: 'transparent', foreColor: '#8a97ad', fontFamily: 'Pretendard, -apple-system, "Malgun Gothic", sans-serif' },
         series: [
           { name: asset.name, type: 'candlestick', data: candles },
           { name: 'MA20', type: 'line', data: ma20 },

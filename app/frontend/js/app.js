@@ -1,4 +1,7 @@
-import { homeView }            from './views/home.js';
+import { dashboardView }       from './views/dashboard.js';
+import { watchlistView }       from './views/watchlist.js';
+import { researchNotesView }   from './views/researchNotes.js';
+import { initShell }           from './shell.js';
 import { serverResourcesView } from './views/serverResources.js';
 import { worldMarketsView }   from './views/worldMarkets.js';
 import { assetClassesView }   from './views/assetClasses.js';
@@ -21,15 +24,22 @@ import { restoreFormState, saveFormState } from './utils/localState.js';
 import { initAuth, recordUsage } from './auth.js';
 
 const app        = document.getElementById('app');
+// EFA 디자인: 모든 ApexCharts 차트의 기본값을 다크 테마로 둔다(화면별 설정이 있으면 그 값이 우선).
+if (typeof window.Apex === 'undefined') window.Apex = {};
+Object.assign(window.Apex, { theme: { mode: 'dark' }, chart: { background: 'transparent', foreColor: '#8a97ad' },
+  grid: { borderColor: '#1e2b42' }, tooltip: { theme: 'dark' } });
 const breadcrumb = document.getElementById('breadcrumb');
-const TOPBAR_MARKETS = ['^KS11', '^IXIC', 'KRW=X'];
+// 시세 띠: 화면 표시 이름 → 시세 티커. /api/market/snapshot은 지연 시세다.
+const TOPBAR_MARKETS = { 'KOSPI': '^KS11', 'KOSDAQ': '^KQ11', 'NASDAQ': '^IXIC', 'S&P500': '^GSPC', 'USD/KRW': 'KRW=X' };
 const TOPBAR_REFRESH_MS = 30_000;
 const VISITOR_HEARTBEAT_MS = 30_000;
 const VISITOR_ID_KEY = 'investment_analysis_visitor_id';
 
 // 투자 판단에 쓰는 화면만 남긴다. 예전 교육·데모 화면 주소는 대시보드로 돌아간다.
 const routes = {
-  'home':                    { label: '대시보드',                  render: () => homeView(app, navigate) },
+  'home':                    { label: '대시보드',                  render: () => dashboardView(app) },
+  'watchlist':               { label: '관심종목',                  render: () => watchlistView(app) },
+  'research-notes':          { label: '리서치 노트',               render: () => researchNotesView(app) },
   'strategy-board':          { label: '전략 추천',                  render: () => strategyBoardView(app) },
   'my-strategies':           { label: '매매 기록·연구',             render: () => strategyListView(app) },
   'strategy-backtest':       { label: '실제 가격 백테스트',         render: () => strategyBacktestView(app) },
@@ -50,30 +60,25 @@ const routes = {
 };
 
 const NAV_SECTIONS = {
-  decisions: ['strategy-board', 'my-strategies', 'strategy-backtest', 'leverage-dca'],
-  assets: ['portfolio-holdings', 'portfolio-risk', 'portfolio-combination'],
-  market: ['world-markets', 'asset-classes', 'today-gainers', 'today-sobujang', 'macro-realtime',
-           'company-financial', 'dart-company-search', 'dart-financial-analysis', 'industry-analysis'],
+  analysis: ['company-financial', 'dart-company-search', 'dart-financial-analysis', 'industry-analysis'],
+  portfolio: ['portfolio-holdings', 'portfolio-risk', 'portfolio-combination'],
+  kqs: ['strategy-board', 'my-strategies', 'strategy-backtest', 'leverage-dca'],
+  market: ['world-markets', 'asset-classes', 'today-gainers', 'today-sobujang', 'macro-realtime'],
+  watchlist: ['watchlist'],
+  notes: ['research-notes'],
   settings: ['server-resources'],
 };
 
 let currentView = null;
 const MOBILE_BREAKPOINT = 1024;
 
-// 대시보드·포트폴리오·전략 연구소 핵심 화면은 퀀트 트레이딩 터미널 다크
-// 테마를 쓴다(styles.css의 body.theme-terminal 규칙). 나머지 화면은 아직
-// 기존 라이트 테마를 그대로 쓴다.
-const TERMINAL_THEME_VIEWS = [
-  'home',
-  'portfolio-holdings', 'portfolio-risk',
-  'strategy-board', 'strategy-backtest', 'my-strategies',
-];
 
 function navigate(requested) {
   const view = routes[requested] ? requested : 'home';
   const route = routes[view];
   currentView = view;
-  document.body.classList.toggle('theme-terminal', TERMINAL_THEME_VIEWS.includes(view));
+  // EFA 디자인: 모든 화면이 같은 다크 터미널 테마를 쓴다(styles.css의 body.theme-terminal 규칙).
+  document.body.classList.add('theme-terminal');
 
   // Views that create resources needing teardown (e.g. ApexCharts instances,
   // which keep an internal window-resize listener alive) register a cleanup
@@ -117,6 +122,15 @@ document.querySelectorAll('.nav-item[data-view], .sidebar-link[data-view]').forE
   a.addEventListener('click', (e) => {
     e.preventDefault();
     navigate(a.dataset.view);
+  });
+});
+
+// 데스크톱에서 메뉴 그룹 이름을 누르면 그 그룹의 첫 화면으로 간다(하위 화면은 마우스를 올리면 펼쳐진다).
+document.querySelectorAll('.mainnav-trigger[data-first-view]').forEach((trigger) => {
+  trigger.addEventListener('click', (event) => {
+    if (window.innerWidth <= MOBILE_BREAKPOINT) return;
+    event.preventDefault();
+    navigate(trigger.dataset.firstView);
   });
 });
 
@@ -167,14 +181,14 @@ async function refreshTopbarMarkets() {
   if (!nodes.length) return;
 
   try {
-    const data = await api.marketSnapshot({ tickers: TOPBAR_MARKETS });
-    const byLabel = Object.fromEntries((data.items || []).map((item) => [item.label, item]));
+    const data = await api.marketSnapshot({ tickers: Object.values(TOPBAR_MARKETS) });
+    const byTicker = Object.fromEntries((data.items || []).map((item) => [item.ticker, item]));
 
     nodes.forEach((node) => {
       const label = node.dataset.marketLabel;
       const valueEl = node.querySelector('b');
       const changeEl = node.querySelector('em');
-      const item = byLabel[label];
+      const item = byTicker[TOPBAR_MARKETS[label]];
 
       if (!item || item.status !== 'ok') {
         valueEl.textContent = '-';
@@ -190,7 +204,7 @@ async function refreshTopbarMarkets() {
       node.title = `데이터 시각 ${formatTimestamp(item.latest_data_at)}`;
     });
 
-    if (stamp) stamp.textContent = `조회 시각 ${formatTimestamp(data.fetched_at)} (15분 지연)`;
+    if (stamp) stamp.textContent = formatTimestamp(data.fetched_at);
   } catch {
     nodes.forEach((node) => {
       const valueEl = node.querySelector('b');
@@ -232,7 +246,7 @@ async function refreshVisitorCount() {
 }
 
 checkHealth();
-initAuth().then(() => { if (currentView) recordUsage(currentView); });
+initAuth().then(() => { if (currentView) recordUsage(currentView); initShell(); });
 setInterval(checkHealth, 30000);
 refreshTopbarMarkets();
 setInterval(refreshTopbarMarkets, TOPBAR_REFRESH_MS);
