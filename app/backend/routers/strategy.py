@@ -2792,6 +2792,37 @@ async def require_leverage_dca_access(user: dict = Depends(current_user)) -> dic
     return user
 
 
+def _leverage_dca_owner_email() -> str:
+    return os.getenv("LEVERAGE_DCA_OWNER_EMAIL", "").strip().lower()
+
+
+async def require_leverage_dca_editor(user: dict = Depends(current_user)) -> dict:
+    """설정 변경·즉시 실행·기록 초기화 권한.
+
+    LEVERAGE_DCA_OWNER_EMAIL이 설정되어 있으면 그 운영자 계정만 바꿀 수 있고, 다른 계정은 403이다.
+    비어 있으면 기존 규칙(LEVERAGE_DCA_ALLOWED_EMAILS)을 그대로 따른다.
+    """
+    owner_email = _leverage_dca_owner_email()
+    if not owner_email:
+        return await require_leverage_dca_access(user)
+    if user.get("email", "").lower() != owner_email:
+        raise HTTPException(status_code=403, detail="모니터링 전용 계정입니다. 레버리지 DCA 설정 변경·실행은 운영자 계정에서만 할 수 있습니다.")
+    return user
+
+
+async def leverage_dca_viewer(user: dict = Depends(current_user)) -> dict:
+    """조회 대상과 읽기 전용 여부. 운영자가 지정되면 모든 로그인 계정이 운영자의 현황을 읽기 전용으로 본다."""
+    owner_email = _leverage_dca_owner_email()
+    if not owner_email:
+        return {"subject": await require_leverage_dca_access(user), "read_only": False}
+    if user.get("email", "").lower() == owner_email:
+        return {"subject": user, "read_only": False}
+    owner = await get_db().users.find_one({"email": owner_email}, {"_id": 1})
+    if not owner:
+        raise HTTPException(status_code=503, detail="레버리지 DCA 운영자 계정을 찾을 수 없습니다.")
+    return {"subject": owner, "read_only": True}
+
+
 def _leverage_dca_policy(config: dict | None) -> dict:
     policy = dict(DEFAULT_LEVERAGE_DCA_POLICY)
     if config:
@@ -3348,7 +3379,7 @@ async def run_leverage_dca_daily_cycle() -> dict:
 
 
 @router.put("/leverage-dca/config")
-async def update_leverage_dca_config(payload: LeverageDcaConfigUpdate, user: dict = Depends(require_leverage_dca_access)) -> dict:
+async def update_leverage_dca_config(payload: LeverageDcaConfigUpdate, user: dict = Depends(require_leverage_dca_editor)) -> dict:
     """레버리지 DCA 자동 모의매매를 켜거나 끈다. 실거래 권한은 만들지 않는다."""
     now = _now()
     fields = {
@@ -3375,9 +3406,10 @@ async def update_leverage_dca_config(payload: LeverageDcaConfigUpdate, user: dic
 
 
 @router.get("/leverage-dca/config")
-async def get_leverage_dca_config(user: dict = Depends(require_leverage_dca_access)) -> dict:
+async def get_leverage_dca_config(view: dict = Depends(leverage_dca_viewer)) -> dict:
+    user = view["subject"]
     config = await _leverage_dca_config(user["_id"])
-    return {"enabled": bool((config or {}).get("enabled", False)), "reserve_enabled": bool((config or {}).get("reserve_enabled", False)),
+    return {"read_only": view["read_only"], "enabled": bool((config or {}).get("enabled", False)), "reserve_enabled": bool((config or {}).get("reserve_enabled", False)),
             "buy_stopped": bool((config or {}).get("buy_stopped", False)),
             "reserve_deployed_stage": int((config or {}).get("reserve_deployed_stage", 0)),
             "reserve_deployed_krw": float((config or {}).get("reserve_deployed_krw", 0.0)),
@@ -3388,7 +3420,8 @@ async def get_leverage_dca_config(user: dict = Depends(require_leverage_dca_acce
 
 
 @router.get("/leverage-dca/status")
-async def get_leverage_dca_status(user: dict = Depends(require_leverage_dca_access)) -> dict:
+async def get_leverage_dca_status(view: dict = Depends(leverage_dca_viewer)) -> dict:
+    user = view["subject"]
     config = await _leverage_dca_config(user["_id"])
     strategy = await get_db().strategies.find_one({"user_id": user["_id"], "type": "leverage_dca"})
     positions = await _leverage_dca_position_state(user["_id"], strategy["_id"]) if strategy else {}
@@ -3409,6 +3442,7 @@ async def get_leverage_dca_status(user: dict = Depends(require_leverage_dca_acce
     holding_summary = await _leverage_dca_website_holding_summary(user["_id"], strategy_ids, policy) if strategy_ids else None
     alpaca_holding_summary = await _leverage_dca_alpaca_holding_summary(user["_id"], policy)
     return {
+        "read_only": view["read_only"],
         "holding_summary": holding_summary, "alpaca_holding_summary": alpaca_holding_summary,
         "enabled": bool((config or {}).get("enabled", False)), "buy_stopped": bool((config or {}).get("buy_stopped", False)),
         "last_run_date": (config or {}).get("last_run_date"),
@@ -3433,7 +3467,7 @@ async def get_leverage_dca_status(user: dict = Depends(require_leverage_dca_acce
 
 
 @router.post("/leverage-dca/run-now")
-async def run_leverage_dca_now(user: dict = Depends(require_leverage_dca_access)) -> dict:
+async def run_leverage_dca_now(user: dict = Depends(require_leverage_dca_editor)) -> dict:
     """스케줄러를 기다리지 않고 지금 바로 한 사이클을 모의 실행한다(테스트용)."""
     config = await _leverage_dca_config(user["_id"])
     raw_signals = await fetch_market_signals()
@@ -3445,7 +3479,7 @@ async def run_leverage_dca_now(user: dict = Depends(require_leverage_dca_access)
 
 
 @router.delete("/leverage-dca/trades")
-async def reset_leverage_dca_trades(user: dict = Depends(require_leverage_dca_access)) -> dict:
+async def reset_leverage_dca_trades(user: dict = Depends(require_leverage_dca_editor)) -> dict:
     """테스트로 실행한 모의 체결 내역·포지션·일일 로그를 모두 지우고 처음 상태로 되돌린다.
 
     설정값(daily_buy_krw 등)은 유지하고, 체결 기록·포지션·정지/예비비 진행 상태·오늘 실행 여부만 초기화한다.
@@ -3479,19 +3513,20 @@ async def reset_leverage_dca_trades(user: dict = Depends(require_leverage_dca_ac
 
 
 @router.get("/leverage-dca/trades")
-async def list_leverage_dca_trades(user: dict = Depends(require_leverage_dca_access)) -> dict:
+async def list_leverage_dca_trades(view: dict = Depends(leverage_dca_viewer)) -> dict:
     """레버리지 DCA(주전략+예비비) 모의 체결 내역을 날짜·가격·수량 그대로 보여준다.
 
     ``items``는 홈페이지 자체 모의 체결(paper_fills) 기준이고, ``alpaca_items``는 Alpaca
     페이퍼 브로커에 독립적으로 낸 주문의 실제 체결 결과다. 두 목록은 서로 다른 계좌·엔진의
     결과라 수량·가격이 정확히 같지 않을 수 있다.
     """
+    user = view["subject"]
     strategies = await get_db().strategies.find(
         {"user_id": user["_id"], "type": {"$in": ["leverage_dca", "leverage_dca_reserve"]}}, {"type": 1},
     ).to_list(10)
     strategy_kind = {doc["_id"]: doc["type"] for doc in strategies}
     if not strategy_kind:
-        return {"items": [], "alpaca_items": [], "alpaca_paper_configured": alpaca_paper_configured()}
+        return {"read_only": view["read_only"], "items": [], "alpaca_items": [], "alpaca_paper_configured": alpaca_paper_configured()}
     strategy_ids = list(strategy_kind.keys())
     rows = await get_db().paper_fills.find(
         {"user_id": user["_id"], "strategy_id": {"$in": strategy_ids}},
@@ -3516,4 +3551,4 @@ async def list_leverage_dca_trades(user: dict = Depends(require_leverage_dca_acc
         "is_reserve": strategy_kind.get(row["strategy_id"]) == "leverage_dca_reserve",
         "alpaca_order_id": row.get("alpaca_order_id"), "reason": row.get("reason"),
     } for row in alpaca_rows if row.get("filled_at")]
-    return {"items": items, "alpaca_items": alpaca_items, "alpaca_paper_configured": alpaca_paper_configured()}
+    return {"read_only": view["read_only"], "items": items, "alpaca_items": alpaca_items, "alpaca_paper_configured": alpaca_paper_configured()}

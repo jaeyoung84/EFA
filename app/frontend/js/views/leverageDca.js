@@ -201,6 +201,12 @@ export function leverageDcaView(container) {
       이 화면과 자동 실행은 <b>실거래 권한을 만들지 않는 교육·연구용 모의 체결</b>이며, 실제 투자 권유가 아닙니다.</p>
     </section>
 
+    <section class="risk-basis-note lvdca-readonly" id="lvdca-readonly" hidden>
+      <i class="fa-solid fa-eye"></i>
+      <p><b>모니터링 전용.</b> 이 계정은 운영자 계정의 레버리지 DCA 현황·포지션·체결 내역을 볼 수만 있습니다.
+      설정 변경, 즉시 실행, 기록 초기화는 운영자 계정에서만 할 수 있습니다.</p>
+    </section>
+
     <section class="risk-basis-note lvdca-warning" id="lvdca-change-lock">
       <i class="fa-solid fa-lock"></i>
       <p><b>변경 잠금.</b> 레버리지 DCA 전략(매수·매도 규칙, 실행 시각, 체결 방식, Alpaca 연동)은 <b>사용자 승인 없이 변경할 수 없습니다.</b>
@@ -260,9 +266,23 @@ export function leverageDcaView(container) {
   const alpacaTradesBody = container.querySelector('#lvdca-alpaca-trades-body');
   const runButton = container.querySelector('#lvdca-run-now');
 
+  // 운영자가 아닌 계정은 모니터링만: 입력·저장·실행·초기화를 모두 막는다(서버도 403으로 거부한다).
+  const applyReadOnly = (readOnly) => {
+    container.querySelector('#lvdca-readonly').hidden = !readOnly;
+    container.querySelectorAll('#lvdca-config-form input').forEach((input) => { input.disabled = readOnly; });
+    ['#lvdca-save', '#lvdca-run-now', '#lvdca-reset'].forEach((selector) => {
+      const button = container.querySelector(selector);
+      if (button) { button.hidden = readOnly; button.disabled = readOnly; }
+    });
+    container.querySelector('.lvdca-config h2').innerHTML = readOnly
+      ? '<i class="fa-solid fa-sliders"></i> 자동매매 설정 <small style="color:var(--text-muted);font-weight:500;">(운영자 설정 · 읽기 전용)</small>'
+      : '<i class="fa-solid fa-sliders"></i> 자동매매 설정';
+  };
+
   const loadConfig = async () => {
     try {
       const config = await authRequest('/api/strategy/leverage-dca/config');
+      applyReadOnly(Boolean(config.read_only));
       enabledInput.checked = Boolean(config.enabled);
       dailyBuyInput.value = config.policy.daily_buy_krw;
       maxPositionInput.value = config.policy.max_position_krw;
