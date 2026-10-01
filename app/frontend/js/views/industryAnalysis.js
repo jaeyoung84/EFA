@@ -62,8 +62,8 @@ function renderPeer(el) {
   el.innerHTML = `
     <div style="background:#1e293b; border-radius:12px; padding:24px; border:1px solid #334155;">
       <div style="margin-bottom:14px;">
-        <label class="param-label">기업명,티커 한 줄씩 입력</label>
-        <textarea id="peer-input" rows="5" class="param-input" style="resize:vertical;" placeholder="예) 기업명,티커 형식으로 한 줄에 하나씩 (국내 종목은 .KS / .KQ)"></textarea>
+        <label class="param-label">종목명을 한 줄에 하나씩 입력 (해외 종목은 "이름,티커")</label>
+        <textarea id="peer-input" rows="5" class="param-input" style="resize:vertical;" placeholder="예)&#10;삼성전자&#10;SK하이닉스&#10;엔비디아,NVDA"></textarea>
       </div>
       <button class="run-btn" id="peer-run">Peer 재무표 생성</button>
       <div id="peer-result" style="margin-top:20px;"></div>
@@ -73,12 +73,13 @@ function renderPeer(el) {
     const btn = el.querySelector('#peer-run');
     const result = el.querySelector('#peer-result');
     const tickers = {};
+    // 국내 종목은 이름만(티커는 서버가 KRX 상장 목록에서 찾는다), 해외 종목은 "이름,티커".
     el.querySelector('#peer-input').value.split('\n').forEach((line) => {
       const [name, ticker] = line.split(',').map((x) => x?.trim());
-      if (name && ticker) tickers[name] = ticker;
+      if (name) tickers[name] = ticker || '';
     });
     if (!Object.keys(tickers).length) {
-      result.innerHTML = '<p style="color:#ef4444;">기업명,티커 형식으로 1개 이상 입력하세요.</p>';
+      result.innerHTML = '<p style="color:#ef4444;">종목명을 1개 이상 입력하세요.</p>';
       return;
     }
 
@@ -118,6 +119,7 @@ function renderPeer(el) {
             <div style="font-size:0.7rem; color:#64748b; margin-bottom:4px;">수익성 우위 후보</div>
             <div style="font-size:1rem; font-weight:700; color:#3b82f6;">${escapeHtml(data.leader || '-')}</div>
           </div>
+          <div style="background:#0f172a; border-radius:8px; padding:12px; color:#94a3b8; font-size:0.78rem; line-height:1.5;">지표는 Yahoo Finance 제공값입니다. 매출성장률은 최근 분기의 전년 동기 대비, 영업이익률·ROE는 최근 12개월 기준이라 업황에 따라 크게 튈 수 있습니다.</div>
           ${data.notes.map((note) => `
             <div style="background:#0f172a; border-radius:8px; padding:12px; color:#94a3b8; font-size:0.78rem; line-height:1.5;">${escapeHtml(note)}</div>
           `).join('')}

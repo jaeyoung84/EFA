@@ -39,9 +39,9 @@ except ImportError:
     from db import get_db
 
 try:
-    from .instrument_catalog import search_krx_instruments
+    from .instrument_catalog import SEARCH_ALIASES, get_krx_catalog, resolve_krx_name, search_krx_instruments
 except ImportError:
-    from instrument_catalog import search_krx_instruments  # type: ignore
+    from instrument_catalog import SEARCH_ALIASES, get_krx_catalog, resolve_krx_name, search_krx_instruments  # type: ignore
 
 try:
     from .market_data import (MarketDataError, core_market_freshness, ensure_market_data_indexes,
@@ -304,8 +304,17 @@ def _load_dart_corp_codes() -> list[dict[str, str]]:
             xml_name = zf.namelist()[0]
             xml_bytes = zf.read(xml_name)
     except zipfile.BadZipFile as exc:
-        message = payload[:200].decode("utf-8", errors="ignore")
-        raise HTTPException(status_code=502, detail=f"DART 응답을 해석할 수 없습니다: {message}") from exc
+        message = payload[:400].decode("utf-8", errors="ignore")
+        status = re.search(r"<status>(\d+)</status>", message)
+        text = re.search(r"<message>(.*?)</message>", message)
+        if status and status.group(1) in {"010", "011", "012", "901"}:
+            raise HTTPException(status_code=503, detail=(
+                f"DART 인증키를 확인해야 합니다(OpenDART {status.group(1)}: {text.group(1) if text else ''}). "
+                "관리자가 서버의 DART_API_KEY를 갱신하면 다시 검색됩니다.")) from exc
+        if status:
+            raise HTTPException(status_code=502, detail=f"DART 응답 오류(OpenDART {status.group(1)}: "
+                                                        f"{text.group(1) if text else ''})") from exc
+        raise HTTPException(status_code=502, detail="DART 회사코드 목록을 해석하지 못했습니다.") from exc
 
     root = ET.fromstring(xml_bytes)
     rows: list[dict[str, str]] = []
@@ -354,33 +363,67 @@ def dart_company_search(req: DartCompanySearchRequest) -> dict[str, object]:
     normalized = query.replace(" ", "").lower()
     if not normalized:
         raise HTTPException(status_code=400, detail="회사명을 입력하세요.")
+    names = {normalized} | {target.replace(" ", "").lower() for alias, target in SEARCH_ALIASES.items()
+                            if alias.replace(" ", "").lower() == normalized}
 
     rows = _load_dart_corp_codes()
-    listed = [row for row in rows if row["stock_code"]]
-    exact = [row for row in listed if row["corp_name"].replace(" ", "").lower() == normalized]
-    partial = [row for row in listed if normalized in row["corp_name"].replace(" ", "").lower()]
-    matches = (exact + [row for row in partial if row not in exact])[: req.limit]
+    # EINT-018: 현재 상장 종목 목록(엔진 게시)이 있으면 상장폐지 종목을 빼고 시장(.KS/.KQ)을 그대로 쓴다.
+    listed_now = {item["code"]: item for item in get_krx_catalog()}
+    listed = [row for row in rows if row["stock_code"] and (not listed_now or row["stock_code"] in listed_now)]
+    key = lambda row: row["corp_name"].replace(" ", "").lower()
+    exact = [row for row in listed if key(row) in names]
+    partial = [row for row in listed if any(name in key(row) for name in names) and row not in exact]
+    partial.sort(key=lambda row: -int(listed_now.get(row["stock_code"], {}).get("market_cap") or 0))
+    matches = (exact + partial)[: req.limit]
 
     results = []
     for row in matches:
-        ticker_info = _resolve_krx_yahoo_ticker(row["stock_code"])
+        known = listed_now.get(row["stock_code"])
+        if known:
+            ticker, candidates, market = known["ticker"], [known["ticker"]], known.get("market", "")
+        else:
+            ticker_info = _resolve_krx_yahoo_ticker(row["stock_code"])
+            ticker, candidates, market = ticker_info["ticker"], ticker_info["candidates"], ""
         results.append({
-            **row,
-            "ticker": ticker_info["ticker"],
-            "ticker_candidates": ticker_info["candidates"],
-            "display": f'{ticker_info["ticker"] or row["stock_code"]}, {row["corp_name"]}',
+            **row, "ticker": ticker, "ticker_candidates": candidates, "market": market,
+            "display": f'{ticker or row["stock_code"]}, {row["corp_name"]}',
         })
 
     return {
         "query": query,
         "count": len(results),
         "results": results,
-        "source": "OpenDART corpCode.xml",
+        "source": "OpenDART corpCode.xml" + (" + KRX 상장 목록" if listed_now else ""),
         "notes": [
+            "DART 회사코드 목록에서 현재 상장된 기업만 검색합니다." if listed_now else
             "DART 회사코드 목록에서 상장기업(stock_code 보유 기업)만 검색합니다.",
+            "시장(.KS 코스피 / .KQ 코스닥)은 KRX 일봉 수집본의 상장 목록 기준입니다." if listed_now else
             "DART는 .KS/.KQ suffix를 제공하지 않아 조회 가능한 Yahoo ticker 후보로 보완 표시합니다.",
         ],
     }
+
+
+@app.get("/api/market/instruments")
+def market_instruments(q: str = "", limit: int = 10) -> dict[str, object]:
+    """국내 상장 종목을 종목명·별칭·종목코드로 검색한다(엔진이 매일 게시하는 KRX 상장 목록)."""
+    query = q.strip()
+    if not query:
+        return {"items": [], "as_of": None}
+    items = search_krx_instruments(query, limit=max(1, min(limit, 20)))
+    return {"items": [{"ticker": i["ticker"], "code": i["code"], "name": i["name"], "market": i.get("market") or i.get("exchange"),
+                       "source": i.get("source")} for i in items],
+            "as_of": items[0].get("as_of") if items else None}
+
+
+def _resolve_ticker_or_name(value: str) -> str:
+    """'005930.KS'·'AAPL' 같은 티커는 그대로, 한글/종목명은 국내 상장 목록으로 티커를 찾는다."""
+    text = value.strip()
+    if re.fullmatch(r"[A-Za-z0-9.^=\-]{1,24}", text) and not re.fullmatch(r"\d{6}", text):
+        return text.upper()
+    found = resolve_krx_name(text)
+    if found is None:
+        raise HTTPException(status_code=404, detail=f"'{text}' 종목을 찾지 못했습니다. 종목명을 정확히 입력하거나 목록에서 선택하세요.")
+    return found["ticker"]
 
 
 @lru_cache(maxsize=10000)
@@ -551,7 +594,12 @@ def industry_peer(req: PeerRequest) -> dict[str, object]:
         label = (name or ticker).strip()[:40]
         symbol = (ticker or "").strip().upper()
         if not symbol:
-            continue
+            # EINT-018: 티커 없이 종목명만 주면 국내 상장 목록으로 찾는다.
+            found = resolve_krx_name(name or "")
+            if found is None:
+                rows.append({"company": label, "ticker": "", "error": "종목을 찾지 못했습니다. 정확한 종목명을 입력하세요."})
+                continue
+            symbol, label = found["ticker"], found["name"]
         try:
             info = yf.Ticker(symbol).info
         except Exception as exc:
@@ -1152,16 +1200,36 @@ def _market_top_ranked_components(
     }
 
 
+# 같은 표본을 매 요청마다 30여 종목씩 다시 조회하면 9~12초가 걸린다. 60초 동안은 직전 결과를 재사용한다.
+RANKING_CACHE_SECONDS = 60
+_ranking_cache: dict[tuple[str, int], tuple[float, dict]] = {}
+_ranking_cache_lock = Lock()
+
+
+def _cached_ranking(key: str, limit: int, build) -> dict[str, object]:
+    now = monotonic()
+    with _ranking_cache_lock:
+        hit = _ranking_cache.get((key, limit))
+        if hit and now - hit[0] < RANKING_CACHE_SECONDS:
+            return {**hit[1], "cached": True}
+    result = build()
+    with _ranking_cache_lock:
+        _ranking_cache[(key, limit)] = (monotonic(), result)
+    return {**result, "cached": False}
+
+
 @app.get("/api/market/top-gainers")
 def market_top_gainers(limit: int = 20) -> dict[str, object]:
-    """KOSPI 대표 종목 중 금일 등락률 상위 종목을 반환한다."""
-    return _market_top_ranked_components(KOSPI_COMPONENTS, limit, "KOSPI 대표 종목")
+    """KOSPI 대표 종목 표본 중 금일 등락률 상위 종목(전체 시장 스크리너 아님)."""
+    return _cached_ranking("kospi", limit, lambda: _market_top_ranked_components(
+        KOSPI_COMPONENTS, limit, "KOSPI 대표 종목"))
 
 
 @app.get("/api/market/top-sobujang")
 def market_top_sobujang(limit: int = 20) -> dict[str, object]:
-    """반도체 소부장 대표 종목 중 금일 등락률 상위 종목을 반환한다."""
-    return _market_top_ranked_components(SOBUJANG_COMPONENTS, limit, "국내 반도체 소부장 대표 종목")
+    """반도체 소부장 대표 종목 표본 중 금일 등락률 상위 종목(전체 소부장 시장 아님)."""
+    return _cached_ranking("sobujang", limit, lambda: _market_top_ranked_components(
+        SOBUJANG_COMPONENTS, limit, "국내 반도체 소부장 대표 종목"))
 
 # ── 거시경제현황 2: GBM 시뮬레이션 대시보드 ──────────────────────────────────
 
@@ -1199,7 +1267,7 @@ def company_financials(req: CompanyFinancialsRequest) -> dict[str, object]:
             result.append({"period": label, "value": safe_float(val)})
         return list(reversed(result))
 
-    ticker_sym = req.ticker.strip().upper()
+    ticker_sym = _resolve_ticker_or_name(req.ticker)
     try:
         tk = yf.Ticker(ticker_sym)
     except Exception as exc:

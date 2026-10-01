@@ -12,4 +12,5 @@ def state_paths(state_dir: Path) -> dict:
         "pipeline_runs_db": state_dir / "pipeline-runs.sqlite3",
         "coverage_dir": state_dir / "coverage",
         "status_file": state_dir / "pipeline-status.json",
+        "instrument_catalog": state_dir / "instrument-catalog.json",
     }

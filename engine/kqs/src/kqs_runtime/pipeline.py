@@ -13,6 +13,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from kqs_collection.catalog import CatalogError, build_instrument_catalog, write_instrument_catalog
 from kqs_collection.coverage import build_coverage_manifest, write_manifest
 from kqs_collection.krx import KrxApiError, KrxOpenApiClient, MarketStore, collect_session
 from kqs_collection.quality import QualityError, inspect_market_inputs
@@ -72,6 +73,16 @@ def run_daily_pipeline(*, state_dir: Path, market_db: Path, client: KrxOpenApiCl
     run["steps"]["quality"] = {"run_id": report["run_id"], "status": report["status"], "issues": report["issues"]}
     if report["status"] != "ready":
         return finish("quality_rejected", "; ".join(report["issues"]))
+
+    # EINT-018: the website's full KOSPI/KOSDAQ name search. A catalog failure is recorded but
+    # never blocks the recommendation publication.
+    try:
+        catalog = build_instrument_catalog(market_db, as_of)
+        write_instrument_catalog(paths["instrument_catalog"], catalog)
+        run["steps"]["instrument_catalog"] = {"status": "written", "count": catalog["count"],
+                                              "items_sha256": catalog["items_sha256"]}
+    except (CatalogError, OSError) as exc:
+        run["steps"]["instrument_catalog"] = {"status": "failed", "error": str(exc)}
 
     expires_at = min(now + MAX_EXPIRY, ceiling)
     try:

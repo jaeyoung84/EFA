@@ -53,6 +53,10 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual([r["status"] for r in read_runs(self.paths["pipeline_runs_db"])], ["published"])
         self.assertEqual([a["status"] for a in read_attempts(self.paths["attempts_db"])], ["published"])
         self.assertTrue(check_health(self.state, now=self.now + timedelta(minutes=5))["healthy"])
+        catalog = json.loads(self.paths["instrument_catalog"].read_text())
+        self.assertEqual((catalog["schema"], catalog["as_of"]), ("kqs-instrument-catalog/v1", self.as_of))
+        self.assertEqual({item["symbol"] for item in catalog["items"]}, {"005930", "035420"})  # stocks only, no ETFs
+        self.assertEqual(run["steps"]["instrument_catalog"]["status"], "written")
         self.assertTrue(all(KEY not in path.read_bytes().decode("latin-1") for path in self.state.rglob("*")
                             if path.is_file()))
 

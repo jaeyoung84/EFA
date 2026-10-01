@@ -199,7 +199,8 @@ export function marketRankingsView(container, {
       const stampText = fetchedAt && !Number.isNaN(fetchedAt.valueOf())
         ? `조회 ${fetchedAt.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`
         : '조회 완료';
-      stamp.textContent = excluded.length ? `${stampText} · ${excluded.length}종목 제외` : stampText;
+      const basis = `표본 ${data.universe_size ?? '-'}종목 기준${data.cached ? ' · 1분 캐시' : ''}`;
+      stamp.textContent = [stampText, basis, excluded.length ? `${excluded.length}종목 제외` : ''].filter(Boolean).join(' · ');
     } catch (error) {
       if (disposed) return;
       list.innerHTML = `<div class="gainers-error"><i class="fa-solid fa-triangle-exclamation"></i> 데이터를 불러오지 못했습니다: ${error.message}</div>`;
@@ -228,7 +229,7 @@ export function todayGainersView(container) {
     id: 'gainers',
     title: '금일 상승종목 TOP 20',
     icon: 'fa-arrow-trend-up',
-    description: 'KOSPI 대표 종목(약 28종목) 중 오늘 등락률이 높은 상위 20종목입니다. 전체 시장 스크리너가 아닌, 학습용 참고 순위입니다.',
+    description: 'KOSPI 대표 종목 표본(약 28종목) 안에서 오늘 등락률이 높은 순서입니다. 전체 시장 순위가 아니라 고정 표본 기준 참고 순위입니다.',
     endpoint: '/api/market/top-gainers',
     loadingText: '오늘의 등락률을 불러오는 중…',
     note: 'Yahoo Finance 시세(약 15분 지연) 기준이며, 장중에는 순위가 실시간으로 계속 바뀝니다. 상승률 상위라는 것이 좋은 투자 대상이라는 뜻은 아니며, 급등 이유(실적·공시·수급)를 반드시 별도로 확인하세요.',

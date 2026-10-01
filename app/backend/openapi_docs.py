@@ -32,6 +32,7 @@ FRONTEND_API_PATHS = frozenset({
     "/api/market/top-sobujang",
     "/api/macro/realtime",
     "/api/home/market-candle",
+    "/api/market/instruments",
 })
 
 
@@ -51,6 +52,7 @@ OPERATION_DOCS: dict[str, tuple[str, str, str]] = {
     "/api/market/top-gainers": ("산업·시장", "금일 상승종목", "KOSPI 대표 종목 표본을 전일 종가 대비 등락률 순으로 반환합니다. 전체 시장 스크리너가 아닙니다."),
     "/api/market/top-sobujang": ("산업·시장", "금일 소부장 종목", "국내 반도체 소재·부품·장비 대표 종목 표본을 전일 종가 대비 등락률 순으로 반환합니다. 전체 소부장 시장을 포괄하지 않습니다."),
     "/api/macro/realtime": ("산업·시장", "거시지표 시계열 조회", "금리·원유·주가지수 등 티커의 지정 기간 시계열과 비교 차트를 반환합니다. 외부 시세 공급자 지연이 반영될 수 있습니다."),
+    "/api/market/instruments": ("산업·시장", "국내 종목명 검색", "종목명·별칭·6자리 코드로 KOSPI/KOSDAQ 현재 상장 종목을 찾습니다. 출처는 엔진이 매 거래일 게시하는 KRX 상장 목록이며, 시가총액이 큰 종목이 먼저 나옵니다."),
     "/api/home/market-candle": ("산업·시장", "시장 캔들", "대표 시장·종목의 OHLCV 캔들을 반환합니다. 시세를 가져오지 못하면 가짜 캔들 대신 503과 원인·조회 시각을 반환합니다."),
 }
 

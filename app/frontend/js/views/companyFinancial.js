@@ -4,6 +4,7 @@ import {
   legendDot,
 } from '../utils/financialCharts.js';
 import { dataSourceNote } from './dataSourceNote.js';
+import { attachStockSearch } from '../utils/stockSearch.js';
 
 function escapeHtml(v) {
   return String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -16,8 +17,8 @@ export function companyFinancialView(container) {
         <i class="fa-solid fa-chart-pie"></i> 기업 파이낸셜 분석
       </h1>
       <p style="font-size:0.88rem;color:var(--text-muted);line-height:1.65;">
-        상장기업 티커를 입력하면 성과·수익전환·부채·어닝 차트를 한 화면에서 확인합니다.
-        미국 주식 <code>AAPL</code>, 한국 주식 <code>005930.KS</code> 형식을 사용합니다.
+        종목명을 입력하고 목록에서 고르면 성과·수익전환·부채·어닝 차트를 한 화면에서 확인합니다.
+        국내 종목은 이름만 입력하면 되고, 미국 주식은 <code>AAPL</code> 같은 티커를 입력합니다.
       </p>
     </div>
     ${dataSourceNote('real')}
@@ -25,9 +26,9 @@ export function companyFinancialView(container) {
     <section style="background:var(--surface-soft);border:1px solid var(--border);border-radius:12px;padding:20px 24px;margin-bottom:20px;">
       <div style="display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;">
         <div>
-          <label class="param-label">티커 심볼</label>
-          <input id="cf-ticker" type="text" value="AAPL" class="param-input"
-            placeholder="예: AAPL, 005930.KS, TSLA" style="width:180px;" />
+          <label class="param-label">종목명 (또는 미국 티커)</label>
+          <input id="cf-ticker" type="text" value="" class="param-input"
+            placeholder="예: 삼성전자, 에코프로, AAPL" style="width:240px;" />
         </div>
         <div>
           <label class="param-label">기간</label>
@@ -43,7 +44,7 @@ export function companyFinancialView(container) {
         </button>
       </div>
       <p style="font-size:0.78rem;color:var(--text-subtle);margin:10px 0 0;">
-        한국 주식: <code>.KS</code>(코스피) 또는 <code>.KQ</code>(코스닥) suffix 필요. 데이터: Yahoo Finance
+        국내 종목명은 KRX 일봉 수집본의 상장 목록에서 찾습니다(코스피·코스닥 자동 구분). 재무 데이터: Yahoo Finance. 비어 있는 값은 Yahoo가 제공하지 않은 항목입니다.
       </p>
     </section>
 
@@ -75,9 +76,12 @@ export function companyFinancialView(container) {
   annualBtn.addEventListener('click',    () => setPeriod('annual'));
   quarterlyBtn.addEventListener('click', () => setPeriod('quarterly'));
 
+  attachStockSearch(tickerInput, { onSelect: () => fetchData() });
+
   async function fetchData() {
-    const ticker = tickerInput.value.trim().toUpperCase();
-    if (!ticker) { result.innerHTML = '<p style="color:#ef4444;">티커를 입력하세요.</p>'; return; }
+    // 목록에서 고른 국내 종목은 티커를, 직접 입력한 값은 그대로(서버가 종목명이면 찾아 준다) 보낸다.
+    const ticker = (tickerInput.dataset.ticker || tickerInput.value).trim();
+    if (!ticker) { result.innerHTML = '<p style="color:#ef4444;">종목명을 입력하세요.</p>'; return; }
 
     runBtn.disabled = true;
     runBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 조회 중';
@@ -105,7 +109,7 @@ export function companyFinancialView(container) {
           <strong>조회 실패</strong>
           <p style="margin:6px 0 0;font-size:0.85rem;">${escapeHtml(err.message)}</p>
           <p style="margin:6px 0 0;font-size:0.82rem;color:var(--text-muted);">
-            예시: 미국 <code>AAPL</code> / 한국 <code>005930.KS</code>(삼성전자)
+            예시: 국내 <code>삼성전자</code>(목록에서 선택) / 미국 <code>AAPL</code>
           </p>
         </div>`;
     } finally {

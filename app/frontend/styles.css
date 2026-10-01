@@ -2843,3 +2843,11 @@ p.lvdca-badge{display:block;width:fit-content}
 .stg-tab:hover{color:var(--text);background:var(--surface-hover)}
 .stg-tab.is-active{color:#111;background:var(--primary);border-color:var(--primary)}
 .stg-tab-desc{margin:0 0 12px;color:var(--text-muted);font-size:.78rem;line-height:1.6}
+
+/* ── 국내 종목명 자동완성 (EINT-018) ── */
+.stock-search{position:relative;display:inline-block}
+.stock-search-list{position:absolute;z-index:40;top:calc(100% + 4px);left:0;min-width:100%;width:max-content;max-width:360px;max-height:300px;overflow-y:auto;margin:0;padding:4px;list-style:none;background:var(--surface);border:1px solid var(--border-strong);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.stock-search-item{display:flex;justify-content:space-between;gap:12px;padding:8px 10px;border-radius:6px;cursor:pointer;font-size:.82rem;color:var(--text)}
+.stock-search-item span{color:var(--text-muted);font-size:.72rem;white-space:nowrap}
+.stock-search-item.is-active,.stock-search-item:hover{background:var(--surface-hover)}
+.stock-search-empty{padding:8px 10px;color:var(--text-muted);font-size:.78rem}
