@@ -99,7 +99,7 @@ AWS에 코드를 올리거나 서비스를 재시작하지 않았다.
 
 ## 배포 결과(2026-09-29)
 
-- EC2 `i-0dc146c28dca4089b` t3.small, 공인 IP **3.38.170.158**(중지·시작 시 바뀔 수 있음 — 바뀌면 Cloudflare A 레코드 갱신), 2GB swap
+- EC2 `i-0dc146c28dca4089b` t3.small, Elastic IP **3.39.188.147**(2026-10-01부터 고정, `eipalloc-01671e6a4dfe14c4e`; 이전 유동 IP 3.38.170.158), 2GB swap
   (`/swapfile`, swappiness 10). swap 없이 첫 실행이 OOM(exit 137)으로 종료됐다 — 제거하지 않는다.
 - S3 `s3://kqs-state-125022369601/`: `initial/`(초기 DB 사본), `backups/<UTC 시각>/`. ops.env에 업로드 URI.
 - 인증키: SSM `/kqs/krx-auth-key` → `/srv/kqs/secrets/krx.env`. 키 교체 시 파라미터 갱신 후 파일 재생성.
