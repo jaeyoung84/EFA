@@ -9,7 +9,7 @@ import json
 import sqlite3
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from pandas.errors import DatabaseError
@@ -18,12 +18,18 @@ from kqs_collection.quality import QualityError, inspect_market_inputs
 from kqs_collection.store import read_run
 from kqs_publication.attempts import record_attempt
 from kqs_publication.contract import _parse_datetime
-from kqs_publication.store import is_published, publish
+from kqs_publication.store import is_published, publish, recommended_symbols
 from kqs_publication.writer import WriterBusy, WriterLock
 from kqs_runtime.recommendations import generate_recommendations
 from kqs_runtime.sqlite_reader import read_inputs
 
 EXIT_OK, EXIT_FAILED, EXIT_BUSY = 0, 2, 3
+
+
+# EINT-017 exit monitor lookback over the engine's own snapshots (calendar days): reversion holds
+# run up to ~9 months (long_term), Pullback v4 exits by its 15-session holding limit.
+TRACK_REVERSION_DAYS = 400
+TRACK_PULLBACK_DAYS = 60
 
 
 def _same_file(left: Path, right: Path) -> bool:
@@ -84,7 +90,14 @@ def run_publication(*, krx_db: Path, history_start: str, as_of: str, expected_as
             dropped = history.attrs.get("dropped_unfillable_halted_rows", {"rows": 0, "symbols": []})
             attempt["input_adjustments"] = {"dropped_unfillable_halted_rows": dropped["rows"],
                                             "dropped_symbol_count": len(dropped["symbols"])}
-            runtime = generate_recommendations(history, benchmarks, as_of=as_of, excluded_symbols=())
+            session = date.fromisoformat(as_of)
+            tracked = recommended_symbols(snapshot_db, since={
+                "swing": (session - timedelta(days=TRACK_REVERSION_DAYS)).isoformat(),
+                "long_term": (session - timedelta(days=TRACK_REVERSION_DAYS)).isoformat(),
+                "pullback_v4": (session - timedelta(days=TRACK_PULLBACK_DAYS)).isoformat()}, before=as_of)
+            attempt["tracked_symbols"] = len(tracked)
+            runtime = generate_recommendations(history, benchmarks, as_of=as_of, excluded_symbols=(),
+                                               tracked=tuple(tracked))
             attempt["run_id"] = runtime["run_id"]
             existed = is_published(snapshot_db, runtime["run_id"])
             payload = publish(snapshot_db, runtime, expected_as_of=expected_as_of, expires_at=expires_at,

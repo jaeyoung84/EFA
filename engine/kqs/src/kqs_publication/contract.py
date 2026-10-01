@@ -17,6 +17,12 @@ from .calendar import CalendarError, validate_publication_calendar
 
 RECOMMENDATION_SCHEMA_VERSION = "kqs-recommendations/v1"
 MAX_SELECTED_ENTRIES = 3
+# EINT-017: three items side by side, each ranked on its own and capped at 5 (user operating policy).
+RECOMMENDATION_SCHEMA_V2 = "kqs-recommendations/v2"
+RECOMMENDATION_ITEMS = ("swing", "long_term", "pullback_v4")
+MAX_SELECTED_PER_ITEM = 5
+MAX_EXIT_MONITOR_ROWS = 600
+MAX_EXIT_SERIES = 60
 
 
 class KqsContractError(ValueError):
@@ -60,8 +66,10 @@ def validate_recommendation_payload(payload: object, *, now: datetime | None = N
     """
     if not isinstance(payload, Mapping):
         raise KqsContractError("추천 응답은 JSON 객체여야 합니다.")
-    if payload.get("schema_version") != RECOMMENDATION_SCHEMA_VERSION:
+    schema = payload.get("schema_version")
+    if schema not in (RECOMMENDATION_SCHEMA_VERSION, RECOMMENDATION_SCHEMA_V2):
         raise KqsContractError("지원하지 않는 추천 계약 버전입니다.")
+    v2 = schema == RECOMMENDATION_SCHEMA_V2
 
     integrity = payload.get("integrity")
     if not isinstance(integrity, Mapping):
@@ -85,6 +93,8 @@ def validate_recommendation_payload(payload: object, *, now: datetime | None = N
     if not isinstance(engine, Mapping):
         raise KqsContractError("엔진 메타데이터가 없습니다.")
     native = engine.get("trust_mode") == "component_sha256"
+    if v2 and not native:
+        raise KqsContractError("v2 추천은 통합 엔진 게시본만 허용합니다.")
     if not native and engine.get("dirty") is not False:
         raise KqsContractError("dirty 상태 엔진의 추천은 사용할 수 없습니다.")
     safe_engine = {
@@ -142,7 +152,7 @@ def validate_recommendation_payload(payload: object, *, now: datetime | None = N
     raw_signals = payload.get("signals")
     if not isinstance(raw_signals, list):
         raise KqsContractError("signals는 배열이어야 합니다.")
-    if len(raw_signals) > 100:
+    if len(raw_signals) > (len(RECOMMENDATION_ITEMS) * MAX_SELECTED_PER_ITEM if v2 else 100):
         raise KqsContractError("signals가 계약상 최대 크기를 넘었습니다.")
 
     signals: list[dict] = []
@@ -150,6 +160,8 @@ def validate_recommendation_payload(payload: object, *, now: datetime | None = N
     signal_ids: set[str] = set()
     entry_symbols: set[str] = set()
     entry_ranks: set[int] = set()
+    item_symbols: dict[str, set] = {item: set() for item in RECOMMENDATION_ITEMS}
+    item_ranks: dict[str, set] = {item: set() for item in RECOMMENDATION_ITEMS}
     for item in raw_signals:
         if not isinstance(item, Mapping):
             raise KqsContractError("signals 항목은 객체여야 합니다.")
@@ -191,7 +203,19 @@ def validate_recommendation_payload(payload: object, *, now: datetime | None = N
             "reasons": safe_reasons,
         }
         rank = item.get("selection_rank")
-        if action == "entry" and safe["selection_outcome"] == "selected":
+        if v2:
+            kind = safe["signal_type"]
+            if kind not in RECOMMENDATION_ITEMS or action != "entry" or safe["selection_outcome"] != "selected":
+                raise KqsContractError("v2 신호는 승인된 3개 아이템의 선정 진입만 허용합니다.")
+            if type(rank) is not int or not 1 <= rank <= MAX_SELECTED_PER_ITEM:
+                raise KqsContractError("아이템별 selection_rank는 1~5 정수여야 합니다.")
+            if safe["symbol"] in item_symbols[kind] or rank in item_ranks[kind]:
+                raise KqsContractError("같은 아이템 안에 종목 또는 순위가 중복되었습니다.")
+            item_symbols[kind].add(safe["symbol"])
+            item_ranks[kind].add(rank)
+            safe["selection_rank"] = rank
+            selected_entries.append(safe)
+        elif action == "entry" and safe["selection_outcome"] == "selected":
             if type(rank) is not int or not 1 <= rank <= MAX_SELECTED_ENTRIES:
                 raise KqsContractError("선정된 진입 신호의 selection_rank는 1~3 정수여야 합니다.")
             if safe["symbol"] in entry_symbols:
@@ -217,13 +241,17 @@ def validate_recommendation_payload(payload: object, *, now: datetime | None = N
             for key in ("exit_reference", "selection_note"):
                 safe[key] = _required_text(item.get(key), key, 500)
         signals.append(safe)
-    if len(selected_entries) > MAX_SELECTED_ENTRIES:
-        raise KqsContractError("하루 선정 진입 신호는 최대 3개여야 합니다.")
-
-    if entry_ranks != set(range(1, len(selected_entries) + 1)):
-        raise KqsContractError("선정 순위는1부터 연속되어야 합니다.")
+    if v2:
+        for kind in RECOMMENDATION_ITEMS:
+            if item_ranks[kind] != set(range(1, len(item_ranks[kind]) + 1)):
+                raise KqsContractError("아이템별 선정 순위는 1부터 연속되어야 합니다.")
+    else:
+        if len(selected_entries) > MAX_SELECTED_ENTRIES:
+            raise KqsContractError("하루 선정 진입 신호는 최대 3개여야 합니다.")
+        if entry_ranks != set(range(1, len(selected_entries) + 1)):
+            raise KqsContractError("선정 순위는1부터 연속되어야 합니다.")
     result = {
-        "schema_version": RECOMMENDATION_SCHEMA_VERSION,
+        "schema_version": schema,
         "generated_at": generated_at.isoformat(),
         "expires_at": expires_at.isoformat(),
         "engine": safe_engine,
@@ -233,8 +261,61 @@ def validate_recommendation_payload(payload: object, *, now: datetime | None = N
         "disclaimer": "엔진 추천과 근거를 표시하기 위한 읽기 전용 데이터입니다. 홈페이지는 자동 모의체결·실거래 주문을 만들지 않습니다.",
     }
 
+    if v2:
+        result["items"] = {kind: {"selected_count": len(item_ranks[kind])} for kind in RECOMMENDATION_ITEMS}
+        result["exit_monitor"] = _validate_exit_monitor(payload.get("exit_monitor"))
     if publication is not None:
         result.update(publication=publication, snapshot_id=publication["snapshot_id"],
                       source="snapshot", status="recommendations" if selected_entries else "no_recommendations",
                       source_payload_sha256=declared_digest)
     return result
+
+
+def _finite(value: object, field: str) -> float:
+    if type(value) not in (int, float) or not math.isfinite(value):
+        raise KqsContractError(f"{field}는 유한한 숫자여야 합니다.")
+    return float(value)
+
+
+def _validate_exit_monitor(rows: object) -> list[dict]:
+    """Exit facts for previously recommended symbols; never a sell order."""
+    if not isinstance(rows, list) or len(rows) > MAX_EXIT_MONITOR_ROWS:
+        raise KqsContractError("exit_monitor는 최대 600개 배열이어야 합니다.")
+    safe_rows, seen = [], set()
+    for row in rows:
+        if not isinstance(row, Mapping):
+            raise KqsContractError("exit_monitor 항목 형식이 올바르지 않습니다.")
+        symbol = _required_text(row.get("symbol"), "exit_monitor.symbol", 12).upper()
+        kind = row.get("signal_type")
+        state = row.get("state")
+        if kind not in RECOMMENDATION_ITEMS or (symbol, kind) in seen:
+            raise KqsContractError("exit_monitor 아이템이 올바르지 않거나 중복되었습니다.")
+        seen.add((symbol, kind))
+        safe = {"symbol": symbol, "signal_type": kind, "state": state}
+        if state == "no_current_bar":
+            pass
+        elif kind == "pullback_v4" and state == "series":
+            if type(row.get("market_regime_off")) is not bool:
+                raise KqsContractError("exit_monitor 시장 국면 값이 없습니다.")
+            series = row.get("series")
+            if not isinstance(series, list) or not 1 <= len(series) <= MAX_EXIT_SERIES:
+                raise KqsContractError("exit_monitor 시계열 길이가 올바르지 않습니다.")
+            safe_series = []
+            for point in series:
+                if not isinstance(point, Mapping):
+                    raise KqsContractError("exit_monitor 시계열 형식이 올바르지 않습니다.")
+                try:
+                    day = date.fromisoformat(point.get("date"))
+                except (TypeError, ValueError) as exc:
+                    raise KqsContractError("exit_monitor 날짜 형식이 올바르지 않습니다.") from exc
+                safe_series.append({"date": day.isoformat(), "close": _finite(point.get("close"), "close"),
+                                    "atr": _finite(point.get("atr"), "atr")})
+            if [p["date"] for p in safe_series] != sorted({p["date"] for p in safe_series}):
+                raise KqsContractError("exit_monitor 날짜가 오름차순 고유값이 아닙니다.")
+            safe.update(market_regime_off=row["market_regime_off"], series=safe_series)
+        elif kind in ("swing", "long_term") and state in ("exit_signal", "hold"):
+            safe["close"] = _finite(row.get("close"), "close")
+        else:
+            raise KqsContractError("exit_monitor 상태가 올바르지 않습니다.")
+        safe_rows.append(safe)
+    return safe_rows

@@ -184,7 +184,7 @@ class PublicationTests(unittest.TestCase):
         payload = self.publish()
         safe = validate_recommendation_payload(payload, now=self.generated)
         self.assertEqual(safe["snapshot_id"], "kqs-" + self.runtime["run_id"])
-        self.assertEqual(safe["engine"]["package_version"], "0.6.0")
+        self.assertEqual(safe["engine"]["package_version"], "0.7.0")
         self.assertIsNone(safe["engine"]["dirty"])
         self.assertEqual(safe["signals"][0]["features"], self.runtime["recommendations"][0]["features"])
         self.assertNotIn("audit", safe)
@@ -255,8 +255,13 @@ class PublicationTests(unittest.TestCase):
         payload["engine"].pop("trust_mode")
         payload["engine"]["dirty"] = True
         payload["integrity"]["payload_sha256"] = canonical_payload_digest(payload)
-        with self.assertRaisesRegex(KqsContractError, "dirty"):
+        with self.assertRaisesRegex(KqsContractError, "통합 엔진"):
             validate_recommendation_payload(payload, now=self.generated)
+        legacy = {key: payload[key] for key in ("generated_at", "expires_at", "engine")}
+        legacy.update(schema_version="kqs-recommendations/v1", signals=[], integrity={})
+        legacy["integrity"]["payload_sha256"] = canonical_payload_digest(legacy)
+        with self.assertRaisesRegex(KqsContractError, "dirty"):
+            validate_recommendation_payload(legacy, now=self.generated)
 
     def test_publication_package_needs_no_site_packages_or_pandas(self):
         src = Path(__file__).resolve().parents[1] / "src"

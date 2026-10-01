@@ -62,7 +62,7 @@ class WorkerTests(unittest.TestCase):
         before = hashlib.sha256(self.market.read_bytes()).hexdigest()
         result = self.run_worker(self.recorded_quality())
         self.assertEqual(result["attempt"]["status"], "published")
-        self.assertEqual(result["payload"]["schema_version"], "kqs-recommendations/v1")
+        self.assertEqual(result["payload"]["schema_version"], "kqs-recommendations/v2")
         self.assertEqual(read_latest(self.snapshot, now=self.generated + timedelta(minutes=1)), result["payload"])
         self.assertEqual(result["attempt"]["snapshot_id"], result["payload"]["publication"]["snapshot_id"])
         self.assertEqual(before, hashlib.sha256(self.market.read_bytes()).hexdigest())

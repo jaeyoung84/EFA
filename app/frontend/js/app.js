@@ -8,6 +8,7 @@ import { portfolioHoldingsView } from './views/portfolioHoldings.js';
 import { portfolioRiskView } from './views/portfolioRisk.js';
 import { strategyBacktestView } from './views/strategyBacktest.js';
 import { strategyListView } from './views/strategyList.js';
+import { strategyBoardView } from './views/strategyBoard.js';
 import { leverageDcaView } from './views/leverageDca.js';
 import { portfolioCombinationView } from './views/portfolioCombination.js';
 import { macroRealtimeView }    from './views/macroRealtime.js';
@@ -29,7 +30,8 @@ const VISITOR_ID_KEY = 'investment_analysis_visitor_id';
 // 투자 판단에 쓰는 화면만 남긴다. 예전 교육·데모 화면 주소는 대시보드로 돌아간다.
 const routes = {
   'home':                    { label: '대시보드',                  render: () => homeView(app, navigate) },
-  'my-strategies':           { label: '추천·판단',                 render: () => strategyListView(app) },
+  'strategy-board':          { label: '전략 추천',                  render: () => strategyBoardView(app) },
+  'my-strategies':           { label: '매매 기록·연구',             render: () => strategyListView(app) },
   'strategy-backtest':       { label: '실제 가격 백테스트',         render: () => strategyBacktestView(app) },
   'leverage-dca':            { label: '레버리지 DCA 자동매매(모의)', render: () => leverageDcaView(app) },
   'portfolio-holdings':      { label: '내 보유자산',                render: () => portfolioHoldingsView(app) },
@@ -48,7 +50,7 @@ const routes = {
 };
 
 const NAV_SECTIONS = {
-  decisions: ['my-strategies', 'strategy-backtest', 'leverage-dca'],
+  decisions: ['strategy-board', 'my-strategies', 'strategy-backtest', 'leverage-dca'],
   assets: ['portfolio-holdings', 'portfolio-risk', 'portfolio-combination'],
   market: ['world-markets', 'asset-classes', 'today-gainers', 'today-sobujang', 'macro-realtime',
            'company-financial', 'dart-company-search', 'dart-financial-analysis', 'industry-analysis'],
@@ -64,7 +66,7 @@ const MOBILE_BREAKPOINT = 1024;
 const TERMINAL_THEME_VIEWS = [
   'home',
   'portfolio-holdings', 'portfolio-risk',
-  'strategy-backtest', 'my-strategies',
+  'strategy-board', 'strategy-backtest', 'my-strategies',
 ];
 
 function navigate(requested) {

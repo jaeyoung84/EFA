@@ -11,13 +11,19 @@ from kqs_runtime.inputs import parse_date
 
 
 def fill_halted_trading_days(history: pd.DataFrame) -> pd.DataFrame:
-    """Extracted OHLC carry-forward from krx.py; see migration_manifest.json."""
+    """Extracted OHLC carry-forward from krx.py; see migration_manifest.json.
+
+    EINT-017: also marks the filled rows in ``Halted``. Pullback v4 drops exactly these rows
+    (its archived loader removed any row with a non-positive price), so it can read the same
+    snapshot without a second query. The reversion scanner only reads ``COLUMNS``.
+    """
     price_cols = ["Open", "High", "Low", "Close"]
     halted = history[price_cols].le(0).any(axis=1)
     if not halted.any():
-        return history
+        return history.assign(Halted=False)
     history = history.sort_values(["Symbol", "Date"]).reset_index(drop=True)
     halted = history[price_cols].le(0).any(axis=1)
+    history["Halted"] = halted
     history.loc[halted, price_cols] = np.nan
     prior_close = history.groupby("Symbol")["Close"].ffill()
     history.loc[halted, price_cols] = np.repeat(prior_close.loc[halted].to_numpy()[:, None], 4, axis=1)

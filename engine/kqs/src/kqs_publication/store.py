@@ -6,7 +6,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .contract import KqsContractError, _parse_datetime, validate_recommendation_payload
+from .contract import KqsContractError, _parse_datetime, canonical_payload_digest, validate_recommendation_payload
 from .publisher import build_payload, encode, sha256, validate_run
 from .writer import WriterLock
 
@@ -44,6 +44,38 @@ def read_latest(path: Path, *, now: datetime | None = None) -> dict:
         if row is None:
             raise KqsContractError("게시된 추천 스냅샷이 없습니다.")
         return _decode(row, now=now or datetime.now(timezone.utc))
+    finally:
+        connection.close()
+
+
+def recommended_symbols(path: Path, *, since: dict[str, str], before: str) -> list[tuple[str, str]]:
+    """(symbol, signal_type) pairs this engine published from ``since[signal_type]`` up to, not including,
+    the ``before`` session (YYYY-MM-DD) -- so rerunning a session sees the same set (idempotent run_id).
+
+    Feeds the EINT-017 exit monitor. Reads only the engine's own immutable snapshots -- never a
+    user ledger -- and skips rows whose stored digest does not match their payload.
+    """
+    if not path.is_file():
+        return []
+    connection = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=10)
+    try:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA query_only = ON")
+        if not connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (TABLE,)).fetchone():
+            return []
+        oldest = min(since.values())
+        pairs = set()
+        for row in connection.execute(f"SELECT data_as_of, payload_sha256, payload_json FROM {TABLE} "
+                                      "WHERE data_as_of >= ? AND data_as_of < ?", (oldest, before)):
+            payload = json.loads(row["payload_json"])
+            if canonical_payload_digest(payload) != row["payload_sha256"]:
+                continue
+            for signal in payload.get("signals", []):
+                kind = signal.get("signal_type")
+                if (signal.get("action") == "entry" and signal.get("selection_outcome") == "selected"
+                        and kind in since and row["data_as_of"] >= since[kind]):
+                    pairs.add((str(signal["symbol"]), kind))
+        return sorted(pairs)
     finally:
         connection.close()
 

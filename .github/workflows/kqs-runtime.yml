@@ -66,6 +66,7 @@ jobs:
           node scripts/tests/kqs_recommendations_render.mjs
           node scripts/tests/kqs_engine_views_render.mjs
           node scripts/tests/kqs_manual_records_render.mjs
+          node scripts/tests/strategy_board_render.mjs
       - name: Entry point outside repository
         working-directory: /tmp
         run: |
@@ -110,7 +111,8 @@ jobs:
         # The leverage-DCA scheduler changes are committed together now (ce5ceb4), so the scheduler target tests run again.
         run: >-
           python -m pytest tests/test_kqs_bridge.py tests/test_kqs_contract.py tests/test_kqs_native_views.py
-          tests/test_kqs_manual_records.py tests/test_kqs_learning_provenance.py tests/test_kqs_learning_readiness.py -v
+          tests/test_kqs_manual_records.py tests/test_kqs_learning_provenance.py tests/test_kqs_learning_readiness.py
+          tests/test_kqs_strategy_board.py -v
       - name: Leverage DCA and NYSE calendar regressions (change-locked strategy; deploy must not regress it)
         run: >-
           python -m pytest tests/test_leverage_dca_strategy.py tests/test_leverage_dca_paper_trading.py

@@ -1,0 +1,131 @@
+{
+  "schema": "kqs-runtime-revision/v1",
+  "change_id": "EINT-017",
+  "created_at": "2026-10-01T03:01:45.140444+00:00",
+  "supersedes": "EINT-016",
+  "initial_manifest": {
+    "path": "engine/kqs/migration_manifest.json",
+    "sha256": "989dd536a3aa1bb7e96e55e5ef903b50d259594c98ef2445dbe173d364355580"
+  },
+  "previous_revision": {
+    "path": "engine/kqs/revisions/EINT-016.json",
+    "sha256": "e6f75cbbffa5eba9130c318c837d0eb50ea78f0cfd99f3a7d8175a124ec4949d"
+  },
+  "previous_verification": {
+    "path": "docs/engine/verification/EINT-016.json",
+    "sha256": "983451d46168793985d39d0549d79849775e363d4411b92793bc53d82233723e"
+  },
+  "dependency_lock": {
+    "path": "engine/kqs/requirements.lock",
+    "sha256": "d5677f00d64a3952e04be5d02b509de1ddb808e3877eb8ea1d3b4b56359a38b3"
+  },
+  "package_metadata": {
+    "path": "engine/kqs/pyproject.toml",
+    "sha256": "bd61b53e7d89b50ddc89a4f1938ce24864a359657321ab72b797fceb770007b0"
+  },
+  "code": {
+    "package_version": "0.7.0",
+    "source_commit": "408edd4b0f561dfc315aa3be7bbd174c21ccf75e",
+    "code_sha256": "83096007e296d37547a2508a243ddbbfdbe9c6ead7f0453cf1a91eab2695d4aa",
+    "component_sha256": {
+      "korea_quant/__init__.py": "960d03eca7c45577aea05e6d71dea5269a209ad02c7f15f584f53d535da6a405",
+      "korea_quant/eligibility.py": "f363ec556a14adfdad06af331f3f94f35beb9de405cb047b83b1677f8da1836d",
+      "korea_quant/reversion_scanner.py": "c9bc74ff52f2c79e4e4197679d4ea967bb9aa91b37fa2cf643cc5538c0bd1d99",
+      "korea_quant/strategy.py": "bdf8506cf1371f9b5aca1f4001649ca509c132651d749a550062a452c3b3c9d8",
+      "kqs_collection/__init__.py": "99e384cc6de3f53eb35caf61a8f68e8224705ccd195287f60af234f0d1988ffc",
+      "kqs_collection/cli.py": "05fb03c1024eee29e12838ffe9f27ec2d02c088b5fe2212021170a57387378e8",
+      "kqs_collection/coverage.py": "64848e30d98a254c97053275bf34cd3d7ec97b3b914ef292edeb2418d9906da0",
+      "kqs_collection/krx.py": "fb6d5fbd23009fe4e29cef71f90680d81c53906d0c2e51ce4eb9215d0e7a43df",
+      "kqs_collection/quality.py": "687026c75baf935893f0d0d24e85d8df5883930a4ccbabd4be33050be249c893",
+      "kqs_collection/store.py": "094bfb5388e70d43835c2ba456ff2349005d8956a27f908f07335d7a02eb47ad",
+      "kqs_ops/__init__.py": "cad9fb03eee68f911d2c23541c2ae7e4095a63d4f5df594e7f324a4072355a9c",
+      "kqs_ops/backup.py": "01fdb35eef67c72d7213c6d422a1874037b8a5c217eeec0b4bdee21daf347955",
+      "kqs_ops/paths.py": "b05f2ae5f8809dd1bb74650788f60322d07daa51901a76707d7efb557949eb11",
+      "kqs_ops/runlog.py": "70999197f1c4190b0d3cf776913742be4f1c4361ecd96c90841e6a05dffb82f2",
+      "kqs_ops/status.py": "1f1a50c63c90b3755daf8d40622b3be11846b19686d257d1a66561d9a51ae0f8",
+      "kqs_publication/__init__.py": "c66278f32a047b596624280f0fafd4e29b5a7a4527792546ffaba488b342016d",
+      "kqs_publication/attempts.py": "5699f5e1607a395844a7c78b965f29ef3861a16caf1b19066ff2f8efaddbba1c",
+      "kqs_publication/calendar.py": "67abbc36273bb6a94ecc753a884cf16b4d87ebb9e8c973548f9e7a00113b06dd",
+      "kqs_publication/calendars/krx_equity_2026.json": "c35228678b6f1059fcd944ec34f20f620207bf5b577d063d0cee52a3f8ab11b9",
+      "kqs_publication/calendars/krx_equity_2027.json": "7fbfb902fc6ffd5d1531c05ca0f5f65cab43af330ac7198f27e8c8b2aba9bc36",
+      "kqs_publication/contract.py": "f7ab242adf87f8fa375273e4ea8d7432bb0ed1daef87af8a932639c22cf1f15a",
+      "kqs_publication/publisher.py": "a9e09926675bb744ef332e200ab4db570b6fbc30873524d58940fc181c5691aa",
+      "kqs_publication/store.py": "2014cf559cf1c5bde829e8b3467be8e3ae168619c131d109c09ef2856eb91020",
+      "kqs_publication/writer.py": "a1dd5c1379dd9e684f38681e42ca0460a9ebf1d40463381b0d8d18bd6e9e6685",
+      "kqs_runtime/__init__.py": "d727406695aa9de3ddb1dd04ab9fc192cbc747ca6a6ed11286929b4e122f543b",
+      "kqs_runtime/cli.py": "31b2a207fe870a9ffa16c51339c42a198838cbe9bd4218702a7154ffecbcc35f",
+      "kqs_runtime/inputs.py": "3130ba44dd732e0048699dbeee5ce9f2ddef71297ec82fe9f53784bf209d7fdc",
+      "kqs_runtime/pipeline.py": "904d4cc9bbf962dacaa4a103a7e95f459637c451c67ae20d26d358e0f7eb32b1",
+      "kqs_runtime/provenance.py": "1a548c3bef535cab795e187e130ee75ed1c5bf9565782c405f9c237ef4a1998b",
+      "kqs_runtime/pullback_v4.py": "acc95cfdc1f70a8e70661c841dd7018314a1a77e782664f25075e5941c3b9430",
+      "kqs_runtime/recommendations.py": "171ba0875d825cd0b8480f19b2580c7ea166f9846f170a1fceff7258dbc600b2",
+      "kqs_runtime/sqlite_reader.py": "a53341917d0dbc4e71f8e76b884b39c8da785fe221f3b57ee686a26aac094948",
+      "kqs_runtime/worker.py": "8aefefe4f5f5d30977bc1706d0bc50ff13fdf6023e6928c0a0757f8cb7bfc200"
+    },
+    "python": "3.14.4",
+    "dependencies": {
+      "pandas": "2.3.3",
+      "numpy": "2.3.5",
+      "python-dateutil": "2.9.0.post0",
+      "pytz": "2026.4",
+      "tzdata": "2026.4",
+      "six": "1.17.0"
+    }
+  },
+  "calendar": {
+    "calendar_id": [
+      "krx-equity-2026",
+      "krx-equity-2027"
+    ],
+    "path": [
+      "engine/kqs/src/kqs_publication/calendars/krx_equity_2026.json",
+      "engine/kqs/src/kqs_publication/calendars/krx_equity_2027.json"
+    ],
+    "sha256": [
+      "c35228678b6f1059fcd944ec34f20f620207bf5b577d063d0cee52a3f8ab11b9",
+      "7fbfb902fc6ffd5d1531c05ca0f5f65cab43af330ac7198f27e8c8b2aba9bc36"
+    ],
+    "policy": "krx-session-expiry/v1",
+    "data_available_time_kst": "06:00",
+    "coverage": "2026 and 2027; adjacent-year walks only through reviewed files; other years fail closed",
+    "sources": [
+      "https://global.krx.co.kr/contents/GLB/06/0602/0602010201/GLB0602010201T1.jsp",
+      "https://global.krx.co.kr/contents/GLB/05/0501/0501060000/GLB0501060000T3.jsp"
+    ]
+  },
+  "reused_decisions": [
+    "D-1",
+    "D-2",
+    "D-8",
+    "D-19",
+    "D-24",
+    "D-38",
+    "D-42",
+    "D-43",
+    "D-44"
+  ],
+  "preserved_core_modules": 4,
+  "changes": [
+    "kqs_runtime.pullback_v4: Daily Trend Pullback v4 ported from the archived strategy_validation_v4.py (8e4dc15f3f135f5b) / data_loader.py (ff1f239c95de9c24); rules, parameters, ranking weights and day loop unchanged",
+    "kqs_runtime.recommendations: three items (swing, long_term, pullback_v4), each keeps its own filters and existing order, max 5 per item, same symbol allowed across items (user operating policy; replaces the global cap of 3 and the swing-over-long_term duplicate rule for publication)",
+    "kqs_runtime.recommendations: exit monitor for the engine's own previously published symbols (reversion native exit state, v4 close/ATR series + market regime); no user ledger enters the engine",
+    "kqs_runtime.sqlite_reader: halted (non-positive price) rows are marked so v4 drops exactly the rows its archived loader dropped",
+    "kqs_publication.contract: kqs-recommendations/v2 (per-item ranks 1..5, exit_monitor validation); v1 payloads still validate",
+    "kqs_publication.publisher/store/worker: v2 payload, recommended_symbols() over earlier sessions only (idempotent reruns)"
+  ],
+  "contract": "kqs-recommendations/v2 (reader also accepts v1)",
+  "publication_policy": "explicit-session-expiry/v1 + krx-session-expiry/v1 + market-input-quality-gate/v1 + single-writer-lock/v1",
+  "safety": {
+    "orders_enabled": false,
+    "automatic_fills_enabled": false,
+    "legacy_ledger_compatible": false,
+    "research_runs": 0,
+    "implementation_equivalence_runs": 1,
+    "market_collection_runs": 0,
+    "production_publication_performed": false,
+    "deployment_performed": false
+  },
+  "scope": "User operating policy (2026-10-01): publish Bollinger-RSI, RSI-OBV and Trend Pullback v4 side by side, up to 5 each, existing per-item order. Not a validated performance improvement; v4 keeps its D-43 'fail hint' status. Not comparable with D-33/D-42/D-43 prospective samples.",
+  "verification": "docs/engine/verification/EINT-017.json",
+  "future_change_rule": "Add a new successor and change CI manifest selection explicitly; never overwrite EINT-001..007A manifests or verification records."
+}

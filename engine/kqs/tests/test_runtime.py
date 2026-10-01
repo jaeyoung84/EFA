@@ -127,15 +127,25 @@ class MigrationTests(unittest.TestCase):
 
 
 class SelectionTests(unittest.TestCase):
-    def test_global_cap_duplicate_and_deterministic_ties(self):
+    def test_per_item_order_and_cross_item_duplicates_eint017(self):
         rows = [candidate("005930", 1, "long_term"), candidate("035420", 1),
                 candidate("005930", 1), candidate("000660", 2), candidate("051910", 3)]
         result = selection_audit(pd.DataFrame(rows))
         selected = [(row["symbol"], row["signal_type"]) for row in result if row["selection_outcome"] == "selected"]
-        self.assertEqual(selected, [("005930", "swing"), ("035420", "swing"), ("000660", "swing")])
-        self.assertEqual([row["selection_outcome"] for row in result].count("duplicate_symbol"), 1)
-        self.assertEqual([row["selection_outcome"] for row in result].count("daily_cap"), 1)
+        # D-24 key order inside each item; the same symbol may be selected by both items.
+        self.assertEqual(selected, [("005930", "swing"), ("005930", "long_term"), ("035420", "swing"),
+                                    ("000660", "swing"), ("051910", "swing")])
+        self.assertNotIn("duplicate_symbol", [row["selection_outcome"] for row in result])
         self.assertEqual(result, selection_audit(pd.DataFrame(list(reversed(rows)))))
+
+    def test_each_item_is_capped_at_five(self):
+        rows = [candidate(f"{100000 + k:06d}", k + 1) for k in range(7)]
+        rows += [candidate(f"{200000 + k:06d}", k + 1, "long_term") for k in range(6)]
+        result = selection_audit(pd.DataFrame(rows))
+        for item, expected_cap in (("swing", 2), ("long_term", 1)):
+            outcomes = [row["selection_outcome"] for row in result if row["signal_type"] == item]
+            self.assertEqual(outcomes.count("selected"), 5)
+            self.assertEqual(outcomes.count("daily_cap"), expected_cap)
 
     def test_excluded_context_and_non_entry_reasons(self):
         result = selection_audit(pd.DataFrame([candidate("005930"), candidate("035420", signal="unknown"),

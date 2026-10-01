@@ -433,7 +433,7 @@ export function homeView(container) {
         <article class="jy-panel" id="jy-kqs-brief">
           <header><div><span class="jy-section-label">KQS RECOMMENDATIONS</span><h2>오늘의 추천과 내 판단</h2></div><span class="jy-count" data-jy-kqs-pending>-</span></header>
           <p class="jy-kqs-meta" data-jy-kqs-meta>추천을 불러오는 중…</p>
-          <button class="jy-action-row" type="button" data-jy-route="my-strategies"><i class="fa-solid fa-bullseye"></i><span><strong data-jy-kqs-signals>추천 확인 중</strong><small data-jy-kqs-signals-detail>추천 근거를 보고 매수·관망·제외를 기록하세요.</small></span><i class="fa-solid fa-chevron-right"></i></button>
+          <button class="jy-action-row" type="button" data-jy-route="strategy-board"><i class="fa-solid fa-bullseye"></i><span><strong data-jy-kqs-signals>추천 확인 중</strong><small data-jy-kqs-signals-detail>추천 근거를 보고 매수·관망·제외를 기록하세요.</small></span><i class="fa-solid fa-chevron-right"></i></button>
           <button class="jy-action-row" type="button" data-jy-route="my-strategies"><i class="fa-solid fa-box-archive"></i><span><strong data-jy-kqs-positions>보유 기록 확인 중</strong><small data-jy-kqs-positions-detail>추천이 만료된 보유분도 여기서 매도·부분매도를 기록합니다.</small></span><i class="fa-solid fa-chevron-right"></i></button>
           <button class="jy-action-row" type="button" data-jy-route="portfolio-risk"><i class="fa-solid fa-shield-halved"></i><span><strong>실제 보유자산 위험 점검</strong><small>내 보유 종목의 평가금액과 위험을 확인하세요.</small></span><i class="fa-solid fa-chevron-right"></i></button>
         <article class="jy-panel jy-signal-panel">

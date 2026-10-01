@@ -545,8 +545,8 @@ export function strategyListView(container) {
 
   container.innerHTML = `
     <div style="margin-bottom:24px;">
-      <h1 style="font-size:1.25rem; font-weight:700; color:var(--text); margin-bottom:6px;"><i class="fa-solid fa-folder-open"></i> 내 전략</h1>
-      <p style="font-size:0.875rem; color:var(--text-muted); line-height:1.6;">저장한 실제 가격·가상 시뮬레이션·LEAN 백테스트를 확인하고, 실제 가격 전략은 주문 제안과 모의 체결까지 관리합니다.</p>
+      <h1 style="font-size:1.25rem; font-weight:700; color:var(--text); margin-bottom:6px;"><i class="fa-solid fa-book"></i> 매매 기록·연구</h1>
+      <p style="font-size:0.875rem; color:var(--text-muted); line-height:1.6;">추천에 대한 매수·매도 기록, 보유 lot·사후 성과, 학습 데이터와 운영 점검을 다룹니다. 오늘의 추천 종목은 "전략 추천" 화면에서 봅니다.</p>
     </div>
     <div id="stg-list"><p style="color:#94a3b8;">불러오는 중...</p></div>
     <div id="stg-strategy-portfolio" style="margin-top:20px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">전략 배분안을 불러오는 중...</p></div>

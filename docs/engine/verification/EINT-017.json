@@ -1,0 +1,196 @@
+{
+  "change_id": "EINT-017",
+  "verified_at": "2026-10-01T03:03:03.589916+00:00",
+  "package": "iv-kqs-engine 0.7.0",
+  "code": {
+    "package_version": "0.7.0",
+    "source_commit": "408edd4b0f561dfc315aa3be7bbd174c21ccf75e",
+    "code_sha256": "83096007e296d37547a2508a243ddbbfdbe9c6ead7f0453cf1a91eab2695d4aa",
+    "component_sha256": {
+      "korea_quant/__init__.py": "960d03eca7c45577aea05e6d71dea5269a209ad02c7f15f584f53d535da6a405",
+      "korea_quant/eligibility.py": "f363ec556a14adfdad06af331f3f94f35beb9de405cb047b83b1677f8da1836d",
+      "korea_quant/reversion_scanner.py": "c9bc74ff52f2c79e4e4197679d4ea967bb9aa91b37fa2cf643cc5538c0bd1d99",
+      "korea_quant/strategy.py": "bdf8506cf1371f9b5aca1f4001649ca509c132651d749a550062a452c3b3c9d8",
+      "kqs_collection/__init__.py": "99e384cc6de3f53eb35caf61a8f68e8224705ccd195287f60af234f0d1988ffc",
+      "kqs_collection/cli.py": "05fb03c1024eee29e12838ffe9f27ec2d02c088b5fe2212021170a57387378e8",
+      "kqs_collection/coverage.py": "64848e30d98a254c97053275bf34cd3d7ec97b3b914ef292edeb2418d9906da0",
+      "kqs_collection/krx.py": "fb6d5fbd23009fe4e29cef71f90680d81c53906d0c2e51ce4eb9215d0e7a43df",
+      "kqs_collection/quality.py": "687026c75baf935893f0d0d24e85d8df5883930a4ccbabd4be33050be249c893",
+      "kqs_collection/store.py": "094bfb5388e70d43835c2ba456ff2349005d8956a27f908f07335d7a02eb47ad",
+      "kqs_ops/__init__.py": "cad9fb03eee68f911d2c23541c2ae7e4095a63d4f5df594e7f324a4072355a9c",
+      "kqs_ops/backup.py": "01fdb35eef67c72d7213c6d422a1874037b8a5c217eeec0b4bdee21daf347955",
+      "kqs_ops/paths.py": "b05f2ae5f8809dd1bb74650788f60322d07daa51901a76707d7efb557949eb11",
+      "kqs_ops/runlog.py": "70999197f1c4190b0d3cf776913742be4f1c4361ecd96c90841e6a05dffb82f2",
+      "kqs_ops/status.py": "1f1a50c63c90b3755daf8d40622b3be11846b19686d257d1a66561d9a51ae0f8",
+      "kqs_publication/__init__.py": "c66278f32a047b596624280f0fafd4e29b5a7a4527792546ffaba488b342016d",
+      "kqs_publication/attempts.py": "5699f5e1607a395844a7c78b965f29ef3861a16caf1b19066ff2f8efaddbba1c",
+      "kqs_publication/calendar.py": "67abbc36273bb6a94ecc753a884cf16b4d87ebb9e8c973548f9e7a00113b06dd",
+      "kqs_publication/calendars/krx_equity_2026.json": "c35228678b6f1059fcd944ec34f20f620207bf5b577d063d0cee52a3f8ab11b9",
+      "kqs_publication/calendars/krx_equity_2027.json": "7fbfb902fc6ffd5d1531c05ca0f5f65cab43af330ac7198f27e8c8b2aba9bc36",
+      "kqs_publication/contract.py": "f7ab242adf87f8fa375273e4ea8d7432bb0ed1daef87af8a932639c22cf1f15a",
+      "kqs_publication/publisher.py": "a9e09926675bb744ef332e200ab4db570b6fbc30873524d58940fc181c5691aa",
+      "kqs_publication/store.py": "2014cf559cf1c5bde829e8b3467be8e3ae168619c131d109c09ef2856eb91020",
+      "kqs_publication/writer.py": "a1dd5c1379dd9e684f38681e42ca0460a9ebf1d40463381b0d8d18bd6e9e6685",
+      "kqs_runtime/__init__.py": "d727406695aa9de3ddb1dd04ab9fc192cbc747ca6a6ed11286929b4e122f543b",
+      "kqs_runtime/cli.py": "31b2a207fe870a9ffa16c51339c42a198838cbe9bd4218702a7154ffecbcc35f",
+      "kqs_runtime/inputs.py": "3130ba44dd732e0048699dbeee5ce9f2ddef71297ec82fe9f53784bf209d7fdc",
+      "kqs_runtime/pipeline.py": "904d4cc9bbf962dacaa4a103a7e95f459637c451c67ae20d26d358e0f7eb32b1",
+      "kqs_runtime/provenance.py": "1a548c3bef535cab795e187e130ee75ed1c5bf9565782c405f9c237ef4a1998b",
+      "kqs_runtime/pullback_v4.py": "acc95cfdc1f70a8e70661c841dd7018314a1a77e782664f25075e5941c3b9430",
+      "kqs_runtime/recommendations.py": "171ba0875d825cd0b8480f19b2580c7ea166f9846f170a1fceff7258dbc600b2",
+      "kqs_runtime/sqlite_reader.py": "a53341917d0dbc4e71f8e76b884b39c8da785fe221f3b57ee686a26aac094948",
+      "kqs_runtime/worker.py": "8aefefe4f5f5d30977bc1706d0bc50ff13fdf6023e6928c0a0757f8cb7bfc200"
+    },
+    "python": "3.14.4",
+    "dependencies": {
+      "pandas": "2.3.3",
+      "numpy": "2.3.5",
+      "python-dateutil": "2.9.0.post0",
+      "pytz": "2026.4",
+      "tzdata": "2026.4",
+      "six": "1.17.0"
+    }
+  },
+  "initial_manifest_unchanged": true,
+  "previous_revision_unchanged": true,
+  "previous_verification_unchanged": true,
+  "successor_manifest": "engine/kqs/revisions/EINT-017.json",
+  "user_policy": {
+    "date": "2026-10-01",
+    "items": [
+      "swing (Bollinger-RSI)",
+      "long_term (RSI-OBV)",
+      "pullback_v4 (Daily Trend Pullback v4)"
+    ],
+    "max_picks_per_item": 5,
+    "order": "each item's existing order (reversion D-24 market-cap rank/symbol, v4 pre-registered score)",
+    "duplicates": "same symbol may appear in several items",
+    "sell_signals": "user's own holdings only, by the item that recommended the buy",
+    "filters": "unchanged per item",
+    "status": "operating policy, not a validated improvement"
+  },
+  "pullback_v4_port": {
+    "archived_source": {
+      "strategy_validation_v4.py": "8e4dc15f3f135f5b",
+      "data_loader.py": "ff1f239c95de9c24",
+      "archive": "docs/engine/snapshots/2026-09-29-0c6b2e8308cc/repo/research/daily_trend_pullback_v4/"
+    },
+    "synthetic_equivalence": {
+      "fixture": "engine/kqs/tests/pullback_v4_fixture.py",
+      "archived": {
+        "trades": 66,
+        "trades_sha16": "aec93b65a7c0aa5c",
+        "equity_sha16": "e85de783ab712f7f"
+      },
+      "port": "identical (all five exit reasons exercised)",
+      "how": "archived module copied to a scratch directory and executed once; the archive itself was not modified"
+    },
+    "real_data_reproduction": {
+      "db": "S3 kqs-state-125022369601/backups/20260930T023021Z/market.sqlite3 (read-only local copy, sha256 f9c4a2ce6a7f6d5bce0a3cefe149f010c98b1b9e55da14391943af9fedb0c50f)",
+      "window": [
+        "2022-01-01",
+        "2026-09-08"
+      ],
+      "command": "PYTHONPATH=engine/kqs/src python engine/kqs/tools/pullback_v4_backtest.py --db <copy>",
+      "archived_observation_5": {
+        "trades": 521,
+        "tickers": 418,
+        "exit_reasons": {
+          "market_regime": 253,
+          "stop": 104,
+          "holding_limit": 101,
+          "trailing": 62,
+          "forced_close": 1
+        },
+        "trades_sha16": "77ee8e1492dc3ea6",
+        "equity_sha16": "fca541d9f626eebd"
+      },
+      "port": {
+        "trades": 521,
+        "tickers": 418,
+        "exit_reasons": {
+          "market_regime": 253,
+          "stop": 104,
+          "holding_limit": 101,
+          "trailing": 62,
+          "forced_close": 1
+        },
+        "holding_days_mean": 7.19,
+        "wins_losses": [
+          187,
+          334
+        ],
+        "trades_by_year": {
+          "2022": 90,
+          "2023": 102,
+          "2024": 134,
+          "2025": 109,
+          "2026": 86
+        },
+        "equity_rows": 1145,
+        "trades_sha16": "77ee8e1492dc3ea6",
+        "equity_sha16": "fca541d9f626eebd"
+      },
+      "identical": true,
+      "performance_in_consumed_window": {
+        "final_equity": 109336585.0,
+        "total_return_pct": 9.34,
+        "cagr_pct": 1.93,
+        "max_drawdown_pct": -11.03,
+        "profit_factor": 1.082,
+        "win_rate_pct": 35.9,
+        "avg_net_return_pct": 0.265
+      },
+      "interpretation": "Implementation equivalence only. The 2022-01-01..2026-09-08 window was consumed by observation #5 (D-43); these figures are in-sample, cannot select or retune rules, and do not change v4's 'fail hint' status. The forward window from 2026-09-09 was not evaluated."
+    }
+  },
+  "live_runtime_check": {
+    "session": "2026-09-29",
+    "history_start": "2024-09-29",
+    "item_counts": {
+      "swing": 0,
+      "long_term": 0,
+      "pullback_v4": 5
+    },
+    "pullback_v4_raw_candidates": 12,
+    "note": "reversion items empty because the 200-day regime gate was closed; local copy, nothing published",
+    "peak_rss_mb": {
+      "eint_016_runtime": 1497,
+      "eint_017_runtime": 1497
+    },
+    "seconds": {
+      "eint_016_runtime": 18,
+      "eint_017_runtime": 59
+    }
+  },
+  "tests": {
+    "engine_unittest": "122 OK",
+    "scripts_unittest": "75 OK",
+    "backend_pytest": "287 passed",
+    "frontend": "node --check all modules; kqs render 3 + strategy_board_render OK"
+  },
+  "other_checks": [
+    "check_migration integrity_ok",
+    "EINT-017 successor checker integrity_ok",
+    "check_engine_evidence integrity_ok",
+    "check_kqs_release check_ok"
+  ],
+  "artifacts": {
+    "engine/kqs/revisions/EINT-017.json": "61b1ff48528d7034386f6fb610bb77e7da2a71030c61109019d1cf9cfb188640"
+  },
+  "unchanged": [
+    "korea_quant core (4 migrated modules byte-identical)",
+    "calendars",
+    "manual ledger schema",
+    "leverage DCA",
+    "archived snapshots"
+  ],
+  "deployment_performed": false,
+  "orders_or_automatic_fills_created": false,
+  "limits": [
+    "v4 stop/trailing are compared on the as_of close live (the backtest compares the next open, unknown before the session)",
+    "exit monitor tracks only symbols this engine published (reversion 400 days, v4 60 days); older or non-recommended buys show no sell signal",
+    "live v4 scan equals a one-day backtest on as_of (300-session warmup); indicator warmup differs negligibly from a long continuous run",
+    "per-item cap 5 and cross-item duplicates are not validated; no performance claim"
+  ]
+}

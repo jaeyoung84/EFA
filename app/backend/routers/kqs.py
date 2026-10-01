@@ -29,6 +29,7 @@ try:
     from ..kqs_recommendations import (read_local_recommendations, recommendation_source,
                                       publication_status, publication_candidates, publication_packet,
                                       native_positions_not_applicable)
+    from ..kqs_strategy_board import board_items, holding_signals
     from .auth import current_user
 except ImportError:
     from db import get_db  # type: ignore
@@ -38,6 +39,7 @@ except ImportError:
     from kqs_recommendations import (read_local_recommendations, recommendation_source,
                                     publication_status, publication_candidates, publication_packet,
                                     native_positions_not_applicable)  # type: ignore
+    from kqs_strategy_board import board_items, holding_signals  # type: ignore
     from routers.auth import current_user  # type: ignore
 
 
@@ -1339,6 +1341,32 @@ async def list_kqs_decision_positions(user: dict = Depends(current_user)) -> dic
     issues = [{**item, "sell_decision_id": str(item["sell_decision_id"])} for item in book["oversold"]]
     return {"items": items, "data_issues": issues, "lot_policy": "FIFO, 매수 1건 = lot 1개, 부분 매도는 수량 비율로 비용 배분",
             "disclaimer": "매수·매도 기록만으로 계산한 FIFO lot 보유 현황이며 실시간 시세 평가나 주문은 포함하지 않습니다."}
+
+
+@router.get("/strategy-board")
+async def get_kqs_strategy_board(user: dict = Depends(current_user)) -> dict:
+    """EINT-017 화면: 3개 아이템의 오늘 추천(아이템별 최대 5개)과 내 보유 종목의 매도 신호.
+
+    추천은 검증된 게시본만 읽고, 매도 신호는 엔진이 게시한 청산 모니터와 이 사용자의 FIFO lot으로
+    계산한다. 주문·자동 체결은 없으며 신호는 수동 판단을 돕는 정보다.
+    """
+    payload, detail = None, None
+    try:
+        payload = await asyncio.to_thread(read_local_recommendations)
+    except RuntimeError as exc:
+        detail = str(exc)
+    book = await _user_lot_book(user["_id"])
+    response = {
+        "available": payload is not None, "detail": detail,
+        "items": board_items(payload) if payload else board_items({"signals": []}),
+        "sell_signals": holding_signals(book, payload, _trade_day),
+        "disclaimer": "아이템별 최대 5개 추천과 보유 종목 매도 신호는 판단을 돕는 정보입니다. 순서는 각 아이템의 기존 선정 규칙이며 수익률 예측이 아닙니다. 자동 주문·자동 모의체결은 없습니다.",
+    }
+    if payload:
+        response.update(schema_version=payload["schema_version"], as_of=payload["engine"]["data_as_of"],
+                        generated_at=payload["generated_at"], expires_at=payload["expires_at"],
+                        snapshot_id=payload.get("snapshot_id"), package_version=payload["engine"].get("package_version"))
+    return JSONResponse(content=response, headers={"Cache-Control": "no-store"})
 
 
 class KqsPositionSellInput(ManualRecordInput):
