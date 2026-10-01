@@ -10,14 +10,8 @@ services:
     environment:
       - MONGODB_URL=mongodb://mongo:27017
       - MONGODB_DB=investment_db
-      - QDRANT_URL=http://qdrant:6333
-      - MEILI_URL=http://meilisearch:7700
-      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-local-development-search-key-change-me}
       - KQS_RECOMMENDATION_SOURCE=${KQS_RECOMMENDATION_SOURCE:-snapshot}
       - KQS_SNAPSHOT_DB=/app/state/kqs/recommendations.sqlite3
-      - RAG_EMBEDDING_PROVIDER=hash
-      - RAG_LLM_API_KEY=
-      - RAG_LLM_MODEL=
     volumes:
       - type: bind
         source: ${KQS_STATE_DIR:-/opt/investing-app/state/kqs}
@@ -27,8 +21,6 @@ services:
           create_host_path: false
     depends_on:
       - mongo
-      - qdrant
-      - meilisearch
     networks:
       - investment-net
 
@@ -41,37 +33,9 @@ services:
     networks:
       - investment-net
 
-  qdrant:
-    image: qdrant/qdrant:latest
-    container_name: investment_qdrant
-    restart: unless-stopped
-    volumes:
-      - investment_qdrant_data:/qdrant/storage
-    networks:
-      - investment-net
-
-  meilisearch:
-    image: getmeili/meilisearch:v1.15.2
-    container_name: investment_meilisearch
-    restart: unless-stopped
-    environment:
-      MEILI_ENV: production
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-local-development-search-key-change-me}
-    volumes:
-      - investment_meilisearch_data:/meili_data
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:7700/health >/dev/null 2>&1"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-    networks:
-      - investment-net
-
 networks:
   investment-net:
     driver: bridge
 
 volumes:
   investment_mongo_data:
-  investment_qdrant_data:
-  investment_meilisearch_data:

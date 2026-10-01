@@ -15,7 +15,7 @@ COPY requirements.desktop.txt .
 RUN pip install --no-cache-dir -r requirements.desktop.txt
 
 COPY docs/ ./docs/
-COPY image/ ./image/
+
 COPY hyundai-results/ ./hyundai-results/
 COPY lean-results/ ./lean-results/
 COPY data/ ./data/

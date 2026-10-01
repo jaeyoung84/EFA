@@ -18,18 +18,6 @@ services:
       APP_PORT: ${APP_PORT:-8000}
       MONGODB_URL: mongodb://127.0.0.1:${MONGO_PORT:-27017}
       MONGODB_DB: ${MONGODB_DB:-investment_db}
-      QDRANT_URL: http://127.0.0.1:${QDRANT_PORT:-6333}
-      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-investment_docs}
-      MEILI_URL: http://127.0.0.1:${MEILI_PORT:-7700}
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-local-development-search-key-change-me}
-      RAG_EMBEDDING_PROVIDER: ${RAG_EMBEDDING_PROVIDER:-hash}
-      RAG_EMBEDDING_URL: ${RAG_EMBEDDING_URL:-http://127.0.0.1:11434/api/embed}
-      RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-embeddinggemma}
-      RAG_EMBEDDING_TIMEOUT_SECONDS: ${RAG_EMBEDDING_TIMEOUT_SECONDS:-180}
-      RAG_LLM_BASE_URL: ${RAG_LLM_BASE_URL:-http://127.0.0.1:11434/v1}
-      RAG_LLM_API_KEY: ${RAG_LLM_API_KEY:-ollama}
-      RAG_LLM_MODEL: ${RAG_LLM_MODEL:-qwen3:8b}
-      RAG_LLM_TIMEOUT_SECONDS: ${RAG_LLM_TIMEOUT_SECONDS:-180}
       DART_API_KEY: ${DART_API_KEY:-}
       KRX_COMPANY_LIST_URL: ${KRX_COMPANY_LIST_URL:-}
       KRX_COMPANY_LIST_TIMEOUT_SECONDS: ${KRX_COMPANY_LIST_TIMEOUT_SECONDS:-4}
@@ -86,11 +74,6 @@ services:
       BROKER_API_KEY: ${BROKER_API_KEY:-}
       BROKER_API_SECRET: ${BROKER_API_SECRET:-}
       BROKER_ACCOUNT_ID: ${BROKER_ACCOUNT_ID:-}
-      AWS_REGION: ${AWS_REGION:-}
-      LEX_BOT_ID: ${LEX_BOT_ID:-}
-      LEX_BOT_ALIAS_ID: ${LEX_BOT_ALIAS_ID:-}
-      LEX_LOCALE_ID: ${LEX_LOCALE_ID:-ko_KR}
-      AWS_PROFILE: ${AWS_PROFILE:-investment-analysis-lex}
     volumes:
       - ./docs:/app/docs:ro
       # 백업 파일은 실행 컨테이너에 쓰지 않고, 복구 준비 상태 점검용으로만 읽는다.
@@ -99,10 +82,6 @@ services:
       - ./state/kqs:/app/state/kqs:ro
     depends_on:
       mongo:
-        condition: service_healthy
-      qdrant:
-        condition: service_healthy
-      meilisearch:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl --fail http://127.0.0.1:${APP_PORT:-8000}/api/health"]
@@ -121,122 +100,11 @@ services:
       MONGO_INITDB_DATABASE: ${MONGODB_DB:-investment_db}
     volumes:
       - investment_mongo_data:/data/db
-      # 최초 기동 시(빈 볼륨) 퀴즈 문제·본인 제출 답안을 그대로 적재합니다.
-      - ./mongo-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
       interval: 10s
       timeout: 5s
       retries: 10
 
-  qdrant:
-    image: qdrant/qdrant:v1.13.4
-    container_name: investment_qdrant
-    restart: unless-stopped
-    ports:
-      - "${QDRANT_PORT:-6333}:6333"
-      - "${QDRANT_GRPC_PORT:-6334}:6334"
-    volumes:
-      - investment_qdrant_data:/qdrant/storage
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/6333'"]
-      interval: 5s
-      timeout: 3s
-      retries: 12
-
-  meilisearch:
-    image: getmeili/meilisearch:v1.15.2
-    container_name: investment_meilisearch
-    restart: unless-stopped
-    ports:
-      - "${MEILI_PORT:-7700}:7700"
-    environment:
-      MEILI_ENV: development
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-local-development-search-key-change-me}
-    volumes:
-      - investment_meilisearch_data:/meili_data
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:7700/health >/dev/null 2>&1"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-
-  # 문서가 포함된 이미지가 바뀔 때 전체 텍스트 검색 색인을 새로 만듭니다.
-  search-index:
-    profiles: ["init"]
-    image: jaeyoungsong/jy-investing:latest
-    restart: "no"
-    environment:
-      MEILI_URL: http://meilisearch:7700
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-local-development-search-key-change-me}
-    volumes:
-      - ./docs:/app/docs:ro
-    depends_on:
-      meilisearch:
-        condition: service_healthy
-    command: ["python", "/app/scripts/index_docs_meilisearch.py"]
-
-  ollama:
-    profiles: ["ai", "ollama-init"]
-    image: ollama/ollama:latest
-    container_name: investment_ollama
-    restart: unless-stopped
-    ports:
-      - "${OLLAMA_PORT:-11434}:11434"
-    volumes:
-      - investment_ollama_data:/root/.ollama
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 10s
-
-  # 첫 실행 때 한 번만 모델을 내려받습니다.
-  # docker compose --profile ollama-init run --rm ollama-init
-  ollama-init:
-    profiles: ["ollama-init"]
-    image: ollama/ollama:latest
-    restart: "no"
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-    depends_on:
-      ollama:
-        condition: service_healthy
-    entrypoint: ["/bin/sh", "-ec"]
-    command: ["ollama pull ${RAG_EMBEDDING_MODEL:-embeddinggemma} && ollama pull ${RAG_LLM_MODEL:-qwen3:8b}"]
-
-  # `docker compose --profile init up -d`로 첫 실행할 때 100문항을 적재합니다.
-  quiz-init:
-    profiles: ["init"]
-    image: jaeyoungsong/jy-investing:latest
-    restart: "no"
-    depends_on:
-      backend:
-        condition: service_healthy
-    command: ["sh", "-c", "curl --fail --request POST http://backend:8000/api/quiz/seed"]
-
-  # 문서를 변경한 뒤 `docker compose --profile tools run --rm docs-index`로 실행합니다.
-  docs-index:
-    profiles: ["init", "tools"]
-    image: jaeyoungsong/jy-investing:latest
-    restart: "no"
-    environment:
-      QDRANT_URL: http://qdrant:6333
-      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-investment_docs}
-      RAG_EMBEDDING_PROVIDER: ${RAG_EMBEDDING_PROVIDER:-hash}
-      RAG_EMBEDDING_URL: ${RAG_EMBEDDING_URL:-http://ollama:11434/api/embed}
-      RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-embeddinggemma}
-      RAG_EMBEDDING_TIMEOUT_SECONDS: ${RAG_EMBEDDING_TIMEOUT_SECONDS:-180}
-    volumes:
-      - ./docs:/app/docs:ro
-    depends_on:
-      qdrant:
-        condition: service_healthy
-    command: ["/app/scripts/upload_docs_to_qdrant.sh"]
-
 volumes:
   investment_mongo_data:
-  investment_qdrant_data:
-  investment_ollama_data:
-  investment_meilisearch_data:

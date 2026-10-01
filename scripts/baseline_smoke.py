@@ -66,12 +66,6 @@ def main() -> int:
 
         portfolio = request_json("/api/portfolio", token=token)
         checks.append(("portfolio", "holdings" in portfolio, "authenticated read"))
-
-        rag = request_json("/api/rag/status")
-        qdrant = rag.get("qdrant", {})
-        hybrid = rag.get("hybrid_search", {})
-        rag_ok = bool(qdrant.get("available") and qdrant.get("collection_available") and hybrid.get("meilisearch_available"))
-        checks.append(("rag", rag_ok, f"points={qdrant.get('points_count')}, status={qdrant.get('status')}"))
     except Exception as exc:
         checks.append(("unexpected_error", False, repr(exc)))
     finally:

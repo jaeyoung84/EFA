@@ -85,7 +85,7 @@ function installQuoteModal(container) {
     modal.querySelectorAll('[data-quote-period]').forEach((button) => button.classList.toggle('active', button.dataset.quotePeriod === period));
     try {
       const response = await fetch(`/api/home/market-candle?market=stock&period=${period}&interval=1d&ticker=${encodeURIComponent(selected.ticker)}`, { signal: abortController.signal });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || `HTTP ${response.status}`);
       const data = await response.json();
       const ohlcv = data.ohlcv || [];
       if (!ohlcv.length) throw new Error('데이터 없음');
@@ -182,7 +182,7 @@ export function marketRankingsView(container, {
 
     try {
       const response = await fetch(`${endpoint}?limit=20`);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || `HTTP ${response.status}`);
       const data = await response.json();
       if (disposed) return;
       const items = data.items || [];

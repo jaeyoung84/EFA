@@ -115,3 +115,5 @@ jobs:
         run: >-
           python -m pytest tests/test_leverage_dca_strategy.py tests/test_leverage_dca_paper_trading.py
           tests/test_leverage_dca_alpaca.py tests/test_market_calendar.py -v
+      - name: Investment-site scope (menu/routes/files agree, removed APIs stay 404, no synthetic quotes)
+        run: python -m pytest tests/test_site_scope.py -v

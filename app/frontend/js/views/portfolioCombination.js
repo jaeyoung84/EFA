@@ -1,11 +1,10 @@
 import { api } from '../api.js';
+import { authRequest } from '../auth.js';
 import { dataSourceNote } from './dataSourceNote.js';
 
-const EXAMPLES = [
-  ['AAPL', 'JNJ'],
-  ['NVDA', 'KO'],
-  ['005930.KS', '000660.KS'],
-];
+function escapeAttr(value) {
+  return String(value ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
 
 const SIGNALS = {
   green: { icon: 'fa-circle-check', label: '분산 효과 기대', className: 'is-green' },
@@ -154,12 +153,12 @@ relationship = float(daily_moves.corr().iloc[0, 1])</code></pre>
         <div class="combination-form">
           <label>
             <span>첫 번째 종목</span>
-            <input id="combination-ticker-a" class="param-input" value="AAPL" maxlength="15" autocomplete="off" placeholder="예: AAPL 또는 005930.KS" />
+            <input id="combination-ticker-a" class="param-input" value="" maxlength="15" autocomplete="off" placeholder="티커 (미국 AAPL, 국내 005930.KS)" />
           </label>
           <div class="combination-plus" aria-hidden="true"><i class="fa-solid fa-plus"></i></div>
           <label>
             <span>두 번째 종목</span>
-            <input id="combination-ticker-b" class="param-input" value="JNJ" maxlength="15" autocomplete="off" placeholder="예: JNJ 또는 000660.KS" />
+            <input id="combination-ticker-b" class="param-input" value="" maxlength="15" autocomplete="off" placeholder="티커" />
           </label>
           <label>
             <span>분석 기간</span>
@@ -173,7 +172,7 @@ relationship = float(daily_moves.corr().iloc[0, 1])</code></pre>
         </div>
         <div class="combination-actions">
           <button class="run-btn" id="combination-run"><i class="fa-solid fa-chart-simple"></i> 조합 확인하기</button>
-          <div class="combination-examples">빠른 선택: ${EXAMPLES.map(([a, b]) => `<button type="button" data-a="${a}" data-b="${b}">${a} + ${b}</button>`).join('')}</div>
+          <div class="combination-examples" id="combination-holdings">내 보유종목을 불러오는 중…</div>
         </div>
         <p class="combination-help">미국 종목은 <b>AAPL</b>, 국내 종목은 <b>005930.KS</b>처럼 입력하세요.</p>
       </div>
@@ -233,12 +232,20 @@ relationship = float(daily_moves.corr().iloc[0, 1])</code></pre>
     if (event.key === 'Escape') closeCorrelationModal();
   });
 
-  container.querySelectorAll('.combination-examples button').forEach((button) => {
-    button.addEventListener('click', () => {
-      tickerA.value = button.dataset.a;
-      tickerB.value = button.dataset.b;
+  // 고정 예시 대신 내 보유종목을 눌러 빈 칸부터 채운다.
+  const holdingsBox = container.querySelector('#combination-holdings');
+  authRequest('/api/portfolio').then((portfolio) => {
+    const tickers = [...new Set((portfolio.holdings || []).map((holding) => holding.ticker).filter(Boolean))];
+    if (!tickers.length) { holdingsBox.textContent = '등록된 보유종목이 없습니다. 티커를 직접 입력하세요.'; return; }
+    holdingsBox.innerHTML = `내 보유종목: ${tickers.map((ticker) => `<button type="button" data-ticker="${escapeAttr(ticker)}">${escapeAttr(ticker)}</button>`).join('')}`;
+    holdingsBox.querySelectorAll('button').forEach((button) => {
+      button.addEventListener('click', () => {
+        const target = !tickerA.value.trim() || tickerB.value.trim() ? tickerA : tickerB;
+        if (target === tickerA) tickerB.value = '';
+        target.value = button.dataset.ticker;
+      });
     });
-  });
+  }).catch(() => { holdingsBox.textContent = '로그인하면 내 보유종목을 바로 선택할 수 있습니다. 티커를 직접 입력하세요.'; });
 
   async function analyse() {
     const a = tickerA.value.trim().toUpperCase();

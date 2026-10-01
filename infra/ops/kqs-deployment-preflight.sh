@@ -23,18 +23,11 @@ mounted_rw="$(inspect '{{range .Mounts}}{{if eq .Destination "/app/state/kqs"}}{
 [[ "$mounted_state" == "$state_dir" && "$mounted_rw" == false ]] ||
   fail "backend does not mount the expected KQS state read-only"
 
-for spec in investment_mongo:investment_mongo_data investment_qdrant:investment_qdrant_data investment_meilisearch:investment_meilisearch_data; do
-  container="${spec%%:*}"
-  suffix="${spec#*:}"
-  case "$container" in
-    investment_mongo) destination=/data/db ;;
-    investment_qdrant) destination=/qdrant/storage ;;
-    investment_meilisearch) destination=/meili_data ;;
-  esac
-  container_project="$(inspect '{{index .Config.Labels "com.docker.compose.project"}}' "$container")"
-  [[ "$container_project" == "$project" ]] || fail "$container belongs to a different Compose project"
-  actual_volume="$(inspect "{{range .Mounts}}{{if eq .Destination \"$destination\"}}{{.Name}}{{end}}{{end}}" "$container")"
-  [[ "$actual_volume" == "${project}_${suffix}" ]] ||
-    fail "$container uses a nonstandard volume; configure and approve migration separately"
-done
+# Only MongoDB holds data the website needs; the removed RAG services (Qdrant/Meilisearch) are not checked.
+container=investment_mongo
+container_project="$(inspect '{{index .Config.Labels "com.docker.compose.project"}}' "$container")"
+[[ "$container_project" == "$project" ]] || fail "$container belongs to a different Compose project"
+actual_volume="$(inspect '{{range .Mounts}}{{if eq .Destination "/data/db"}}{{.Name}}{{end}}{{end}}' "$container")"
+[[ "$actual_volume" == "${project}_investment_mongo_data" ]] ||
+  fail "$container uses a nonstandard volume; configure and approve migration separately"
 printf '%s\n' "$project"

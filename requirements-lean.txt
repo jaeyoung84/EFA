@@ -1,2 +1,0 @@
-# QuantConnect 공식 lean-cli. 웹 애플리케이션 의존성과 분리한다.
-lean==1.0.227

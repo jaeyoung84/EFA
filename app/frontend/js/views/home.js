@@ -34,6 +34,8 @@ function isFiniteOhlcValue(value) {
 // 특정 봉의 시세가 비어 있는 경우(휴장·지연 등) 원인이 다르므로 구분해서 안내한다.
 function describeChartError(error) {
   const message = error?.message || '알 수 없는 오류';
+  // 서버가 가짜 시세 대신 보내는 '데이터 없음 · 원인 · 조회 시각' 안내는 그대로 보여 준다.
+  if (message.includes('데이터 없음 · 원인')) return message;
   if (message.startsWith('HTTP ')) return `서버에서 시세를 받아오지 못했습니다(${message}). 잠시 후 다시 시도해 주세요.`;
   if (message === '데이터 없음') return '선택한 기간에는 표시할 시세 데이터가 없습니다. 다른 기간을 선택해 보세요.';
   return `차트를 그리는 중 예상하지 못한 오류가 발생했습니다. 최근 시세에 결측값이 있을 수 있습니다. (${message})`;
@@ -412,7 +414,7 @@ export function homeView(container) {
         <div>
           <span class="jy-kicker">DAILY INVESTMENT BRIEF</span>
           <h1 id="jy-dashboard-title">오늘의 투자 대시보드</h1>
-          <p>시장 흐름, 포트폴리오 위험, 전략 신호를 한눈에 확인하세요.</p>
+          <p>KQS 추천, 내 판단·보유 기록, 시장 흐름을 한눈에 확인하세요.</p>
         </div>
         <div class="jy-data-status" id="jy-market-data-status"><span class="jy-live-dot"></span><strong>시장 데이터</strong><small>일봉 수집 상태를 확인하는 중…</small></div>
       </section>
@@ -428,12 +430,12 @@ export function homeView(container) {
       </section>
 
       <section class="jy-decision-grid">
-        <article class="jy-panel">
-          <header><div><span class="jy-section-label">ACTION CENTER</span><h2>오늘 확인할 항목</h2></div><span class="jy-count" data-jy-action-count>-</span></header>
+        <article class="jy-panel" id="jy-kqs-brief">
+          <header><div><span class="jy-section-label">KQS RECOMMENDATIONS</span><h2>오늘의 추천과 내 판단</h2></div><span class="jy-count" data-jy-kqs-pending>-</span></header>
+          <p class="jy-kqs-meta" data-jy-kqs-meta>추천을 불러오는 중…</p>
+          <button class="jy-action-row" type="button" data-jy-route="my-strategies"><i class="fa-solid fa-bullseye"></i><span><strong data-jy-kqs-signals>추천 확인 중</strong><small data-jy-kqs-signals-detail>추천 근거를 보고 매수·관망·제외를 기록하세요.</small></span><i class="fa-solid fa-chevron-right"></i></button>
+          <button class="jy-action-row" type="button" data-jy-route="my-strategies"><i class="fa-solid fa-box-archive"></i><span><strong data-jy-kqs-positions>보유 기록 확인 중</strong><small data-jy-kqs-positions-detail>추천이 만료된 보유분도 여기서 매도·부분매도를 기록합니다.</small></span><i class="fa-solid fa-chevron-right"></i></button>
           <button class="jy-action-row" type="button" data-jy-route="portfolio-risk"><i class="fa-solid fa-shield-halved"></i><span><strong>실제 보유자산 위험 점검</strong><small>내 보유 종목의 평가금액과 위험을 확인하세요.</small></span><i class="fa-solid fa-chevron-right"></i></button>
-          <button class="jy-action-row" type="button" data-jy-route="quant-lean"><i class="fa-solid fa-flask-vial"></i><span><strong>검증 전략 리뷰</strong><small>LEAN 백테스트 성과와 낙폭을 비교하세요.</small></span><i class="fa-solid fa-chevron-right"></i></button>
-          <button class="jy-action-row" type="button" data-jy-route="today-gainers"><i class="fa-solid fa-arrow-trend-up"></i><span><strong>시장 강도 탐색</strong><small>오늘 거래가 집중된 상승 종목을 살펴보세요.</small></span><i class="fa-solid fa-chevron-right"></i></button>
-        </article>
         <article class="jy-panel jy-signal-panel">
           <header><div><span class="jy-section-label">SYSTEM STATUS</span><h2>데이터와 신호</h2></div></header>
           <dl><div><dt>실시간 주문</dt><dd class="is-neutral">연결 안 됨</dd></div><div><dt>포트폴리오</dt><dd class="is-neutral" data-jy-portfolio-status>등록 전</dd></div><div><dt>집중도</dt><dd data-jy-concentration>-</dd></div><div><dt>백테스트</dt><dd class="is-positive">사용 가능</dd></div></dl>
@@ -469,15 +471,52 @@ export function homeView(container) {
     button.addEventListener('click', () => window.navigate(button.dataset.jyRoute));
   });
 
-  const actionCountEl = container.querySelector('[data-jy-action-count]');
-  if (actionCountEl) actionCountEl.textContent = String(container.querySelectorAll('.jy-action-row').length);
+  // KQS 추천은 계약·만료 검증을 통과한 것만 오고, 판단은 사용자가 직접 기록한 원장이다(자동 체결 없음).
+  async function loadKqsBrief() {
+    const panel = container.querySelector('#jy-kqs-brief');
+    if (!panel) return;
+    const set = (selector, text) => { const el = panel.querySelector(selector); if (el) el.textContent = text; };
+    if (!isAuthenticated()) {
+      set('[data-jy-kqs-meta]', '로그인하면 KQS 추천과 내 판단 기록을 볼 수 있습니다.');
+      set('[data-jy-kqs-signals]', 'KQS 추천 보기');
+      set('[data-jy-kqs-positions]', '보유 기록 보기');
+      return;
+    }
+    const [recommendations, decisions, positions] = await Promise.allSettled([
+      authRequest('/api/kqs/recommendations'), authRequest('/api/kqs/decisions?limit=500'), authRequest('/api/kqs/decisions/positions'),
+    ]);
+    if (recommendations.status === 'fulfilled' && recommendations.value?.read_only) {
+      const data = recommendations.value;
+      const signals = data.signals || [];
+      const decided = new Set(decisions.status === 'fulfilled' ? (decisions.value.items || []).map((item) => item.signal_id) : []);
+      const pending = decisions.status === 'fulfilled' ? signals.filter((signal) => !decided.has(signal.signal_id)).length : null;
+      const expires = data.expires_at ? new Date(data.expires_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : '-';
+      set('[data-jy-kqs-meta]', `데이터 기준일 ${data.engine?.data_as_of || '-'} · 만료 ${expires} KST`);
+      set('[data-jy-kqs-signals]', `추천 ${signals.length}건 · 진입 선정 ${data.selected_entry_count ?? 0}건`);
+      set('[data-jy-kqs-signals-detail]', pending === null ? '판단 기록을 불러오지 못했습니다.' : pending ? `아직 판단하지 않은 추천 ${pending}건이 있습니다.` : '모든 추천에 판단을 기록했습니다.');
+      set('[data-jy-kqs-pending]', pending === null ? '-' : String(pending));
+    } else {
+      const detail = recommendations.status === 'fulfilled' ? recommendations.value?.detail : recommendations.reason?.message;
+      set('[data-jy-kqs-meta]', `검증된 추천을 사용할 수 없습니다. ${detail || ''}`.trim());
+      set('[data-jy-kqs-signals]', '현재 유효한 추천 없음');
+    }
+    if (positions.status === 'fulfilled') {
+      const items = positions.value.items || [];
+      const expired = items.filter((item) => item.recommendation_expired).length;
+      set('[data-jy-kqs-positions]', items.length ? `보유 ${items.length}종목 기록` : '보유 기록 없음');
+      set('[data-jy-kqs-positions-detail]', expired ? `추천이 만료된 보유 ${expired}종목 · 매도 판단을 기록하세요.` : '추천이 만료된 보유분은 없습니다.');
+    } else {
+      set('[data-jy-kqs-positions]', '보유 기록을 불러오지 못했습니다');
+    }
+  }
+  loadKqsBrief();
 
   async function loadMarketRefreshStatus() {
     const root = container.querySelector('#jy-market-data-status');
     if (!root) return;
     try {
       const response = await fetch('/api/market/refresh-status');
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || `HTTP ${response.status}`);
       const data = await response.json();
       const job = data.last_job;
       const text = root.querySelector('small');
@@ -596,7 +635,7 @@ export function homeView(container) {
 
     try {
       const response = await fetch(`/api/home/market-candle?market=${encodeURIComponent(id)}&period=${period}`);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || `HTTP ${response.status}`);
       const data = await response.json();
       const ohlcv = (data.ohlcv || []).filter((point) => [point?.o, point?.h, point?.l, point?.c].every(isFiniteOhlcValue));
       if (!ohlcv.length) throw new Error('데이터 없음');
@@ -658,7 +697,7 @@ export function homeView(container) {
 
     try {
       const response = await fetch(`/api/home/market-candle?market=${encodeURIComponent(market.id)}&period=${period}&interval=${interval}&ticker=${encodeURIComponent(market.ticker)}&timeframe=${interval}`, { signal });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || `HTTP ${response.status}`);
       const data = await response.json();
       const ohlcv = (data.ohlcv || []).filter((point) => [point?.o, point?.h, point?.l, point?.c].every(isFiniteOhlcValue));
       if (!ohlcv.length) throw new Error('데이터 없음');
@@ -760,7 +799,7 @@ export function homeView(container) {
       modalSearchAbortController = new AbortController();
       try {
         const response = await fetch(`/api/home/chart-search?q=${encodeURIComponent(query)}`, { signal: modalSearchAbortController.signal });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || `HTTP ${response.status}`);
         const data = await response.json();
         (data.items || []).forEach((item) => {
           const button = document.createElement('button');
@@ -856,7 +895,7 @@ export function homeView(container) {
         body: JSON.stringify({ tickers }),
         signal: quoteAbortController.signal,
       });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || `HTTP ${response.status}`);
       const data = await response.json();
       const quoteByTicker = new Map((data.items || []).map((item) => [item.ticker, item]));
 

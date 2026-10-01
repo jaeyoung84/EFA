@@ -2785,3 +2785,6 @@ p.lvdca-badge{display:block;width:fit-content}
 .lvdca-metric small{display:block;margin-top:5px;color:var(--text-muted);font-size:.66rem;font-variant-numeric:tabular-nums}.lvdca-table-wrap td.is-up{color:var(--green)}.lvdca-table-wrap td.is-down{color:var(--red)}.lvdca-table-wrap td small{color:var(--text-muted);font-size:.64rem}
 @media(max-width:760px){.lvdca-head{align-items:flex-start;flex-direction:column}.lvdca-config-grid{grid-template-columns:1fr}.lvdca-metric-grid{grid-template-columns:1fr 1fr}.lvdca-signal-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:520px){.lvdca-metric-grid{grid-template-columns:1fr}.lvdca-signal-grid{grid-template-columns:1fr}}
+
+/* 대시보드 KQS 추천 요약: 기준일·만료 시각 한 줄 */
+.jy-kqs-meta{margin:0 0 10px;color:var(--text-muted,#94a3b8);font-size:.75rem;line-height:1.5}

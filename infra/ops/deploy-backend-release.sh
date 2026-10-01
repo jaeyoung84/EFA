@@ -2,8 +2,8 @@
 # Server half of the GitHub Actions -> SSM backend deployment. Runs as root on the EC2 host.
 #
 # Builds the tested commit in its own release folder, swaps ONLY the backend container and
-# restores the previous image if the new one is not healthy. It never touches the Mongo/Qdrant/
-# Meilisearch volumes, app/backend/.env, KQS state, systemd timers or the engine worker image.
+# restores the previous image if the new one is not healthy. It never touches the Mongo
+# volume, app/backend/.env, KQS state, systemd timers or the engine worker image.
 set -euo pipefail
 
 sha="${1:?commit sha required}"

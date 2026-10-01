@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
-  <link rel="stylesheet" href="styles.css?v=28" />
+  <link rel="stylesheet" href="styles.css?v=29" />
 </head>
 <body>
 
@@ -61,13 +61,6 @@
       </span>
     </button>
 
-    <form class="global-search" id="global-search" role="search">
-      <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-      <input id="global-search-input" type="search" autocomplete="off" placeholder="종목·리서치 검색" aria-label="종목 및 리서치 검색" />
-      <button type="submit" aria-label="검색"><i class="fa-solid fa-arrow-right"></i></button>
-      <div class="global-search-results" id="global-search-results" hidden aria-live="polite"></div>
-    </form>
-
     <div class="topbar-ticker" aria-label="시장 현황">
       <span class="ticker-item" data-market-label="KOSPI">
         <span class="ticker-label">KOSPI</span><b>-</b><em>조회 중</em>
@@ -96,73 +89,50 @@
   </header>
 
   <!-- ═══════════════════════════════════════════
-       TOP MENU BAR (인베스팅닷컴 스타일 — 좌측 사이드바 대신 상단 가로 메뉴 + 드롭다운)
-       우선순위 순서: 대시보드 → 포트폴리오 → 전략 연구소 → 종목 탐색 → 리서치 자료실 → 설정·운영
+       TOP MENU BAR — 대시보드 → 추천·판단 → 내 자산 → 시장·종목 (+ 시스템 상태)
+       화면 목록은 js/app.js의 routes·NAV_SECTIONS와 같아야 한다.
   ═══════════════════════════════════════════ -->
   <nav id="mainnav" class="mainnav" aria-label="메인 메뉴">
     <div class="mainnav-inner">
       <a class="mainnav-item nav-item nav-home" data-view="home"><i class="fa-solid fa-table-cells-large"></i><span>대시보드</span></a>
 
-      <div class="mainnav-group" data-group="portfolio">
-        <button class="mainnav-item mainnav-trigger" aria-haspopup="true" aria-expanded="false"><i class="fa-solid fa-briefcase"></i><span>포트폴리오</span><i class="fa-solid fa-chevron-down mainnav-chev"></i></button>
+      <div class="mainnav-group" data-group="decisions">
+        <button class="mainnav-item mainnav-trigger" aria-haspopup="true" aria-expanded="false"><i class="fa-solid fa-list-check"></i><span>추천·판단</span><i class="fa-solid fa-chevron-down mainnav-chev"></i></button>
         <div class="mainnav-dropdown">
-          <a class="nav-item" data-view="portfolio-holdings"><i class="fa-solid fa-wallet"></i>내 보유자산</a>
-          <a class="nav-item" data-view="portfolio-risk"><i class="fa-solid fa-shield-halved"></i>실제 보유자산 리스크</a>
-          <a class="nav-item" data-view="portfolio-combination"><i class="fa-solid fa-circle-nodes"></i>자산 조합</a>
-          <a class="nav-item" data-view="portfolio"><i class="fa-solid fa-scale-balanced"></i>비중 최적화</a>
-          <a class="nav-item" data-view="portfolio-guide"><i class="fa-solid fa-compass"></i>포트폴리오 추천</a>
-          <a class="nav-item" data-view="portfolio-regime"><i class="fa-solid fa-gauge-high"></i>위험 성향</a>
-          <a class="nav-item" data-view="portfolio-simulation"><i class="fa-solid fa-chart-area"></i>자산 시뮬레이션</a>
-          <a class="nav-item" data-view="risk"><i class="fa-solid fa-shield-halved"></i>리스크 분석</a>
+          <a class="nav-item" data-view="my-strategies"><i class="fa-solid fa-bullseye"></i>KQS 추천·매매 기록</a>
+          <a class="nav-item" data-view="strategy-backtest"><i class="fa-solid fa-chart-line"></i>실제 가격 백테스트</a>
+          <a class="nav-item" data-view="leverage-dca"><i class="fa-solid fa-bolt"></i>레버리지 DCA 자동매매(모의)</a>
         </div>
       </div>
 
-      <div class="mainnav-group" data-group="strategy">
-        <button class="mainnav-item mainnav-trigger" aria-haspopup="true" aria-expanded="false"><i class="fa-solid fa-flask-vial"></i><span>전략 연구소</span><i class="fa-solid fa-chevron-down mainnav-chev"></i></button>
+      <div class="mainnav-group" data-group="assets">
+        <button class="mainnav-item mainnav-trigger" aria-haspopup="true" aria-expanded="false"><i class="fa-solid fa-briefcase"></i><span>내 자산</span><i class="fa-solid fa-chevron-down mainnav-chev"></i></button>
         <div class="mainnav-dropdown">
-          <a class="nav-item" data-view="strategy-backtest"><i class="fa-solid fa-chart-line"></i>실제 가격 백테스트</a>
-          <a class="nav-item" data-view="my-strategies"><i class="fa-solid fa-folder-open"></i>내 전략</a>
-          <a class="nav-item" data-view="leverage-dca"><i class="fa-solid fa-bolt"></i>레버리지 DCA 자동매매(모의)</a>
-          <a class="nav-item" data-view="quant-lean"><i class="fa-solid fa-chart-simple"></i>LEAN 리포트</a>
-          <a class="nav-item" data-view="backtest"><i class="fa-solid fa-clock-rotate-left"></i>전략 백테스트</a>
-          <a class="nav-item" data-view="pipeline"><i class="fa-solid fa-code-branch"></i>퀀트 파이프라인</a>
-          <a class="nav-item" data-view="cross-validation"><i class="fa-solid fa-shuffle"></i>교차 검증</a>
-          <a class="nav-item" data-view="chart-drawing"><i class="fa-solid fa-pencil"></i>차트 드로잉</a>
+          <a class="nav-item" data-view="portfolio-holdings"><i class="fa-solid fa-wallet"></i>내 보유자산</a>
+          <a class="nav-item" data-view="portfolio-risk"><i class="fa-solid fa-shield-halved"></i>보유자산 리스크</a>
+          <a class="nav-item" data-view="portfolio-combination"><i class="fa-solid fa-circle-nodes"></i>자산 조합 (상관관계)</a>
         </div>
       </div>
 
       <div class="mainnav-group" data-group="market">
-        <button class="mainnav-item mainnav-trigger" aria-haspopup="true" aria-expanded="false"><i class="fa-solid fa-magnifying-glass-chart"></i><span>종목 탐색</span><i class="fa-solid fa-chevron-down mainnav-chev"></i></button>
+        <button class="mainnav-item mainnav-trigger" aria-haspopup="true" aria-expanded="false"><i class="fa-solid fa-magnifying-glass-chart"></i><span>시장·종목</span><i class="fa-solid fa-chevron-down mainnav-chev"></i></button>
         <div class="mainnav-dropdown">
           <a class="nav-item" data-view="world-markets"><i class="fa-solid fa-earth-asia"></i>시장 현황</a>
           <a class="nav-item" data-view="asset-classes"><i class="fa-solid fa-layer-group"></i>자산군 차트</a>
           <a class="nav-item" data-view="today-gainers"><i class="fa-solid fa-arrow-trend-up"></i>오늘의 상승 종목</a>
           <a class="nav-item" data-view="today-sobujang"><i class="fa-solid fa-microchip"></i>소부장 종목</a>
-          <a class="nav-item" data-view="technical-chart"><i class="fa-solid fa-chart-simple"></i>기술적 분석</a>
+          <a class="nav-item" data-view="macro-realtime"><i class="fa-solid fa-globe"></i>거시경제</a>
           <a class="nav-item" data-view="company-financial"><i class="fa-solid fa-building-columns"></i>기업 재무</a>
           <a class="nav-item" data-view="dart-company-search"><i class="fa-solid fa-file-lines"></i>DART 기업 검색</a>
-          <a class="nav-item" data-view="industry-analysis"><i class="fa-solid fa-industry"></i>산업 분석</a>
-        </div>
-      </div>
-
-      <div class="mainnav-group" data-group="research">
-        <button class="mainnav-item mainnav-trigger" aria-haspopup="true" aria-expanded="false"><i class="fa-solid fa-book-open"></i><span>리서치 자료실</span><i class="fa-solid fa-chevron-down mainnav-chev"></i></button>
-        <div class="mainnav-dropdown">
-          <a class="nav-item" data-view="macro-realtime"><i class="fa-solid fa-globe"></i>거시경제</a>
-          <a class="nav-item" data-view="valuation"><i class="fa-solid fa-calculator"></i>밸류에이션</a>
-          <a class="nav-item" data-view="financial-statement"><i class="fa-solid fa-table-list"></i>재무제표</a>
-          <a class="nav-item" data-view="learn-11"><i class="fa-solid fa-book"></i>투자 학습 문서</a>
-          <a class="nav-item" data-view="rag-chat"><i class="fa-solid fa-comments"></i>문서 검색 AI</a>
-          <a class="nav-item" data-view="quiz-home"><i class="fa-solid fa-circle-question"></i>학습 점검</a>
-          <a class="nav-item" data-view="vocabulary-exam"><i class="fa-solid fa-spell-check"></i>단어장 30문제 시험</a>
+          <a class="nav-item" data-view="dart-financial-analysis"><i class="fa-solid fa-file-invoice-dollar"></i>DART 재무 분석</a>
+          <a class="nav-item" data-view="industry-analysis"><i class="fa-solid fa-industry"></i>산업 비교</a>
         </div>
       </div>
 
       <div class="mainnav-group mainnav-group-utility" data-group="settings">
-        <button class="mainnav-item mainnav-trigger" aria-haspopup="true" aria-expanded="false"><i class="fa-solid fa-gear"></i><span>설정·운영</span><i class="fa-solid fa-chevron-down mainnav-chev"></i></button>
+        <button class="mainnav-item mainnav-trigger" aria-haspopup="true" aria-expanded="false"><i class="fa-solid fa-gear"></i><span>운영</span><i class="fa-solid fa-chevron-down mainnav-chev"></i></button>
         <div class="mainnav-dropdown mainnav-dropdown-end">
           <a class="nav-item" data-view="server-resources"><i class="fa-solid fa-server"></i>시스템 상태</a>
-          <a class="nav-item" data-view="tax-accounting"><i class="fa-solid fa-receipt"></i>세무·회계</a>
         </div>
       </div>
     </div>
@@ -187,21 +157,8 @@
 
   </div><!-- /.layout -->
 
-  <button type="button" id="screen-capture-fab" class="screen-capture-fab" aria-label="현재 화면 캡처하기" title="현재 화면을 캡처해 GPT에 질문하기" data-html2canvas-ignore="true">
-    <i class="fa-solid fa-camera"></i><span>캡처하기</span>
-  </button>
-  <section id="screen-capture-panel" class="screen-capture-panel" aria-live="polite" hidden data-html2canvas-ignore="true">
-    <div class="screen-capture-panel-head"><strong><i class="fa-solid fa-image"></i> 캡처 완료</strong><button type="button" data-capture-close aria-label="캡처 패널 닫기"><i class="fa-solid fa-xmark"></i></button></div>
-    <img data-capture-preview alt="현재 화면 캡처 미리보기">
-    <p data-capture-status>이미지를 준비하고 있습니다.</p>
-    <label>질문할 GPT 웹<select data-capture-service><option value="https://chatgpt.com/">ChatGPT</option><option value="https://claude.ai/new">Claude</option><option value="https://gemini.google.com/app">Gemini</option></select></label>
-    <button type="button" class="screen-capture-open" data-capture-open><i class="fa-solid fa-arrow-up-right-from-square"></i> GPT에서 질문하기</button>
-    <div class="screen-capture-actions"><button type="button" data-capture-copy><i class="fa-regular fa-copy"></i> 이미지 다시 복사</button><button type="button" data-capture-download><i class="fa-solid fa-download"></i> PNG 저장</button></div>
-  </section>
-
   <script src="https://cdn.jsdelivr.net/npm/apexcharts@3.54.0/dist/apexcharts.min.js"></script>
-  <script src="vendor/mermaid.min.js?v=11.16.0"></script>
-  <script type="module" src="js/app.js?v=36"></script>
-  <script src="js/sidebarUI.js?v=4"></script>
+  <script type="module" src="js/app.js?v=37"></script>
+  <script src="js/sidebarUI.js?v=5"></script>
 </body>
 </html>

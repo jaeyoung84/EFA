@@ -37,7 +37,7 @@ RUN mkdir -p app/frontend/vendor \
 
 # 4. 문서, 데이터, 애플리케이션 코드 복사
 COPY docs/ ./docs/
-COPY image/ ./image/
+
 COPY hyundai-results/ ./hyundai-results/
 COPY lean-results/ ./lean-results/
 COPY data/ ./data/

@@ -10,27 +10,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
-    grep -v '^torch$' requirements.txt > requirements.nogpu.txt \
-    && pip install --index-url https://download.pytorch.org/whl/cpu torch \
-    && pip install -r requirements.nogpu.txt
+    pip install -r requirements.txt
 
 COPY engine/kqs/ ./engine/kqs/
 RUN pip install --no-deps ./engine/kqs
 COPY app/ ./app/
-RUN mkdir -p app/frontend/vendor \
-    && python -c "import pathlib, urllib.request; pathlib.Path('app/frontend/vendor/mermaid.min.js').write_bytes(urllib.request.urlopen('https://cdn.jsdelivr.net/npm/mermaid@11.16.0/dist/mermaid.min.js', timeout=90).read())" \
-    && test -s app/frontend/vendor/mermaid.min.js
 COPY docs/ ./docs/
-COPY image/ ./image/
+# 저장된 LEAN 전략 카드가 읽는 사전 실행 결과(routers/strategy.py).
 COPY hyundai-results/ ./hyundai-results/
 COPY lean-results/ ./lean-results/
-COPY scripts/upload_docs_to_qdrant.sh ./scripts/upload_docs_to_qdrant.sh
-COPY scripts/sync_learning_menu.py ./scripts/sync_learning_menu.py
-COPY scripts/build_sidebar_partial.py ./scripts/build_sidebar_partial.py
-COPY scripts/index_docs_meilisearch.py ./scripts/index_docs_meilisearch.py
-RUN chmod +x ./scripts/upload_docs_to_qdrant.sh \
-    && python ./scripts/sync_learning_menu.py \
-    && python ./scripts/build_sidebar_partial.py
 
 EXPOSE 8000
 

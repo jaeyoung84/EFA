@@ -23,9 +23,7 @@ elif ".Source" in template:
 elif ".RW" in template:
     value = overrides.get("rw", "false")
 elif ".Name" in template:
-    suffix = {"investment_mongo": "investment_mongo_data",
-              "investment_qdrant": "investment_qdrant_data",
-              "investment_meilisearch": "investment_meilisearch_data"}[container]
+    suffix = {"investment_mongo": "investment_mongo_data"}[container]
     value = overrides.get(container + ":volume", "investing-app_" + suffix)
 else:
     sys.exit(92)
@@ -67,7 +65,8 @@ class DeploymentPreflightTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "investing-app\n")
         calls = [json.loads(line) for line in self.log.read_text().splitlines()]
-        self.assertEqual(len(calls), 9)
+        self.assertEqual(len(calls), 5)
+        self.assertNotIn("investment_qdrant", self.log.read_text())
         self.assertTrue(all(call[:2] == ["inspect", "--format"] for call in calls))
 
     def test_missing_environment_or_database_stops_before_docker(self):

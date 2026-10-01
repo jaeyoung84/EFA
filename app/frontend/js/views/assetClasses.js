@@ -46,6 +46,8 @@ function isFiniteOhlcValue(value) {
 // 원인별로 사용자가 이해할 수 있는 한국어 설명을 붙인다.
 function describeChartError(error) {
   const message = error?.message || '알 수 없는 오류';
+  // 서버가 가짜 시세 대신 보내는 '데이터 없음 · 원인 · 조회 시각' 안내는 그대로 보여 준다.
+  if (message.includes('데이터 없음 · 원인')) return message;
   if (message.startsWith('HTTP ')) return `서버에서 시세를 받아오지 못했습니다(${message}). 잠시 후 다시 시도해 주세요.`;
   if (message === '데이터 없음') return '선택한 기간에는 표시할 시세 데이터가 없습니다. 다른 기간을 선택해 보세요.';
   return `차트를 그리는 중 예상하지 못한 오류가 발생했습니다. 최근 시세에 결측값이 있을 수 있습니다. (${message})`;
@@ -120,7 +122,7 @@ export function assetClassesView(container) {
 
     try {
       const response = await fetch(`/api/home/market-candle?market=${encodeURIComponent(id)}&period=${idxPeriods.get(id)}`);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || `HTTP ${response.status}`);
       const data = await response.json();
       const ohlcv = (data.ohlcv || []).filter((point) => [point?.o, point?.h, point?.l, point?.c].every(isFiniteOhlcValue));
       if (!ohlcv.length) throw new Error('데이터 없음');
