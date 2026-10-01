@@ -12,10 +12,13 @@ from kqs_runtime import pullback_v4 as v4
 
 
 def _fingerprint(equity, trades):
+    rounded = trades[v4.TRADE_COLUMNS].copy()
+    for column in rounded.select_dtypes("float").columns:
+        rounded[column] = rounded[column].round(4)
     return {"trades": len(trades),
             "exit_reasons": dict(sorted(trades["exit_reason"].value_counts().to_dict().items())),
-            "trades_sha16": hashlib.sha256(trades[v4.TRADE_COLUMNS].to_csv(index=False).encode()).hexdigest()[:16],
-            "equity_sha16": hashlib.sha256(equity.to_csv().encode()).hexdigest()[:16]}
+            "trades_sha16": hashlib.sha256(rounded.to_csv(index=False).encode()).hexdigest()[:16],
+            "equity_sha16": hashlib.sha256(equity.round(2).to_csv().encode()).hexdigest()[:16]}
 
 
 class PullbackV4BacktestEquivalence(unittest.TestCase):

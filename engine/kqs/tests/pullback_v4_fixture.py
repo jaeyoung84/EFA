@@ -6,8 +6,9 @@ import pandas as pd
 START, END = pd.Timestamp("2021-01-01"), pd.Timestamp("2024-06-28")
 PERIOD_START, PERIOD_END = pd.Timestamp("2022-01-03"), END
 # Golden values produced once by the archived strategy_validation_v4.py (sha256 8e4dc15f3f135f5b)
-# on this fixture; see docs/engine/verification/EINT-017.json.
-GOLDEN = {"trades": 66, "trades_sha16": "aec93b65a7c0aa5c", "equity_sha16": "e85de783ab712f7f",
+# on this fixture; see docs/engine/verification/EINT-017.json. Hashes use prices rounded to 4 and
+# equity to 2 decimals so last-bit float differences between machines do not break the check.
+GOLDEN = {"trades": 66, "trades_sha16": "c32f51df68aa1856", "equity_sha16": "941334b928b9040f",
           "exit_reasons": {"forced_close": 1, "holding_limit": 16, "market_regime": 22, "stop": 12, "trailing": 15}}
 
 

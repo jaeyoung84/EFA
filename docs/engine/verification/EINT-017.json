@@ -79,11 +79,14 @@
       "fixture": "engine/kqs/tests/pullback_v4_fixture.py",
       "archived": {
         "trades": 66,
-        "trades_sha16": "aec93b65a7c0aa5c",
-        "equity_sha16": "e85de783ab712f7f"
+        "trades_sha16_rounded": "c32f51df68aa1856",
+        "equity_sha16_rounded": "941334b928b9040f",
+        "raw_trades_sha16_local": "aec93b65a7c0aa5c",
+        "raw_equity_sha16_local": "e85de783ab712f7f"
       },
       "port": "identical (all five exit reasons exercised)",
-      "how": "archived module copied to a scratch directory and executed once; the archive itself was not modified"
+      "how": "archived module copied to a scratch directory and executed once; the archive itself was not modified",
+      "note": "CI (Python 3.12) produced a different raw hash for the synthetic fixture (same 66 trades and exit mix): last-bit float differences in fixture generation. The test now hashes prices rounded to 4 and equity to 2 decimals; archived and port are equal under both forms locally and on Python 3.12."
     },
     "real_data_reproduction": {
       "db": "S3 kqs-state-125022369601/backups/20260930T023021Z/market.sqlite3 (read-only local copy, sha256 f9c4a2ce6a7f6d5bce0a3cefe149f010c98b1b9e55da14391943af9fedb0c50f)",
