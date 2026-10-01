@@ -4,6 +4,7 @@ import { researchNotesView }   from './views/researchNotes.js';
 import { initShell }           from './shell.js';
 import { serverResourcesView } from './views/serverResources.js';
 import { worldMarketsView }   from './views/worldMarkets.js';
+import { sectorRotationView } from './views/sectorRotation.js';
 import { assetClassesView }   from './views/assetClasses.js';
 import { todayGainersView }   from './views/todayGainers.js';
 import { todaySobujangView }  from './views/todaySobujang.js';
@@ -48,6 +49,7 @@ const routes = {
   'portfolio-risk':          { label: '실제 보유자산 리스크 분석',   render: () => portfolioRiskView(app) },
   'portfolio-combination':   { label: '자산 조합 (상관관계)',        render: () => portfolioCombinationView(app) },
   'world-markets':           { label: '시장 현황',                  render: () => worldMarketsView(app) },
+  'sector-rotation':         { label: '섹터 순환 (RRG)',            render: () => sectorRotationView(app) },
   'asset-classes':           { label: '자산군 차트',                render: () => assetClassesView(app) },
   'today-gainers':           { label: '오늘의 상승 종목',            render: () => todayGainersView(app) },
   'today-sobujang':          { label: '소부장 종목',                render: () => todaySobujangView(app) },
@@ -63,7 +65,7 @@ const NAV_SECTIONS = {
   analysis: ['company-financial', 'dart-company-search', 'dart-financial-analysis', 'industry-analysis'],
   portfolio: ['portfolio-holdings', 'portfolio-risk', 'portfolio-combination'],
   kqs: ['strategy-board', 'my-strategies', 'strategy-backtest', 'leverage-dca'],
-  market: ['world-markets', 'asset-classes', 'today-gainers', 'today-sobujang', 'macro-realtime'],
+  market: ['world-markets', 'sector-rotation', 'asset-classes', 'today-gainers', 'today-sobujang', 'macro-realtime'],
   watchlist: ['watchlist'],
   notes: ['research-notes'],
   settings: ['server-resources'],

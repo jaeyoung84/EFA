@@ -3120,6 +3120,46 @@ body { background: var(--bg); }
   .dash-queue-list { flex: 1; min-height: 0; max-height: none; }
 }
 .dash-queue-price { color: #fff; }
+/* EINT-021 섹터 순환(RRG) */
+.rrg-page .dash-card { margin-bottom: 0; }
+.rrg-headline { margin: 0 0 14px; padding: 12px 14px; color: #e6ebf3; background: var(--surface-soft); border-left: 3px solid var(--primary); border-radius: 8px; font-size: .95rem; line-height: 1.7; }
+.rrg-headline i { margin-right: 6px; color: var(--primary); }
+.rrg-headline span { color: #c3cbd8; font-size: .86rem; }
+.rrg-muted { color: var(--text-muted); }
+.rrg-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.rrg-card { padding: 12px 14px; background: var(--surface-soft); border: 1px solid var(--border); border-top: 3px solid var(--q); border-radius: 10px; }
+.rrg-card header { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; margin-bottom: 8px; }
+.rrg-card header b { color: var(--q); font-size: 1.02rem; }
+.rrg-card header small { grid-column: 1; color: var(--text-muted); font-size: .7rem; }
+.rrg-card header em { grid-row: 1 / 3; grid-column: 2; align-self: center; color: #fff; font-style: normal; font-weight: 800; font-size: 1.2rem; }
+.rrg-card ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 5px; }
+.rrg-card li { display: flex; align-items: center; gap: 6px; color: #e6ebf3; font-size: .84rem; }
+.rrg-card li small { margin-left: auto; color: var(--text-muted); font-size: .72rem; font-variant-numeric: tabular-nums; }
+.rrg-card li small.rrg-move { margin-left: 0; padding: 1px 6px; color: #111; background: var(--q); border-radius: 4px; font-weight: 700; }
+.rrg-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.rrg-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; color: #dfe5ee; background: var(--surface-soft); border: 1px solid var(--border-strong); border-radius: 99px; font-size: .76rem; cursor: pointer; }
+.rrg-chip i { width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
+.rrg-chip.is-off { opacity: .35; text-decoration: line-through; }
+.rrg-chip.is-focus { border-color: var(--c); }
+.rrg-chart { width: 100%; max-width: 1080px; margin: 0 auto; }
+.rrg-svg { display: block; width: 100%; height: auto; background: #0b1322; border: 1px solid var(--border); border-radius: 10px; }
+.rrg-axis { stroke: #3b4a66; stroke-width: 1.4; }
+.rrg-cycle { fill: none; stroke: #2c3d5c; stroke-width: 2; stroke-dasharray: 5 5; }
+.rrg-tick { fill: #6b7890; font-size: 12px; }
+.rrg-axis-title { fill: #8a97ad; font-size: 13px; }
+.rrg-quad-label { font-size: 22px; font-weight: 800; opacity: .85; }
+.rrg-quad-en { font-size: 13px; font-weight: 600; opacity: .7; }
+.rrg-name { font-size: 14px; font-weight: 700; paint-order: stroke; stroke: #0b1322; stroke-width: 4px; }
+.rrg-sector { transition: opacity .15s; }
+.rrg-sector.is-dim { opacity: .12; }
+.rrg-sector.is-focus .rrg-name { font-size: 16px; }
+.rrg-badge { display: inline-block; padding: 2px 9px; color: #111; background: var(--q); border-radius: 5px; font-size: .74rem; font-weight: 800; }
+.rrg-badge.is-past { color: var(--q); background: transparent; border: 1px solid var(--q); }
+.rrg-table tr.is-focus td { background: var(--surface-hover); }
+.rrg-guide summary { color: #dfe5ee; font-weight: 700; cursor: pointer; }
+.rrg-guide ul { margin: 10px 0 0; padding-left: 18px; color: #c3cbd8; font-size: .84rem; line-height: 1.7; }
+@media (max-width: 1100px) { .rrg-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .rrg-cards { grid-template-columns: 1fr; } .rrg-name { font-size: 18px; } .rrg-tick { font-size: 16px; } }
 .lvdca-readonly { border-color: rgba(59,139,255,.5); background: rgba(59,139,255,.08); }
 .lvdca-readonly i { color: #3b8bff; }
 .lvdca-readonly[hidden] { display: none; }

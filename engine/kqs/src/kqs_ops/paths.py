@@ -14,4 +14,5 @@ def state_paths(state_dir: Path) -> dict:
         "status_file": state_dir / "pipeline-status.json",
         "instrument_catalog": state_dir / "instrument-catalog.json",
         "recommendation_outcomes": state_dir / "recommendation-outcomes.json",
+        "sector_rotation": state_dir / "sector-rotation.json",
     }

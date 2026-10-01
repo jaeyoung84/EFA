@@ -39,8 +39,10 @@ except ImportError:
     from db import get_db
 
 try:
+    from .sector_rotation import read_sector_rotation
     from .instrument_catalog import SEARCH_ALIASES, get_krx_catalog, resolve_krx_name, search_krx_instruments
 except ImportError:
+    from sector_rotation import read_sector_rotation  # type: ignore
     from instrument_catalog import SEARCH_ALIASES, get_krx_catalog, resolve_krx_name, search_krx_instruments  # type: ignore
 
 try:
@@ -423,6 +425,12 @@ def dart_company_search(req: DartCompanySearchRequest) -> dict[str, object]:
             "DART는 .KS/.KQ suffix를 제공하지 않아 조회 가능한 Yahoo ticker 후보로 보완 표시합니다.",
         ],
     }
+
+
+@app.get("/api/market/sector-rotation")
+def market_sector_rotation() -> JSONResponse:
+    """섹터 순환(RRG) 참고 자료: 엔진이 매 거래일 계산한 섹터 ETF의 상대강도·모멘텀과 최근 이동 궤적."""
+    return JSONResponse(content=read_sector_rotation(), headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/api/market/instruments")

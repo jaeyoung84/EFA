@@ -17,6 +17,7 @@ from kqs_collection.catalog import CatalogError, build_instrument_catalog, write
 from kqs_collection.coverage import build_coverage_manifest, write_manifest
 from kqs_collection.krx import KrxApiError, KrxOpenApiClient, MarketStore, collect_session
 from kqs_collection.quality import QualityError, inspect_market_inputs
+from kqs_collection.sector_rotation import SectorRotationError, build_sector_rotation, write_sector_rotation
 from kqs_collection.store import publish as record_quality
 from kqs_ops.paths import state_paths
 from kqs_ops.runlog import SUCCESS, record_run, write_status
@@ -84,6 +85,15 @@ def run_daily_pipeline(*, state_dir: Path, market_db: Path, client: KrxOpenApiCl
                                               "items_sha256": catalog["items_sha256"]}
     except (CatalogError, OSError) as exc:
         run["steps"]["instrument_catalog"] = {"status": "failed", "error": str(exc)}
+
+    # EINT-021: sector rotation (RRG) reference chart for the website. Never blocks publication.
+    try:
+        rotation = build_sector_rotation(market_db, as_of)
+        write_sector_rotation(paths["sector_rotation"], rotation)
+        run["steps"]["sector_rotation"] = {"status": "written", "sectors": len(rotation["sectors"]),
+                                           "items_sha256": rotation["items_sha256"]}
+    except (SectorRotationError, OSError) as exc:
+        run["steps"]["sector_rotation"] = {"status": "failed", "error": str(exc)}
 
     expires_at = min(now + MAX_EXPIRY, ceiling)
     try:

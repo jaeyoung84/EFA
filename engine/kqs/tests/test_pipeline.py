@@ -62,6 +62,8 @@ class PipelineTests(unittest.TestCase):
                          ("kqs-recommendation-outcomes/v1", self.as_of, 1))
         self.assertTrue(all(row["status"] == "awaiting_entry" for row in outcomes["rows"]))  # nothing after as_of yet
         self.assertEqual(run["steps"]["recommendation_outcomes"]["status"], "written")
+        # EINT-021: the fixture market has no sector-ETF history, so the step fails closed and is only recorded
+        self.assertIn(run["steps"]["sector_rotation"]["status"], {"written", "failed"})
         self.assertTrue(all(KEY not in path.read_bytes().decode("latin-1") for path in self.state.rglob("*")
                             if path.is_file()))
 
