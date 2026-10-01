@@ -79,4 +79,12 @@ assert.ok(notes.notesListHtml([]).includes('노트가 없습니다'));
 const noteRows = notes.notesListHtml([{ id: 'n1', title: XSS, body: 'b'.repeat(100), tickers: [{ name: '삼성전자' }], tags: ['AI'], updated_at: '2026-10-01T00:00:00Z' }], 'n1');
 assert.ok(noteRows.includes('is-active') && noteRows.includes('#AI') && noteRows.includes('…') && !noteRows.includes('<img'));
 
-console.log('EFA design: greeting, briefing, queue, treemap, flow, system, bell, watchlist, notes passed');
+// 재무 차트: x축 라벨 간격(좁으면 건너뛰기)
+const finSource = (await readFile(new URL('../../app/frontend/js/utils/financialCharts.js', import.meta.url), 'utf8'));
+const fin = await import(`data:text/javascript;base64,${Buffer.from(`const window = {};\n${finSource}`).toString('base64')}`);
+assert.equal(fin.labelStep(30, 100), 1);
+assert.equal(fin.labelStep(38, 45), 2);
+assert.equal(fin.labelStep(40, 10), 5);
+assert.equal(fin.labelStep(40, 0), 1);
+
+console.log('EFA design: greeting, briefing, queue, treemap, flow, system, bell, watchlist, notes, financial label spacing passed');

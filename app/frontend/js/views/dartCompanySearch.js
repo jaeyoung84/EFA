@@ -126,15 +126,15 @@ export function dartCompanySearchView(container) {
               </div>
 
               <!-- 파이낸셜 분석 토글 -->
-              <div style="margin-top:10px;border-top:1px solid #e5e7eb;padding-top:10px;">
+              <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px;">
                 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                   <button type="button"
                     class="fin-load-btn"
                     data-ticker="${escapeHtml(item.ticker)}"
                     data-corp="${escapeHtml(item.corp_code)}"
                     data-period="annual"
-                    style="padding:6px 14px;font-size:0.8rem;font-weight:600;
-                           background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;">
+                    style="padding:6px 14px;font-size:0.8rem;font-weight:700;
+                           background:var(--primary);color:#111;border:none;border-radius:6px;cursor:pointer;">
                     <i class="fa-solid fa-chart-pie"></i> 파이낸셜 분석
                   </button>
                   <!-- 연간/분기 토글 -->
@@ -180,6 +180,8 @@ export function dartCompanySearchView(container) {
                  style="color:var(--primary);text-decoration:underline;">기업 파이낸셜 분석</a> 메뉴에서 종목코드.KS 로 입력해 보세요.</p>`;
             return;
           }
+          // 차트가 결과 카드 폭(약 260px)에 갇혀 찌그러지지 않도록 이 카드를 한 줄 전체로 넓힌다.
+          btn.closest('.dart-result-card')?.classList.add('is-expanded');
           loadFinancials(ticker, period, panel, btn);
         });
       });
@@ -188,7 +190,7 @@ export function dartCompanySearchView(container) {
       result.querySelectorAll('.period-ann-btn').forEach(btn => {
         btn.addEventListener('click', () => {
           const corp = btn.dataset.corp;
-          btn.style.background = '#e0e7ff'; btn.style.color = 'var(--primary)';
+          btn.style.background = 'var(--primary-light)'; btn.style.color = 'var(--primary)';
           const qBtn = result.querySelector(`.period-qtr-btn[data-corp="${corp}"]`);
           if (qBtn) { qBtn.style.background = 'var(--surface)'; qBtn.style.color = 'var(--text-muted)'; }
           const loadBtn = result.querySelector(`.fin-load-btn[data-corp="${corp}"]`);
@@ -199,7 +201,7 @@ export function dartCompanySearchView(container) {
       result.querySelectorAll('.period-qtr-btn').forEach(btn => {
         btn.addEventListener('click', () => {
           const corp = btn.dataset.corp;
-          btn.style.background = '#e0e7ff'; btn.style.color = 'var(--primary)';
+          btn.style.background = 'var(--primary-light)'; btn.style.color = 'var(--primary)';
           const aBtn = result.querySelector(`.period-ann-btn[data-corp="${corp}"]`);
           if (aBtn) { aBtn.style.background = 'var(--surface)'; aBtn.style.color = 'var(--text-muted)'; }
           const loadBtn = result.querySelector(`.fin-load-btn[data-corp="${corp}"]`);

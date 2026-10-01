@@ -3120,6 +3120,8 @@ body { background: var(--bg); }
   .dash-queue-list { flex: 1; min-height: 0; max-height: none; }
 }
 .dash-queue-price { color: #fff; }
+/* DART 검색 결과: 파이낸셜 분석을 연 카드는 한 줄 전체를 쓴다. */
+.dart-result-card.is-expanded { grid-column: 1 / -1; border-color: var(--primary); }
 /* 옛 라이트 테마가 남은 화면 보정 */
 .world-markets-kpis article { background: var(--surface-soft); border-color: var(--border); }
 .world-market-map { background: radial-gradient(circle at 45% 20%, #15233a 0, #101b2e 55%, #0c1526 100%); border-color: var(--border); }

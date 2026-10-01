@@ -20,7 +20,13 @@ export function fmtPct(v) {
 const DPR = window.devicePixelRatio || 1;
 
 function setupCanvas(canvas) {
-  const w = canvas.parentElement ? (canvas.parentElement.clientWidth || 400) : 400;
+  // 카드 안쪽(패딩 제외) 폭에 맞춘다. 패딩까지 넣으면 캔버스가 카드 밖으로 넘친다.
+  const parent = canvas.parentElement;
+  let w = 400;
+  if (parent && parent.clientWidth) {
+    const style = getComputedStyle(parent);
+    w = Math.max(240, parent.clientWidth - parseFloat(style.paddingLeft || 0) - parseFloat(style.paddingRight || 0));
+  }
   const h = parseInt(canvas.getAttribute('height') || '220', 10);
   canvas.width  = w * DPR;
   canvas.height = h * DPR;
@@ -29,6 +35,21 @@ function setupCanvas(canvas) {
   const ctx = canvas.getContext('2d');
   ctx.scale(DPR, DPR);
   return { ctx, W: w, H: h };
+}
+
+/** 겹치지 않을 만큼만 x축 라벨을 그린다(좁으면 n개마다 하나, 마지막 라벨은 항상). */
+export function labelStep(labelWidth, slotWidth, gap = 8) {
+  return slotWidth > 0 ? Math.max(1, Math.ceil((labelWidth + gap) / slotWidth)) : 1;
+}
+
+function drawXLabels(ctx, labels, xOf, y, slotWidth) {
+  const widest = Math.max(0, ...labels.map((label) => ctx.measureText(String(label)).width));
+  const step = labelStep(widest, slotWidth);
+  const shown = labels.map((_, i) => i % step === 0);
+  // 마지막 라벨은 앞에 그린 라벨과 충분히 떨어져 있을 때만 추가한다.
+  const lastShown = shown.lastIndexOf(true);
+  if (lastShown !== labels.length - 1 && labels.length - 1 - lastShown >= step) shown[labels.length - 1] = true;
+  labels.forEach((label, i) => { if (shown[i]) ctx.fillText(label, xOf(i), y); });
 }
 
 function noData(ctx, W, H, msg = '데이터 없음') {
@@ -40,7 +61,7 @@ function noData(ctx, W, H, msg = '데이터 없음') {
 }
 
 function drawGrid(ctx, PAD, cW, cH) {
-  ctx.strokeStyle = '#e5e7eb';
+  ctx.strokeStyle = '#1e2b42';
   ctx.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
     const y = PAD.t + (cH / 4) * i;
@@ -48,7 +69,7 @@ function drawGrid(ctx, PAD, cW, cH) {
   }
 }
 
-function drawYLabels(ctx, PAD, cH, minV, maxV, color = '#6b7280', right = false, fmt = fmtNum) {
+function drawYLabels(ctx, PAD, cH, minV, maxV, color = '#8a97ad', right = false, fmt = fmtNum) {
   ctx.fillStyle = color;
   ctx.font = '10px Pretendard, sans-serif';
   const range = maxV - minV || 1;
@@ -131,8 +152,8 @@ export function drawPerformanceChart(canvas, data) {
   }
 
   // X labels
-  ctx.fillStyle = '#6b7280'; ctx.font = '10px Pretendard, sans-serif'; ctx.textAlign = 'center';
-  rev.forEach((d, i) => ctx.fillText(d.period, PAD.l + i * barW + barW / 2, H - 8));
+  ctx.fillStyle = '#8a97ad'; ctx.font = '10px Pretendard, sans-serif'; ctx.textAlign = 'center';
+  drawXLabels(ctx, rev.map((d) => d.period), (i) => PAD.l + i * barW + barW / 2, H - 8, barW);
 
   drawYLabels(ctx, PAD, cH, minV, maxV);
   // Right axis for margin
@@ -190,6 +211,9 @@ export function drawWaterfallChart(canvas, wf) {
   ctx.strokeStyle = '#9ca3af'; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(PAD.l, y0); ctx.lineTo(PAD.l + cW, y0); ctx.stroke();
 
+  // x축 라벨은 모든 막대에 같은 간격을 써서 고르게 건너뛴다.
+  ctx.font = '9px Pretendard, sans-serif';
+  const labelEvery = labelStep(Math.max(0, ...bars.flatMap((b) => b.label.split('\n')).map((line) => ctx.measureText(line).width)), slotW, 4);
   bars.forEach((b, i) => {
     const x    = PAD.l + i * slotW + (slotW - bW) / 2;
     const yTop = scaleY(Math.max(b.start, b.end));
@@ -203,12 +227,13 @@ export function drawWaterfallChart(canvas, wf) {
     ctx.fillRect(x, yTop, bW, bH);
 
     // Value label
-    ctx.fillStyle = '#374151'; ctx.font = '9px Pretendard, sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText(fmtNum(Math.abs(b.val) || Math.abs(b.end)), x + bW / 2, yTop - 3);
+    ctx.fillStyle = '#c3cbd8'; ctx.font = '9px Pretendard, sans-serif'; ctx.textAlign = 'center';
+    const valueText = fmtNum(Math.abs(b.val) || Math.abs(b.end));
+    if (ctx.measureText(valueText).width <= slotW - 2) ctx.fillText(valueText, x + bW / 2, yTop - 3);
 
     // Connector
     if (i < bars.length - 1) {
-      ctx.strokeStyle = '#d1d5db'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+      ctx.strokeStyle = '#2c3d5c'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
       const connY  = scaleY(b.type === 'decrease' ? b.start : b.end);
       const nextX  = PAD.l + (i + 1) * slotW + (slotW - bW) / 2;
       ctx.beginPath(); ctx.moveTo(x + bW, connY); ctx.lineTo(nextX, connY); ctx.stroke();
@@ -216,9 +241,10 @@ export function drawWaterfallChart(canvas, wf) {
     }
 
     // X label (multi-line)
-    ctx.fillStyle = '#6b7280'; ctx.font = '9px Pretendard, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#8a97ad'; ctx.font = '9px Pretendard, sans-serif'; ctx.textAlign = 'center';
+    // 칸이 좁으면 라벨을 한 칸씩 건너뛰어 겹치지 않게 한다.
     const lines = b.label.split('\n');
-    lines.forEach((line, li) => ctx.fillText(line, x + bW / 2, H - 30 + li * 12));
+    if (i % labelEvery === 0) lines.forEach((line, li) => ctx.fillText(line, x + bW / 2, H - 30 + li * 12));
   });
 
   drawYLabels(ctx, PAD, cH, minV, maxV);
@@ -271,8 +297,8 @@ export function drawDebtChart(canvas, data) {
     });
   });
 
-  ctx.fillStyle = '#6b7280'; ctx.font = '10px Pretendard, sans-serif'; ctx.textAlign = 'center';
-  labels.forEach((lbl, i) => ctx.fillText(lbl, PAD.l + i * barW + barW / 2, H - 8));
+  ctx.fillStyle = '#8a97ad'; ctx.font = '10px Pretendard, sans-serif'; ctx.textAlign = 'center';
+  drawXLabels(ctx, labels, (i) => PAD.l + i * barW + barW / 2, H - 8, barW);
   drawYLabels(ctx, PAD, cH, minV, maxV);
 }
 
@@ -315,20 +341,19 @@ export function drawEarningsChart(canvas, earnings) {
     }
   });
 
-  ctx.fillStyle = '#6b7280'; ctx.font = '9px Pretendard, sans-serif'; ctx.textAlign = 'center';
-  data.forEach((e, i) =>
-    ctx.fillText(e.date.slice(0, 7), PAD.l + i * slotW + slotW / 2, H - 8));
+  ctx.fillStyle = '#8a97ad'; ctx.font = '9px Pretendard, sans-serif'; ctx.textAlign = 'center';
+  drawXLabels(ctx, data.map((e) => e.date.slice(0, 7)), (i) => PAD.l + i * slotW + slotW / 2, H - 8, slotW);
 
-  drawYLabels(ctx, PAD, cH, minE, maxE, '#6b7280', false, v => v.toFixed(2));
+  drawYLabels(ctx, PAD, cH, minE, maxE, '#8a97ad', false, v => v.toFixed(2));
 }
 
 // ─── 범례 HTML helper ─────────────────────────────────────────────────────────
 export function legendDot(color, label, isLine = false) {
   if (isLine) {
-    return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.7rem;color:#6b7280;margin-right:8px;">
+    return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.7rem;color:#8a97ad;margin-right:8px;">
       <span style="display:inline-block;width:18px;height:2px;background:${color};border-radius:1px;"></span>${label}</span>`;
   }
-  return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.7rem;color:#6b7280;margin-right:8px;">
+  return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:0.7rem;color:#8a97ad;margin-right:8px;">
     <span style="display:inline-block;width:9px;height:9px;background:${color};border-radius:2px;"></span>${label}</span>`;
 }
 
@@ -361,7 +386,7 @@ export function renderFinancialDashboard(container, data) {
         <div class="fin-card-hdr">
           <span class="fin-card-title">어닝</span>
           <div>${legendDot('#10b981','발표(beat)')}${legendDot('#f43f5e','발표(miss)')}
-            <span style="display:inline-flex;align-items:center;gap:4px;font-size:0.7rem;color:#6b7280;">
+            <span style="display:inline-flex;align-items:center;gap:4px;font-size:0.7rem;color:#8a97ad;">
               <span style="width:9px;height:9px;border-radius:50%;border:1.5px solid #9ca3af;display:inline-block;"></span>평가</span>
           </div>
         </div>
@@ -374,19 +399,35 @@ export function renderFinancialDashboard(container, data) {
     const s = document.createElement('style');
     s.id = 'fin-grid-styles';
     s.textContent = `
-      .fin-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:16px; }
-      @media(max-width:860px){ .fin-grid { grid-template-columns:1fr; } }
-      .fin-card { background:#fff; border:1px solid #e2e8f0; border-radius:10px; padding:14px 14px 10px; }
-      .fin-card-hdr { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:4px; margin-bottom:10px; }
-      .fin-card-title { font-size:0.85rem; font-weight:700; color:#131722; }
+      /* 화면 폭이 아니라 담는 영역 폭에 맞춰 2열 → 1열로 바뀐다(좁은 카드 안에서도 차트가 찌그러지지 않게). */
+      .fin-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, max(380px, 45%)), 1fr)); gap:14px; margin-top:16px; }
+      .fin-card { min-width:0; overflow:hidden; background:var(--surface-soft); border:1px solid var(--border); border-radius:10px; padding:14px 14px 10px; }
+      .fin-card-hdr { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:4px; margin-bottom:10px; color:var(--text-muted); font-size:.75rem; }
+      .fin-card-title { font-size:0.88rem; font-weight:700; color:var(--text); }
     `;
     document.head.appendChild(s);
   }
 
-  requestAnimationFrame(() => {
+  const drawAll = () => {
+    if (!container.isConnected) return;
     drawPerformanceChart(container.querySelector('#fcv-perf'),  data.performance);
     drawWaterfallChart(container.querySelector('#fcv-wf'),     data.waterfall);
     drawDebtChart(container.querySelector('#fcv-debt'),        data.debt);
     drawEarningsChart(container.querySelector('#fcv-earn'),    data.earnings);
-  });
+  };
+  requestAnimationFrame(drawAll);
+  // 창 크기·레이아웃이 바뀌면 새 폭으로 다시 그린다(캔버스는 그릴 때 폭이 고정되므로).
+  container._finResize?.disconnect();
+  if (typeof ResizeObserver !== 'undefined') {
+    let lastWidth = 0;
+    let frame = 0;
+    container._finResize = new ResizeObserver((entries) => {
+      const width = Math.round(entries[0].contentRect.width);
+      if (!width || width === lastWidth) return;
+      lastWidth = width;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(drawAll);
+    });
+    container._finResize.observe(container);
+  }
 }
