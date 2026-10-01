@@ -3136,7 +3136,29 @@ body { background: var(--bg); }
 .dash-tile.is-tiny strong { font-size: .7rem; } .dash-tile.is-tiny span { font-size: .66rem; } .dash-tile.is-tiny em { display: none; }
 
 /* ── 반응형 ── */
-@media (max-width: 1500px) { .efa-search { width: 200px; } .efa-header .mainnav-item { padding: 0 11px; font-size: .86rem; } .efa-header .brand-sub { display: none; } }
+@media (max-width: 1500px) { .efa-search { width: 190px; } .efa-header .mainnav-item { padding: 0 10px; font-size: .86rem; } .topbar.efa-header { gap: 16px; } }
+@media (max-width: 1300px) { .efa-search { width: 160px; } .efa-header .mainnav-item { padding: 0 8px; font-size: .82rem; } }
+/* 로고 옆 EFA 아래 부제는 모든 화면 폭에서 보인다(좁은 화면은 글자만 작게). */
+.efa-header .brand-text { gap: 3px; }
+.efa-header .brand-sub { display: block !important; white-space: nowrap; }
+/* 1025~1200px: 메뉴와 부제를 살리고 검색창은 아이콘 크기로 접었다가 누르면 펼친다. */
+@media (max-width: 1200px) and (min-width: 1025px) {
+  .efa-search { width: 38px; height: 38px; }
+  .efa-search .stock-search { position: absolute; right: 0; top: 0; width: 38px; transition: width .15s; }
+  .efa-search:focus-within .stock-search { width: 240px; z-index: 6; }
+  .efa-search input, .efa-search:focus-within input { background: #111b2d !important; box-shadow: 0 6px 18px rgba(0,0,0,.45); }
+  .efa-header .mainnav-item { padding: 0 6px; font-size: .8rem; gap: 4px; }
+  .efa-header .mainnav-chev { display: none; }
+  .efa-header .brand-sub { letter-spacing: .05em; }
+  .topbar.efa-header { gap: 10px; padding: 0 14px; }
+  .efa-tools { position: relative; z-index: 60; gap: 6px; }
+  .efa-search input { padding: 0 30px 0 10px; cursor: pointer; }
+  .efa-search input::placeholder { color: transparent; }
+  .efa-search:focus-within input { cursor: text; }
+  .efa-search:focus-within input::placeholder { color: var(--text-muted); }
+  .efa-search > i { right: 12px; z-index: 7; }
+}
+@media (max-width: 640px) { .efa-header .brand-sub { font-size: .42rem; letter-spacing: .08em; } .efa-header .brand-mark img { height: 30px; } }
 @media (max-width: 1280px) {
   .dash { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); grid-template-areas: "greet greet" "brief assets" "queue system" "flow flow" "chart chart"; }
   .dash-queue-list { max-height: 640px; }
