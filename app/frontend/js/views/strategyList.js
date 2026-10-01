@@ -544,60 +544,86 @@ export function strategyListView(container) {
   }
 
   container.innerHTML = `
-    <div style="margin-bottom:24px;">
+    <div style="margin-bottom:16px;">
       <h1 style="font-size:1.25rem; font-weight:700; color:var(--text); margin-bottom:6px;"><i class="fa-solid fa-book"></i> 매매 기록·연구</h1>
       <p style="font-size:0.875rem; color:var(--text-muted); line-height:1.6;">추천에 대한 매수·매도 기록, 보유 lot·사후 성과, 학습 데이터와 운영 점검을 다룹니다. 오늘의 추천 종목은 "전략 추천" 화면에서 봅니다.</p>
     </div>
-    <div id="stg-list"><p style="color:#94a3b8;">불러오는 중...</p></div>
-    <div id="stg-strategy-portfolio" style="margin-top:20px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">전략 배분안을 불러오는 중...</p></div>
-    <div id="stg-rebalance-plan" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">리밸런싱 계획을 불러오는 중...</p></div>
-    <div id="stg-promotion-monitor" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">승인 전략 점검을 불러오는 중...</p></div>
-    <div id="stg-live-review-readiness" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">장기 모의운용 적합성을 불러오는 중...</p></div>
-    <div id="stg-operations-report" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">주간 운영 리포트를 불러오는 중...</p></div>
-    <div id="stg-kqs-status" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">통합 퀀트 엔진 추천 상태를 불러오는 중...</p></div>
-    <div id="stg-kqs-recommendations" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">검증된 엔진 추천과 근거를 불러오는 중...</p></div>
-    <div id="stg-kqs-candidates" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">엔진 신규 후보 검토 큐를 불러오는 중...</p></div>
-    <div id="stg-kqs-decision-positions" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">내 개인 원장 보유 현황을 불러오는 중...</p></div>
-    <div id="stg-kqs-decision-ledger" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">내 판단 기록을 불러오는 중...</p></div>
-    <div id="stg-kqs-decision-outcomes" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">내 판단의 사후 성과를 불러오는 중...</p></div>
-    <div id="stg-kqs-performance-report" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">내 개인 운용 성과 분석을 불러오는 중...</p></div>
-    <div id="stg-kqs-training-readiness" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">AI 학습 데이터 준비도를 확인하는 중...</p></div>
-    <div id="stg-kqs-training-experiments" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">오프라인 모델 실험 이력을 불러오는 중...</p></div>
-    <div id="stg-kqs-candidate-queue-history" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">후보 큐 이력과 검토 알림을 불러오는 중...</p></div>
-    <div id="stg-kqs-review-workflow" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">후보 검토 우선순위와 기한을 불러오는 중...</p></div>
-    <div id="stg-kqs-review-report" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">후보 검토 운영 리포트를 불러오는 중...</p></div>
-    <div id="stg-kqs-selection-quality" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">후보 선정 품질을 불러오는 중...</p></div>
-    <div id="stg-kqs-operations-alerts" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">데이터·파이프라인 운영 경고를 불러오는 중...</p></div>
-    <div id="stg-strategy-governance" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">전략 승격·중단 검토 보드를 불러오는 중...</p></div>
-    <div id="stg-kqs-outcomes" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">후보 사후성과를 불러오는 중...</p></div>
-    <div id="stg-performance-decomposition" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">전략군·후보군 성과 분해를 불러오는 중...</p></div>
-    <div id="stg-decision-records" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">전략 의사결정 이력을 불러오는 중...</p></div>
-    <div id="stg-monthly-operations-report" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">월간 운영 리포트를 불러오는 중...</p></div>
-    <div id="stg-data-lineage" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">연구 입력 데이터 계보를 불러오는 중...</p></div>
-    <div id="stg-revalidation-monitor" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">워크포워드 재검증을 불러오는 중...</p></div>
-    <div id="stg-integrated-risk" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">통합 리스크를 불러오는 중...</p></div>
-    <div id="stg-operations-runbook" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">운영 런북을 불러오는 중...</p></div>
-    <div id="stg-sandbox-contract" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">로컬 샌드박스 계약 검증 상태를 불러오는 중...</p></div>
-    <div id="stg-research-registry" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">전략 실험 레지스트리를 불러오는 중...</p></div>
-    <div id="stg-recovery-readiness" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">백업·복구 준비 상태를 불러오는 중...</p></div>
-    <div id="stg-live-integration-readiness" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">실거래 연동 준비 상태를 불러오는 중...</p></div>
-    <div id="stg-kqs-review-packet" style="display:none; margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"></div>
-    <div id="stg-kqs-candidate-review-history" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">후보 검토 감사 이력을 불러오는 중...</p></div>
-    <div id="stg-kqs-candidate-review-snapshots" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">검토 시점 패킷 보관함을 불러오는 중...</p></div>
-    <div id="stg-kqs-reconciliation" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">포지션 대조 적용 여부를 확인하는 중...</p></div>
-    <div id="stg-kqs-reconciliation-history" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">대조 이력과 변동 알림을 불러오는 중...</p></div>
-    <div id="stg-detail"></div>
-    <div id="stg-execution-status" style="margin-top:20px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">주문 실행 상태를 불러오는 중...</p></div>
-    <div id="stg-paper-dashboard" style="margin-top:20px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">모의 계좌 현황을 불러오는 중...</p></div>
-    <div id="stg-paper-alerts" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">알림을 불러오는 중...</p></div>
-    <div id="stg-paper-report" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">감사 리포트를 불러오는 중...</p></div>
-    <div id="stg-paper-history" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">일별 성과 기록을 불러오는 중...</p></div>
-    <div id="stg-paper-account" style="margin-top:20px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">모의 계좌를 불러오는 중...</p></div>
+    <nav class="stg-tabs" role="tablist" aria-label="매매 기록·연구 구분">
+      <button type="button" class="stg-tab" role="tab" data-stg-tab="records" aria-selected="false"><i class="fa-solid fa-pen-to-square"></i> 매수·매도 기록</button>
+      <button type="button" class="stg-tab" role="tab" data-stg-tab="performance" aria-selected="false"><i class="fa-solid fa-chart-line"></i> 성과</button>
+      <button type="button" class="stg-tab" role="tab" data-stg-tab="training" aria-selected="false"><i class="fa-solid fa-brain"></i> AI 학습 데이터</button>
+      <button type="button" class="stg-tab" role="tab" data-stg-tab="review" aria-selected="false"><i class="fa-solid fa-list-check"></i> 후보 검토</button>
+      <button type="button" class="stg-tab" role="tab" data-stg-tab="strategies" aria-selected="false"><i class="fa-solid fa-folder-open"></i> 저장 전략·모의계좌</button>
+      <button type="button" class="stg-tab" role="tab" data-stg-tab="ops" aria-selected="false"><i class="fa-solid fa-gears"></i> 운영·검증</button>
+    </nav>
+    <section class="stg-tab-panel" role="tabpanel" data-stg-panel="records" hidden>
+      <p class="stg-tab-desc">추천에 대한 판단(매수·관망·제외)을 기록하고, 보유 lot과 전체 판단 기록을 봅니다. 추천이 만료된 보유분도 여기서 매도·부분매도합니다.</p>
+      <div id="stg-kqs-recommendations" style="background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">검증된 엔진 추천과 근거를 불러오는 중...</p></div>
+      <div id="stg-kqs-decision-positions" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">내 개인 원장 보유 현황을 불러오는 중...</p></div>
+      <div id="stg-kqs-decision-ledger" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">내 판단 기록을 불러오는 중...</p></div>
+    </section>
+    <section class="stg-tab-panel" role="tabpanel" data-stg-panel="performance" hidden>
+      <p class="stg-tab-desc">내 판단의 사후 성과와 개인 운용 성과 분석입니다.</p>
+      <div id="stg-kqs-decision-outcomes" style="background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">내 판단의 사후 성과를 불러오는 중...</p></div>
+      <div id="stg-kqs-performance-report" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">내 개인 운용 성과 분석을 불러오는 중...</p></div>
+    </section>
+    <section class="stg-tab-panel" role="tabpanel" data-stg-panel="training" hidden>
+      <p class="stg-tab-desc">AI 트레이닝 매니저용 판단 데이터의 준비도, 고정 데이터셋과 오프라인 실험 이력입니다.</p>
+      <div id="stg-kqs-training-readiness" style="background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">AI 학습 데이터 준비도를 확인하는 중...</p></div>
+      <div id="stg-kqs-training-experiments" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">오프라인 모델 실험 이력을 불러오는 중...</p></div>
+    </section>
+    <section class="stg-tab-panel" role="tabpanel" data-stg-panel="review" hidden>
+      <p class="stg-tab-desc">엔진 후보 검토 큐, 검토 기한·리포트, 선정 품질과 포지션 대조 이력입니다.</p>
+      <div id="stg-kqs-candidates" style="background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">엔진 신규 후보 검토 큐를 불러오는 중...</p></div>
+      <div id="stg-kqs-review-packet" style="display:none; margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"></div>
+      <div id="stg-kqs-review-workflow" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">후보 검토 우선순위와 기한을 불러오는 중...</p></div>
+      <div id="stg-kqs-candidate-queue-history" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">후보 큐 이력과 검토 알림을 불러오는 중...</p></div>
+      <div id="stg-kqs-review-report" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">후보 검토 운영 리포트를 불러오는 중...</p></div>
+      <div id="stg-kqs-selection-quality" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">후보 선정 품질을 불러오는 중...</p></div>
+      <div id="stg-kqs-outcomes" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">후보 사후성과를 불러오는 중...</p></div>
+      <div id="stg-kqs-candidate-review-history" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">후보 검토 감사 이력을 불러오는 중...</p></div>
+      <div id="stg-kqs-candidate-review-snapshots" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">검토 시점 패킷 보관함을 불러오는 중...</p></div>
+      <div id="stg-kqs-reconciliation" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">포지션 대조 적용 여부를 확인하는 중...</p></div>
+      <div id="stg-kqs-reconciliation-history" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">대조 이력과 변동 알림을 불러오는 중...</p></div>
+    </section>
+    <section class="stg-tab-panel" role="tabpanel" data-stg-panel="strategies" hidden>
+      <p class="stg-tab-desc">저장한 백테스트 전략과 주문 제안, 페이퍼 모의 계좌·체결 내역입니다(실제 보유자산과 별개).</p>
+      <div id="stg-list"><p style="color:#94a3b8;">불러오는 중...</p></div>
+      <div id="stg-detail"></div>
+      <div id="stg-strategy-portfolio" style="margin-top:20px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">전략 배분안을 불러오는 중...</p></div>
+      <div id="stg-rebalance-plan" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">리밸런싱 계획을 불러오는 중...</p></div>
+      <div id="stg-promotion-monitor" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">승인 전략 점검을 불러오는 중...</p></div>
+      <div id="stg-execution-status" style="margin-top:20px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">주문 실행 상태를 불러오는 중...</p></div>
+      <div id="stg-paper-dashboard" style="margin-top:20px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">모의 계좌 현황을 불러오는 중...</p></div>
+      <div id="stg-paper-alerts" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">알림을 불러오는 중...</p></div>
+      <div id="stg-paper-report" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">감사 리포트를 불러오는 중...</p></div>
+      <div id="stg-paper-history" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">일별 성과 기록을 불러오는 중...</p></div>
+      <div id="stg-paper-account" style="margin-top:20px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">모의 계좌를 불러오는 중...</p></div>
     <div style="margin-top:28px;">
       <h2 style="font-size:1rem; color:var(--text); margin-bottom:10px;">전체 모의 체결 내역</h2>
       <p style="margin:0 0 10px; color:#64748b; font-size:.72rem;">주문 제안을 승인하면 여기에 기록됩니다. 실제 보유자산(포트폴리오 → 내 보유자산)과는 별개의 모의 기록입니다.</p>
       <div id="stg-fills" style="background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">불러오는 중...</p></div>
-    </div>`;
+    </div>
+    </section>
+    <section class="stg-tab-panel" role="tabpanel" data-stg-panel="ops" hidden>
+      <p class="stg-tab-desc">엔진 게시 상태와 운영 경고, 전략 승격·재검증, 데이터 계보, 통합 리스크, 백업·실거래 준비 점검입니다.</p>
+      <div id="stg-kqs-status" style="background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">통합 퀀트 엔진 추천 상태를 불러오는 중...</p></div>
+      <div id="stg-kqs-operations-alerts" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">데이터·파이프라인 운영 경고를 불러오는 중...</p></div>
+      <div id="stg-live-review-readiness" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">장기 모의운용 적합성을 불러오는 중...</p></div>
+      <div id="stg-operations-report" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">주간 운영 리포트를 불러오는 중...</p></div>
+      <div id="stg-strategy-governance" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">전략 승격·중단 검토 보드를 불러오는 중...</p></div>
+      <div id="stg-performance-decomposition" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">전략군·후보군 성과 분해를 불러오는 중...</p></div>
+      <div id="stg-decision-records" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">전략 의사결정 이력을 불러오는 중...</p></div>
+      <div id="stg-monthly-operations-report" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">월간 운영 리포트를 불러오는 중...</p></div>
+      <div id="stg-data-lineage" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">연구 입력 데이터 계보를 불러오는 중...</p></div>
+      <div id="stg-revalidation-monitor" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">워크포워드 재검증을 불러오는 중...</p></div>
+      <div id="stg-integrated-risk" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">통합 리스크를 불러오는 중...</p></div>
+      <div id="stg-operations-runbook" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">운영 런북을 불러오는 중...</p></div>
+      <div id="stg-sandbox-contract" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">로컬 샌드박스 계약 검증 상태를 불러오는 중...</p></div>
+      <div id="stg-research-registry" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">전략 실험 레지스트리를 불러오는 중...</p></div>
+      <div id="stg-recovery-readiness" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">백업·복구 준비 상태를 불러오는 중...</p></div>
+      <div id="stg-live-integration-readiness" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">실거래 연동 준비 상태를 불러오는 중...</p></div>
+    </section>`;
 
   const listEl = container.querySelector('#stg-list');
   const detailEl = container.querySelector('#stg-detail');
@@ -1352,48 +1378,30 @@ export function strategyListView(container) {
     }
   }
 
-  loadList();
-  loadStrategyPortfolio();
-  loadRebalancePlan();
-  loadPromotionMonitor();
-  loadLiveReviewReadiness();
-  loadOperationsReport();
-  loadKqsStatus();
-  loadKqsRecommendations();
-  loadKqsReviewCandidates();
-  loadKqsDecisionPositions();
-  loadKqsDecisionOutcomes();
-  loadKqsPerformanceReport();
-  loadKqsTrainingReadiness();
-  loadKqsTrainingExperiments();
-  loadKqsDecisionLedger();
-  loadKqsCandidateQueueHistory();
-  loadKqsReviewWorkflow();
-  loadKqsReviewReport();
-  loadKqsSelectionQuality();
-  loadKqsOperationsAlerts();
-  loadStrategyGovernance();
-  loadKqsCandidateOutcomes();
-  loadPerformanceDecomposition();
-  loadDecisionRecords();
-  loadMonthlyOperationsReport();
-  loadDataLineage();
-  loadRevalidationMonitor();
-  loadIntegratedRisk();
-  loadOperationsRunbook();
-  loadSandboxContract();
-  loadResearchRegistry();
-  loadRecoveryReadiness();
-  loadLiveIntegrationReadiness();
-  loadKqsCandidateReviewHistory();
-  loadKqsCandidateReviewSnapshots();
-  loadKqsReconciliation();
-  loadKqsReconciliationHistory();
-  loadFills();
-  loadPaperAccount();
-  loadPaperDashboard();
-  loadPaperAlerts(false, true);
-  loadPaperReport();
-  loadExecutionStatus();
-  loadPaperHistory();
+  // 탭을 처음 열 때만 그 탭 패널을 불러온다(예전에는 패널 API 44개를 한꺼번에 호출했다).
+  // 다른 탭의 패널을 갱신하는 동작은 그대로 동작한다(요소는 모두 DOM에 있다).
+  const STG_TAB_LOADERS = {
+    records: () => { loadKqsRecommendations(); loadKqsDecisionPositions(); loadKqsDecisionLedger(); },
+    performance: () => { loadKqsDecisionOutcomes(); loadKqsPerformanceReport(); },
+    training: () => { loadKqsTrainingReadiness(); loadKqsTrainingExperiments(); },
+    review: () => { loadKqsReviewCandidates(); loadKqsReviewWorkflow(); loadKqsCandidateQueueHistory(); loadKqsReviewReport(); loadKqsSelectionQuality(); loadKqsCandidateOutcomes(); loadKqsCandidateReviewHistory(); loadKqsCandidateReviewSnapshots(); loadKqsReconciliation(); loadKqsReconciliationHistory(); },
+    strategies: () => { loadList(); loadStrategyPortfolio(); loadRebalancePlan(); loadPromotionMonitor(); loadExecutionStatus(); loadPaperDashboard(); loadPaperAlerts(false, true); loadPaperReport(); loadPaperHistory(); loadPaperAccount(); loadFills(); },
+    ops: () => { loadKqsStatus(); loadKqsOperationsAlerts(); loadLiveReviewReadiness(); loadOperationsReport(); loadStrategyGovernance(); loadPerformanceDecomposition(); loadDecisionRecords(); loadMonthlyOperationsReport(); loadDataLineage(); loadRevalidationMonitor(); loadIntegratedRisk(); loadOperationsRunbook(); loadSandboxContract(); loadResearchRegistry(); loadRecoveryReadiness(); loadLiveIntegrationReadiness(); },
+  };
+  const STG_TAB_KEY = 'stg_active_tab';
+  const loadedStgTabs = new Set();
+  const showStgTab = (key) => {
+    container.querySelectorAll('.stg-tab').forEach((tab) => {
+      const active = tab.dataset.stgTab === key;
+      tab.classList.toggle('is-active', active);
+      tab.setAttribute('aria-selected', String(active));
+    });
+    container.querySelectorAll('.stg-tab-panel').forEach((panel) => { panel.hidden = panel.dataset.stgPanel !== key; });
+    if (!loadedStgTabs.has(key)) { loadedStgTabs.add(key); STG_TAB_LOADERS[key](); }
+    try { localStorage.setItem(STG_TAB_KEY, key); } catch { /* 저장할 수 없는 브라우저 */ }
+  };
+  container.querySelectorAll('.stg-tab').forEach((tab) => tab.addEventListener('click', () => showStgTab(tab.dataset.stgTab)));
+  let initialStgTab = 'records';
+  try { initialStgTab = localStorage.getItem(STG_TAB_KEY) || 'records'; } catch { /* 기본 탭 */ }
+  showStgTab(STG_TAB_LOADERS[initialStgTab] ? initialStgTab : 'records');
 }

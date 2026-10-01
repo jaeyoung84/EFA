@@ -71,3 +71,16 @@ async def test_market_candle_failure_returns_reason_not_synthetic_prices(client,
     assert response.status_code == 503
     detail = response.json()["detail"]
     assert "데이터 없음" in detail and "provider down" in detail and "조회 시각" in detail
+
+
+def test_record_research_tabs_have_loaders_and_every_loader_exists():
+    source = (FRONTEND / "js" / "views" / "strategyList.js").read_text(encoding="utf-8")
+    tabs = set(re.findall(r'data-stg-tab="([a-z]+)"', source))
+    panels = set(re.findall(r'data-stg-panel="([a-z]+)"', source))
+    block = source[source.index("const STG_TAB_LOADERS = {"):source.index("};", source.index("const STG_TAB_LOADERS = {"))]
+    loaders = dict(re.findall(r"^\s+([a-z]+): \(\) => \{ (.*) \},$", block, re.M))
+    assert tabs == panels == set(loaders) and len(tabs) == 6
+    called = {name for body in loaders.values() for name in re.findall(r"(load[A-Za-z]+)\(", body)}
+    defined = set(re.findall(r"(?:async )?function (load[A-Za-z]+)\(", source))
+    assert called and called <= defined
+    assert source.count('class="stg-tab-panel"') == 6
