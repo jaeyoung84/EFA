@@ -7,6 +7,10 @@ manual decision. The Pullback v4 exit check mirrors ``kqs_runtime.pullback_v4.ho
 
 from __future__ import annotations
 
+import json
+import os
+from pathlib import Path
+
 ITEMS = ("swing", "long_term", "pullback_v4")
 ITEM_META = {
     "swing": {
@@ -126,3 +130,48 @@ def holding_signals(lot_book: dict, payload: dict | None, trade_day) -> list[dic
             rows.append(row)
     rows.sort(key=lambda row: (row["state"] != "exit_signal", row["symbol"], row["bought_on"]))
     return rows
+
+
+# EINT-019: forward outcomes of the published picks, computed by the engine from KRX daily bars.
+OUTCOME_SCHEMA = "kqs-recommendation-outcomes/v1"
+OUTCOME_ROW_LIMIT = 300
+
+
+def outcome_report_path() -> Path:
+    configured = os.getenv("KQS_RECOMMENDATION_OUTCOMES", "").strip()
+    if configured:
+        return Path(configured)
+    snapshot = os.getenv("KQS_SNAPSHOT_DB", "").strip()
+    if snapshot:
+        return Path(snapshot).parent / "recommendation-outcomes.json"
+    return Path(__file__).resolve().parents[2] / "state/kqs/recommendation-outcomes.json"
+
+
+def read_outcome_report(path: Path | None = None) -> dict:
+    """The engine's outcome file for the website: per-item summaries and the newest rows.
+
+    A missing or foreign file is reported as unavailable, never replaced by computed numbers.
+    """
+    path = path or outcome_report_path()
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {"available": False, "detail": "추천 성과 파일이 아직 없습니다. 엔진의 다음 일일 실행 후 생성됩니다."}
+    except (OSError, ValueError):
+        return {"available": False, "detail": "추천 성과 파일을 읽을 수 없습니다."}
+    if not isinstance(report, dict) or report.get("schema") != OUTCOME_SCHEMA:
+        return {"available": False, "detail": "추천 성과 파일 형식이 다릅니다."}
+    rows = sorted(report.get("rows", []), key=lambda row: (row["as_of"], -ITEMS.index(row["item"]), -row["rank"]),
+                  reverse=True)
+    return {
+        "available": True, "through": report["through"], "horizons": report["horizons"],
+        "min_sample": report["min_sample"], "source_count": report["source_count"],
+        "rows_sha256": report["rows_sha256"],
+        "items": [{"item": item, "label": ITEM_META[item]["label"], "title": ITEM_META[item]["title"],
+                   **report["summary"].get(item, {"pick_count": 0, "session_count": 0, "horizons": {}})}
+                  for item in ITEMS],
+        "rows": rows[:OUTCOME_ROW_LIMIT], "row_count": len(rows),
+        "disclaimer": ("추천 다음 거래일 시가에 샀다고 가정한 사후 관측치입니다. 수수료·세금·슬리피지와 각 아이템의 "
+                       "청산 규칙은 반영하지 않았습니다. 아이템별 표본이 기준 미만이면 성과 판단을 보류합니다. "
+                       "미래 수익을 보장하지 않으며 주문·자동 모의체결은 없습니다."),
+    }

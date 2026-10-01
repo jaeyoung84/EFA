@@ -2836,6 +2836,23 @@ p.lvdca-badge{display:block;width:fit-content}
 .sb-login{max-width:600px;margin:64px auto;padding:34px;background:var(--surface);border:1px solid var(--border);border-radius:14px;text-align:center}
 .sb-login h1{margin:0 0 10px;color:var(--text);font-size:1.3rem}
 .sb-login p{margin:0 0 20px;color:var(--text-muted);font-size:.85rem}
+/* EINT-019 추천 성과 */
+.ro-panel{margin-bottom:12px;padding:16px;background:var(--surface);border:1px solid var(--border);border-radius:12px}
+.ro-title{margin:0 0 6px;font-size:1rem;color:var(--text)}
+.ro-sub{margin:0 0 12px;color:var(--text-muted);font-size:.74rem;line-height:1.5}
+.ro-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:1100px){.ro-grid{grid-template-columns:1fr}}
+.ro-item{padding:12px;background:var(--surface-soft);border:1px solid var(--border);border-radius:10px;min-width:0}
+.ro-item h3{margin:2px 0 4px;font-size:.9rem;color:var(--text)}
+.ro-meta{color:var(--text-muted);font-size:.7rem}
+.ro-subtitle{margin:16px 0 8px;font-size:.88rem;color:var(--text)}
+.ro-subtitle small{color:var(--text-muted);font-weight:400}
+.ro-table{width:100%;border-collapse:collapse;font-size:.74rem;font-variant-numeric:tabular-nums}
+.ro-table th,.ro-table td{padding:6px;text-align:left;border-bottom:1px solid var(--border);color:var(--text);white-space:nowrap}
+.ro-table thead th{color:var(--text-muted);font-weight:600}
+.ro-table td small{display:block;color:var(--text-muted);font-size:.68rem}
+.ro-table tr.is-pending td{opacity:.7}
+.ro-up{color:#f87171}.ro-down{color:#60a5fa}.ro-na{color:var(--text-muted)}
 
 /* ── 매매 기록·연구 탭 ── */
 .stg-tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px;padding-bottom:10px;border-bottom:1px solid var(--border)}

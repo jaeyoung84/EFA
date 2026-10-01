@@ -80,6 +80,35 @@ def recommended_symbols(path: Path, *, since: dict[str, str], before: str) -> li
         connection.close()
 
 
+def published_payloads(path: Path, *, schema: str, through: str) -> list[dict]:
+    """Every stored payload of ``schema`` with ``data_as_of <= through``, oldest first.
+
+    Feeds the EINT-019 forward outcome tracker. Read-only; rows whose stored digest does not
+    match their payload are skipped, as in ``recommended_symbols``. One payload per session: a
+    rerun that published again keeps the first (earliest generated) row of that session.
+    """
+    if not path.is_file():
+        return []
+    connection = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=10)
+    try:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA query_only = ON")
+        if not connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (TABLE,)).fetchone():
+            return []
+        payloads = {}
+        for row in connection.execute(f"SELECT data_as_of, payload_sha256, payload_json FROM {TABLE} "
+                                      "WHERE data_as_of <= ? ORDER BY data_as_of, generated_at, snapshot_id",
+                                      (through,)):
+            payload = json.loads(row["payload_json"])
+            if (payload.get("schema_version") != schema or row["data_as_of"] in payloads
+                    or canonical_payload_digest(payload) != row["payload_sha256"]):
+                continue
+            payloads[row["data_as_of"]] = payload
+        return list(payloads.values())
+    finally:
+        connection.close()
+
+
 def is_published(path: Path, run_id: str) -> bool:
     """Read-only check used by the writer while it holds the lock; never creates the DB."""
     if not path.is_file():

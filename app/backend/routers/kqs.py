@@ -29,7 +29,7 @@ try:
     from ..kqs_recommendations import (read_local_recommendations, recommendation_source,
                                       publication_status, publication_candidates, publication_packet,
                                       native_positions_not_applicable)
-    from ..kqs_strategy_board import board_items, holding_signals
+    from ..kqs_strategy_board import board_items, holding_signals, read_outcome_report
     from .auth import current_user
 except ImportError:
     from db import get_db  # type: ignore
@@ -39,7 +39,7 @@ except ImportError:
     from kqs_recommendations import (read_local_recommendations, recommendation_source,
                                     publication_status, publication_candidates, publication_packet,
                                     native_positions_not_applicable)  # type: ignore
-    from kqs_strategy_board import board_items, holding_signals  # type: ignore
+    from kqs_strategy_board import board_items, holding_signals, read_outcome_report  # type: ignore
     from routers.auth import current_user  # type: ignore
 
 
@@ -1367,6 +1367,12 @@ async def get_kqs_strategy_board(user: dict = Depends(current_user)) -> dict:
                         generated_at=payload["generated_at"], expires_at=payload["expires_at"],
                         snapshot_id=payload.get("snapshot_id"), package_version=payload["engine"].get("package_version"))
     return JSONResponse(content=response, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/recommendation-outcomes")
+async def get_kqs_recommendation_outcomes(user: dict = Depends(current_user)) -> dict:
+    """EINT-019: 게시된 3개 아이템 추천의 사후 성과(다음 거래일 시가 기준 1·5·10·20거래일). 읽기 전용."""
+    return JSONResponse(content=await asyncio.to_thread(read_outcome_report), headers={"Cache-Control": "no-store"})
 
 
 class KqsPositionSellInput(ManualRecordInput):

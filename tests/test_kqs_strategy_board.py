@@ -109,3 +109,46 @@ async def test_strategy_board_api_shows_items_and_my_holding(native_publication,
     [holding] = data["sell_signals"]
     assert holding["item"] == signal["signal_type"] and holding["state"] == "not_monitored"
     assert (await client.get("/api/kqs/strategy-board")).status_code == 401
+
+
+def test_outcome_report_reads_engine_file_newest_first(tmp_path):
+    from kqs_runtime.outcomes import build_outcome_report, write_outcome_report
+    import test_outcomes as engine
+
+    rows = [engine.bar(day, "AAA", "KOSDAQ", 1000, 1010) for day in engine.SESSIONS]
+    rows += [engine.bar(day, "229200", "ETF", 100, 100) for day in engine.SESSIONS]
+    engine.market_db(tmp_path / "market.sqlite3", rows)
+    engine.snapshot_db(tmp_path / "rec.sqlite3", [
+        engine.payload("2026-09-30", [("swing", 1, "AAA", "KOSDAQ"), ("pullback_v4", 2, "AAA", "KOSDAQ"),
+                                      ("pullback_v4", 1, "AAA", "KOSDAQ")]),
+        engine.payload("2026-10-01", [("long_term", 1, "AAA", "KOSDAQ")])])
+    target = tmp_path / "state" / "recommendation-outcomes.json"
+    write_outcome_report(target, build_outcome_report(tmp_path / "rec.sqlite3", tmp_path / "market.sqlite3", "2026-10-25"))
+
+    data = board.read_outcome_report(target)
+    assert data["available"] and data["source_count"] == 2 and data["row_count"] == 4
+    assert [(r["as_of"], r["item"], r["rank"]) for r in data["rows"]] == [
+        ("2026-10-01", "long_term", 1), ("2026-09-30", "swing", 1), ("2026-09-30", "pullback_v4", 1),
+        ("2026-09-30", "pullback_v4", 2)]
+    items = {item["item"]: item for item in data["items"]}
+    assert items["pullback_v4"]["pick_count"] == 2 and items["pullback_v4"]["label"] == "Trend Pullback v4"
+    assert items["swing"]["horizons"]["5"]["mean_return_pct"] == 1.0  # 1000 open -> 1010 close
+    assert items["swing"]["horizons"]["5"]["sample_gate"] == "insufficient_sample"
+
+
+def test_outcome_report_missing_or_foreign_file_is_unavailable(tmp_path):
+    assert board.read_outcome_report(tmp_path / "absent.json")["available"] is False
+    foreign = tmp_path / "foreign.json"
+    foreign.write_text('{"schema": "other"}')
+    assert board.read_outcome_report(foreign)["available"] is False
+    foreign.write_text("not json")
+    assert board.read_outcome_report(foreign)["available"] is False
+
+
+@pytest.mark.asyncio
+async def test_recommendation_outcomes_api_requires_login(client, make_user, monkeypatch, tmp_path):
+    monkeypatch.setenv("KQS_RECOMMENDATION_OUTCOMES", str(tmp_path / "absent.json"))
+    assert (await client.get("/api/kqs/recommendation-outcomes")).status_code == 401
+    headers = await make_user("outcomes@example.com")
+    response = await client.get("/api/kqs/recommendation-outcomes", headers=headers)
+    assert response.status_code == 200 and response.json()["available"] is False

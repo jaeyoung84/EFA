@@ -1,6 +1,7 @@
 import { manualRequest, resetManualRequest, kstTradeAt, kstRecordTime } from './kqsManualRecords.js';
 import { authRequest, authDownload, isAuthenticated, openAuthModal } from '../auth.js';
 import { kqsRecommendationsHtml } from './kqsRecommendations.js';
+import { outcomesHtml } from './recommendationOutcomes.js';
 import { kqsStatusHtml, kqsReviewCandidatesHtml, kqsReviewPacketHtml, kqsNativeReconciliationHtml } from './kqsEngineViews.js';
 
 const TYPE_BADGE = {
@@ -563,7 +564,8 @@ export function strategyListView(container) {
       <div id="stg-kqs-decision-ledger" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">내 판단 기록을 불러오는 중...</p></div>
     </section>
     <section class="stg-tab-panel" role="tabpanel" data-stg-panel="performance" hidden>
-      <p class="stg-tab-desc">내 판단의 사후 성과와 개인 운용 성과 분석입니다.</p>
+      <p class="stg-tab-desc">엔진 추천의 사후 성과, 내 판단의 사후 성과와 개인 운용 성과 분석입니다.</p>
+      <div id="stg-recommendation-outcomes" class="ro-panel"><p class="sb-empty">추천 성과를 불러오는 중...</p></div>
       <div id="stg-kqs-decision-outcomes" style="background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">내 판단의 사후 성과를 불러오는 중...</p></div>
       <div id="stg-kqs-performance-report" style="margin-top:12px; background:#12161f; border:1px solid #232938; border-radius:10px; padding:14px;"><p style="color:#94a3b8; font-size:.8rem; margin:0;">내 개인 운용 성과 분석을 불러오는 중...</p></div>
     </section>
@@ -813,6 +815,12 @@ export function strategyListView(container) {
     } catch (error) {
       kqsDecisionPositionsEl.innerHTML = `<p style="color:#ef4444; font-size:.8rem;">${escapeHtml(error.message)}</p>`;
     }
+  }
+
+  async function loadRecommendationOutcomes() {
+    const el = container.querySelector('#stg-recommendation-outcomes');
+    try { el.innerHTML = outcomesHtml(await authRequest('/api/kqs/recommendation-outcomes')); }
+    catch (error) { el.innerHTML = `<p style="color:#ef4444; font-size:.8rem;">${escapeHtml(error.message)}</p>`; }
   }
 
   async function loadKqsDecisionOutcomes() {
@@ -1382,7 +1390,7 @@ export function strategyListView(container) {
   // 다른 탭의 패널을 갱신하는 동작은 그대로 동작한다(요소는 모두 DOM에 있다).
   const STG_TAB_LOADERS = {
     records: () => { loadKqsRecommendations(); loadKqsDecisionPositions(); loadKqsDecisionLedger(); },
-    performance: () => { loadKqsDecisionOutcomes(); loadKqsPerformanceReport(); },
+    performance: () => { loadRecommendationOutcomes(); loadKqsDecisionOutcomes(); loadKqsPerformanceReport(); },
     training: () => { loadKqsTrainingReadiness(); loadKqsTrainingExperiments(); },
     review: () => { loadKqsReviewCandidates(); loadKqsReviewWorkflow(); loadKqsCandidateQueueHistory(); loadKqsReviewReport(); loadKqsSelectionQuality(); loadKqsCandidateOutcomes(); loadKqsCandidateReviewHistory(); loadKqsCandidateReviewSnapshots(); loadKqsReconciliation(); loadKqsReconciliationHistory(); },
     strategies: () => { loadList(); loadStrategyPortfolio(); loadRebalancePlan(); loadPromotionMonitor(); loadExecutionStatus(); loadPaperDashboard(); loadPaperAlerts(false, true); loadPaperReport(); loadPaperHistory(); loadPaperAccount(); loadFills(); },

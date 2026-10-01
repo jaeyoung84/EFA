@@ -57,6 +57,11 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual((catalog["schema"], catalog["as_of"]), ("kqs-instrument-catalog/v1", self.as_of))
         self.assertEqual({item["symbol"] for item in catalog["items"]}, {"005930", "035420"})  # stocks only, no ETFs
         self.assertEqual(run["steps"]["instrument_catalog"]["status"], "written")
+        outcomes = json.loads(self.paths["recommendation_outcomes"].read_text())  # EINT-019
+        self.assertEqual((outcomes["schema"], outcomes["through"], outcomes["source_count"]),
+                         ("kqs-recommendation-outcomes/v1", self.as_of, 1))
+        self.assertTrue(all(row["status"] == "awaiting_entry" for row in outcomes["rows"]))  # nothing after as_of yet
+        self.assertEqual(run["steps"]["recommendation_outcomes"]["status"], "written")
         self.assertTrue(all(KEY not in path.read_bytes().decode("latin-1") for path in self.state.rglob("*")
                             if path.is_file()))
 

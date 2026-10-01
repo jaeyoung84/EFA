@@ -21,6 +21,7 @@ from kqs_collection.store import publish as record_quality
 from kqs_ops.paths import state_paths
 from kqs_ops.runlog import SUCCESS, record_run, write_status
 from kqs_publication.calendar import KST, CalendarError, calendar_for_session
+from kqs_runtime.outcomes import OutcomeError, build_outcome_report, write_outcome_report
 from kqs_runtime.worker import require_separate_paths, run_publication
 
 HISTORY_DAYS = 730
@@ -96,6 +97,16 @@ def run_daily_pipeline(*, state_dir: Path, market_db: Path, client: KrxOpenApiCl
     attempt = result["attempt"]
     run["steps"]["publication"] = {"attempt_id": attempt["attempt_id"], "status": attempt["status"],
                                    "snapshot_id": attempt.get("snapshot_id"), "expires_at": expires_at.isoformat()}
+
+    # EINT-019: forward outcomes of the published picks, for the website. Observation only; a
+    # failure is recorded but never changes the publication status.
+    try:
+        outcomes = build_outcome_report(paths["snapshot_db"], market_db, as_of)
+        write_outcome_report(paths["recommendation_outcomes"], outcomes)
+        run["steps"]["recommendation_outcomes"] = {"status": "written", "rows": len(outcomes["rows"]),
+                                                   "rows_sha256": outcomes["rows_sha256"]}
+    except (OutcomeError, OSError, sqlite3.Error) as exc:
+        run["steps"]["recommendation_outcomes"] = {"status": "failed", "error": str(exc)}
     return finish(PUBLICATION_STATUS[attempt["status"]], attempt.get("error"))
 
 
