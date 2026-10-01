@@ -241,9 +241,14 @@ async def current_user(authorization: str | None = Header(default=None)) -> dict
     return user
 
 
+def _legacy_password_auth_enabled() -> bool:
+    """이메일·비밀번호 가입/로그인은 종료했다(네이버 로그인만 사용). 테스트·로컬 점검용으로만 켤 수 있다."""
+    return os.getenv("LEGACY_EMAIL_SIGNUP_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
 @router.post("/signup", status_code=status.HTTP_201_CREATED)
 async def signup(request: SignupRequest) -> dict:
-    if os.getenv("LEGACY_EMAIL_SIGNUP_ENABLED", "false").strip().lower() not in {"1", "true", "yes", "on"}:
+    if not _legacy_password_auth_enabled():
         raise HTTPException(status_code=410, detail="신규 회원가입은 네이버 로그인을 이용해 주세요.")
     email = request.email.strip().lower()
     username = request.username.strip()
@@ -263,6 +268,8 @@ async def signup(request: SignupRequest) -> dict:
 
 @router.post("/login")
 async def login(request: LoginRequest) -> dict:
+    if not _legacy_password_auth_enabled():
+        raise HTTPException(status_code=410, detail="이메일 로그인은 종료되었습니다. 네이버 로그인을 이용해 주세요.")
     email = request.email.strip().lower()
     user = await get_db().users.find_one({"email": email})
     if not user or not _password_matches(request.password, user.get("password_hash", "")):

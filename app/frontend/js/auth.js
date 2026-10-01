@@ -62,7 +62,7 @@ function showProfile() {
   root.querySelector('[data-auth-panel="profile"]').hidden = false;
   root.querySelector('#auth-profile-name').textContent = user.username;
   root.querySelector('#auth-profile-email').textContent = user.email || '네이버 계정';
-  root.querySelector('#auth-profile-provider').textContent = user.auth_provider === 'naver' ? '네이버 연동 계정' : '기존 이메일 계정';
+  root.querySelector('#auth-profile-provider').textContent = user.auth_provider === 'naver' ? '네이버 연동 계정' : '네이버 미연동 계정';
   root.hidden = false;
   document.body.classList.add('modal-open');
   renderActivity();
@@ -96,9 +96,6 @@ export async function initAuth() {
           <a id="naver-login" class="auth-naver-login" href="/api/auth/naver/start"><img src="/assets/naver/NAVER_login_Dark_KR_green_wide_H56.png" alt="네이버 로그인" width="368" height="56"></a>
           <p class="auth-naver-note"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> 네이버 비밀번호는 EFA에 전달되지 않습니다. 받는 정보(이름·이메일)와 이용 목적은 <a href="/privacy.html" target="_blank" rel="noopener">개인정보처리방침</a>에 있습니다.</p>
           <p id="auth-error" class="auth-error" aria-live="polite"></p>
-          <details class="auth-legacy"><summary>기존 이메일 계정 로그인</summary>
-            <form id="auth-form"><label>이메일<input id="auth-email" type="email" required autocomplete="email"></label><label>비밀번호<input id="auth-password" type="password" minlength="8" required autocomplete="current-password"></label><button id="auth-submit" class="auth-submit" type="submit">기존 계정 로그인</button></form>
-          </details>
         </div>
         <div data-auth-panel="profile" hidden><h2>내 계정</h2><p id="auth-profile-name"></p><small id="auth-profile-email"></small><span id="auth-profile-provider" class="auth-provider"></span><h3>최근 사용 내역</h3><ul id="auth-activity" class="auth-activity"></ul><button type="button" id="auth-logout" class="auth-logout">로그아웃</button>
           <details class="auth-legacy auth-withdraw"><summary>회원 탈퇴</summary>
@@ -112,18 +109,6 @@ export async function initAuth() {
   document.getElementById('auth-badge')?.addEventListener('click', openAuthModal);
   modal().querySelector('.auth-modal-close').addEventListener('click', closeModal);
   modal().addEventListener('click', (event) => { if (event.target === modal()) closeModal(); });
-  modal().querySelector('#auth-form').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const error = modal().querySelector('#auth-error');
-    const submit = form.querySelector('button[type="submit"]');
-    const body = { email: form.querySelector('#auth-email').value, password: form.querySelector('#auth-password').value };
-    submit.disabled = true; error.textContent = '';
-    try {
-      const data = await authRequest('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      localStorage.setItem(TOKEN_KEY, data.token); user = data.user; updateBadge(); closeModal(); recordUsage('로그인');
-    } catch (err) { error.textContent = err.message; } finally { submit.disabled = false; }
-  });
   modal().querySelector('#auth-logout').addEventListener('click', async () => { try { await authRequest('/api/auth/logout', { method: 'POST' }); } catch {} localStorage.removeItem(TOKEN_KEY); user = null; updateBadge(); closeModal(); });
   modal().querySelector('#auth-withdraw-form').addEventListener('submit', async (event) => {
     event.preventDefault();

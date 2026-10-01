@@ -47,3 +47,18 @@ def test_login_uses_the_official_naver_button_and_links_the_policy():
     assert 'src="/assets/naver/NAVER_login_Dark_KR_green_wide_H56.png" alt="네이버 로그인"' in auth_js
     assert 'href="/privacy.html"' in auth_js and "auth-naver-mark" not in auth_js
     assert 'href="/privacy.html"' in (ROOT / "app/frontend/index.html").read_text()
+
+
+@pytest.mark.asyncio
+async def test_email_login_and_signup_are_closed_by_default(client, make_user, monkeypatch):
+    await make_user("closed-login@example.com")  # 테스트 환경에서만 켠 가입으로 계정을 만든다
+    monkeypatch.setenv("LEGACY_EMAIL_SIGNUP_ENABLED", "false")
+    login = await client.post("/api/auth/login", json={"email": "closed-login@example.com", "password": "testpassword123"})
+    assert login.status_code == 410 and "네이버" in login.json()["detail"]
+    signup = await client.post("/api/auth/signup", json={"email": "new@example.com", "username": "new1", "password": "testpassword123"})
+    assert signup.status_code == 410
+
+
+def test_login_window_has_no_email_password_form():
+    auth_js = (ROOT / "app/frontend/js/auth.js").read_text()
+    assert "auth-password" not in auth_js and "/api/auth/login" not in auth_js
