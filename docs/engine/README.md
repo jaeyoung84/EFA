@@ -79,7 +79,7 @@
 
 - [독립 실행 패키지](../../engine/kqs/README.md) **0.6.0**이 EC2(t3.small)에서 systemd 타이머로 동작한다:
   08:30/10:30 KST `kqs-daily-pipeline`, 11:30 KST `kqs-backup`(비공개 S3), 매시 `kqs-pipeline-status`.
-  홈페이지는 http://3.38.170.158:8801 . [운영 절차](OPERATIONS.md), [검증 근거](verification/EINT-007A.json).
+  홈페이지는 https://efa-quant.com (2026-10-01부터, 이전 http://3.38.170.158:8801). [운영 절차](OPERATIONS.md), [검증 근거](verification/EINT-007A.json).
 
 ## 어디에 무엇이 있는가
 

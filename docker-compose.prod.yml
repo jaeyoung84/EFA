@@ -4,7 +4,8 @@ services:
     container_name: investment_backend
     restart: unless-stopped
     ports:
-      - "8801:8000"
+      # 서버 내부에서만 받는다. 외부 접속은 Cloudflare → nginx(443) → 127.0.0.1:8801.
+      - "127.0.0.1:8801:8000"
     env_file:
       - app/backend/.env
     environment:

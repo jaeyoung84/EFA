@@ -88,9 +88,18 @@ AWS에 코드를 올리거나 서비스를 재시작하지 않았다.
 - 원본 수집기는 평일 휴장일에도 호출해 0행을 기록했다. 이관 수집기는 검토된 캘린더 세션만
   호출하고, 세션인데 0행이면 실패(`collect_failed`)로 남기고 재시도 시각에 다시 시도한다.
 
+## 웹 접속 경로(2026-10-01~)
+
+- 주소 **https://efa-quant.com**. Cloudflare(프록시) → EC2 nginx 443(Cloudflare Origin 인증서 `/etc/ssl/cert.pem`)
+  → `127.0.0.1:8801` → backend 컨테이너 8000. 80은 https로 이동만 한다.
+- 보안그룹은 80·443을 Cloudflare IPv4 대역에만 연다. 8801은 서버 내부에서만 열린다(`docker-compose.prod.yml`).
+- nginx 설정 원본은 `infra/nginx/efa-quant.conf`. Cloudflare가 넘긴 실제 접속자 IP(`CF-Connecting-IP`)를 Cloudflare 대역에서
+  온 요청에만 인정한다. 대역은 https://www.cloudflare.com/ips/ 와 보안그룹을 함께 갱신한다.
+- 배포·엔진 점검은 서버 안에서 `http://127.0.0.1:8801`로 한다.
+
 ## 배포 결과(2026-09-29)
 
-- EC2 `i-0dc146c28dca4089b` t3.small, 공인 IP **3.38.170.158**(중지·시작 시 바뀔 수 있음), 2GB swap
+- EC2 `i-0dc146c28dca4089b` t3.small, 공인 IP **3.38.170.158**(중지·시작 시 바뀔 수 있음 — 바뀌면 Cloudflare A 레코드 갱신), 2GB swap
   (`/swapfile`, swappiness 10). swap 없이 첫 실행이 OOM(exit 137)으로 종료됐다 — 제거하지 않는다.
 - S3 `s3://kqs-state-125022369601/`: `initial/`(초기 DB 사본), `backups/<UTC 시각>/`. ops.env에 업로드 URI.
 - 인증키: SSM `/kqs/krx-auth-key` → `/srv/kqs/secrets/krx.env`. 키 교체 시 파라미터 갱신 후 파일 재생성.

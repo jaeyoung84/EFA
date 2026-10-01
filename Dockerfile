@@ -25,4 +25,6 @@ EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=10 \
     CMD curl --fail http://localhost:8000/api/health || exit 1
 
-CMD ["uvicorn", "app.backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# nginx가 넘긴 실제 접속자 IP·https 여부(X-Forwarded-*)를 Docker 내부망에서 온 요청에만 신뢰한다.
+CMD ["uvicorn", "app.backend.main:app", "--host", "0.0.0.0", "--port", "8000", \
+     "--proxy-headers", "--forwarded-allow-ips", "127.0.0.1,172.16.0.0/12"]

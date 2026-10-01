@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent / ".env")
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, Response
@@ -114,13 +114,32 @@ app = FastAPI(
 
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
+# 화면은 같은 도메인에서 API를 부르므로 다른 사이트의 브라우저 호출만 허용 목록으로 제한한다.
+# 로그인은 Authorization 헤더(Bearer)라 쿠키 자격 증명은 넘기지 않는다.
+CORS_ALLOW_ORIGINS = [origin.strip() for origin in os.getenv(
+    "CORS_ALLOW_ORIGINS", "https://efa-quant.com,https://www.efa-quant.com").split(",") if origin.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=CORS_ALLOW_ORIGINS,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+SECURITY_HEADERS = {
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+}
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    return response
 
 
 try:
