@@ -258,6 +258,15 @@ img { max-width: 100%; }
 .auth-modal form { display: grid; gap: 12px; }.auth-modal label { display: grid; gap: 6px; color: var(--text-muted); font-size: .78rem; font-weight: 700; }.auth-modal input { padding: 10px 11px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-soft); color: var(--text); font: inherit; }.auth-modal input:focus { outline: 2px solid var(--primary-light); border-color: var(--primary); }
 .auth-submit, .auth-logout { padding: 11px; color: #151a10; border-radius: 7px; background: var(--primary); font-weight: 750; }.auth-submit:disabled { opacity: .6; }.auth-logout { width: 100%; margin-top: 16px; background: var(--surface-hover); color: var(--text); }.auth-error { min-height: 18px; margin: 0; color: var(--red); font-size: .76rem; }.auth-modal h3 { margin: 22px 0 9px; color: var(--text); font-size: .88rem; }.auth-modal small { color: var(--text-muted); }.auth-activity { max-height: 220px; margin: 0; padding-left: 18px; overflow: auto; color: var(--text-muted); font-size: .78rem; line-height: 1.7; }
 
+
+.auth-naver-mark { display:grid; place-items:center; width:46px; height:46px; margin-bottom:15px; color:#fff; background:#03c75a; border-radius:12px; font-size:1.35rem; font-weight:900; }
+.auth-naver-login { display:flex; align-items:center; justify-content:center; gap:12px; width:100%; min-height:52px; padding:0 18px; color:#fff; background:#03c75a; border:1px solid #03b753; border-radius:8px; font-size:.9rem; font-weight:800; box-shadow:0 8px 20px rgba(3,199,90,.18); }
+.auth-naver-login:hover,.auth-naver-login:focus-visible { background:#02b451; outline:2px solid rgba(3,199,90,.35); outline-offset:2px; }
+.auth-naver-login b { padding-right:12px; border-right:1px solid rgba(255,255,255,.3); font-size:1.15rem; }
+.auth-naver-note { display:flex; align-items:flex-start; gap:7px; margin:12px 0 0; color:var(--text-muted); font-size:.68rem; line-height:1.5; }.auth-naver-note i { margin-top:2px; color:#03c75a; }
+.auth-provider { display:block; width:max-content; margin-top:9px; padding:4px 8px; color:#6ee7a2; background:rgba(3,199,90,.12); border:1px solid rgba(3,199,90,.28); border-radius:999px; font-size:.65rem; font-weight:800; }
+.auth-legacy { margin-top:16px; padding-top:14px; border-top:1px solid var(--border); }.auth-legacy summary { color:var(--text-muted); cursor:pointer; font-size:.7rem; text-align:center; }.auth-legacy[open] summary { margin-bottom:13px; color:var(--text); }.auth-legacy .auth-submit { margin-top:2px; }
+
 /* ── Enterprise 안내 모달 ── */
 .enterprise-modal-overlay {
   position: fixed; inset: 0; z-index: 200;

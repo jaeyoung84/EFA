@@ -5,34 +5,6 @@
 const DESKTOP_BREAKPOINT = 1024;
 let _sidebarOpen = window.innerWidth > DESKTOP_BREAKPOINT;
 
-// ── Enterprise 안내 모달 (회원가입/로그인 클릭 시) ──
-function openEnterpriseModal() {
-  const overlay = document.getElementById('enterprise-modal-overlay');
-  if (!overlay) return;
-  overlay.hidden = false;
-  document.body.classList.add('modal-open');
-}
-function closeEnterpriseModal() {
-  const overlay = document.getElementById('enterprise-modal-overlay');
-  if (!overlay) return;
-  overlay.hidden = true;
-  document.body.classList.remove('modal-open');
-}
-window.closeEnterpriseModal = closeEnterpriseModal;
-
-document.querySelectorAll('.js-enterprise-gate').forEach((el) => {
-  el.addEventListener('click', (event) => {
-    event.preventDefault();
-    openEnterpriseModal();
-  });
-});
-document.getElementById('enterprise-modal-overlay')?.addEventListener('click', (event) => {
-  if (event.target.id === 'enterprise-modal-overlay') closeEnterpriseModal();
-});
-document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape') closeEnterpriseModal();
-});
-
 // ── 상단 메인 메뉴바(mainnav) — 좌측 사이드바를 대체한다 ──
 // 데스크톱: 항상 가로로 표시, 드롭다운은 CSS :hover/:focus-within으로 연다.
 // 모바일(<=1024px): 상단바 햄버거로 여닫는 세로 드롭다운 패널, 그룹은 탭해서 아코디언처럼 펼친다.

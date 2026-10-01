@@ -32,8 +32,8 @@ function updateBadge() {
   if (!badge) return;
   badge.innerHTML = user
     ? `<i class="fa-solid fa-user-check"></i><span>${user.username}</span>`
-    : '<i class="fa-solid fa-user"></i><span>회원가입/로그인</span>';
-  badge.setAttribute('aria-label', user ? '내 계정과 사용 내역' : '회원가입 또는 로그인');
+    : '<i class="fa-solid fa-user"></i><span>네이버 로그인</span>';
+  badge.setAttribute('aria-label', user ? '내 계정과 사용 내역' : '네이버로 로그인');
 }
 
 function modal() { return document.getElementById('auth-modal'); }
@@ -60,26 +60,21 @@ function showProfile() {
   root.querySelector('[data-auth-panel="form"]').hidden = true;
   root.querySelector('[data-auth-panel="profile"]').hidden = false;
   root.querySelector('#auth-profile-name').textContent = user.username;
-  root.querySelector('#auth-profile-email').textContent = user.email;
+  root.querySelector('#auth-profile-email').textContent = user.email || '네이버 계정';
+  root.querySelector('#auth-profile-provider').textContent = user.auth_provider === 'naver' ? '네이버 연동 계정' : '기존 이메일 계정';
   root.hidden = false;
   document.body.classList.add('modal-open');
   renderActivity();
 }
 
-function showForm(mode = 'login') {
+function showForm() {
   const root = modal();
   root.querySelector('[data-auth-panel="profile"]').hidden = true;
   root.querySelector('[data-auth-panel="form"]').hidden = false;
-  root.querySelectorAll('[data-auth-mode]').forEach((button) => button.classList.toggle('active', button.dataset.authMode === mode));
-  root.querySelector('#auth-username-field').hidden = mode !== 'signup';
-  root.querySelector('#auth-username').required = mode === 'signup';
-  root.querySelector('#auth-password').autocomplete = mode === 'signup' ? 'new-password' : 'current-password';
-  root.querySelector('#auth-submit').textContent = mode === 'signup' ? '회원가입' : '로그인';
-  root.querySelector('#auth-form').dataset.mode = mode;
   root.querySelector('#auth-error').textContent = '';
   root.hidden = false;
   document.body.classList.add('modal-open');
-  root.querySelector('#auth-email').focus();
+  root.querySelector('#naver-login').focus();
 }
 
 export function openAuthModal() { user ? showProfile() : showForm(); }
@@ -93,28 +88,32 @@ export async function initAuth() {
   document.body.insertAdjacentHTML('beforeend', `
     <div id="auth-modal" class="auth-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" hidden>
       <section class="auth-modal"><button type="button" class="auth-modal-close" aria-label="닫기"><i class="fa-solid fa-xmark"></i></button>
-        <div data-auth-panel="form"><h2 id="auth-modal-title">내 투자 학습 계정</h2><p>로그인하면 메뉴 이용 내역이 내 계정에 저장됩니다.</p>
-          <div class="auth-tabs"><button type="button" data-auth-mode="login" class="active">로그인</button><button type="button" data-auth-mode="signup">회원가입</button></div>
-          <form id="auth-form" data-mode="login"><label>이메일<input id="auth-email" type="email" required autocomplete="email"></label><label id="auth-username-field" hidden>이름<input id="auth-username" minlength="2" maxlength="30" autocomplete="name"></label><label>비밀번호<input id="auth-password" type="password" minlength="8" required autocomplete="current-password"></label><p id="auth-error" class="auth-error" aria-live="polite"></p><button id="auth-submit" class="auth-submit" type="submit">로그인</button></form>
+        <div data-auth-panel="form">
+          <div class="auth-naver-mark" aria-hidden="true">N</div>
+          <h2 id="auth-modal-title">네이버로 시작하기</h2>
+          <p>별도 비밀번호 없이 네이버 계정으로 안전하게 가입하고 로그인합니다.</p>
+          <a id="naver-login" class="auth-naver-login" href="/api/auth/naver/start"><b aria-hidden="true">N</b><span>네이버로 로그인</span></a>
+          <p class="auth-naver-note"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> 네이버 비밀번호는 JY investing에 전달되지 않습니다.</p>
+          <p id="auth-error" class="auth-error" aria-live="polite"></p>
+          <details class="auth-legacy"><summary>기존 이메일 계정 로그인</summary>
+            <form id="auth-form"><label>이메일<input id="auth-email" type="email" required autocomplete="email"></label><label>비밀번호<input id="auth-password" type="password" minlength="8" required autocomplete="current-password"></label><button id="auth-submit" class="auth-submit" type="submit">기존 계정 로그인</button></form>
+          </details>
         </div>
-        <div data-auth-panel="profile" hidden><h2>내 계정</h2><p id="auth-profile-name"></p><small id="auth-profile-email"></small><h3>최근 사용 내역</h3><ul id="auth-activity" class="auth-activity"></ul><button type="button" id="auth-logout" class="auth-logout">로그아웃</button></div>
+        <div data-auth-panel="profile" hidden><h2>내 계정</h2><p id="auth-profile-name"></p><small id="auth-profile-email"></small><span id="auth-profile-provider" class="auth-provider"></span><h3>최근 사용 내역</h3><ul id="auth-activity" class="auth-activity"></ul><button type="button" id="auth-logout" class="auth-logout">로그아웃</button></div>
       </section>
     </div>`);
   document.getElementById('auth-badge')?.addEventListener('click', openAuthModal);
   modal().querySelector('.auth-modal-close').addEventListener('click', closeModal);
   modal().addEventListener('click', (event) => { if (event.target === modal()) closeModal(); });
-  modal().querySelectorAll('[data-auth-mode]').forEach((button) => button.addEventListener('click', () => showForm(button.dataset.authMode)));
   modal().querySelector('#auth-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
-    const mode = form.dataset.mode;
-    const error = form.querySelector('#auth-error');
+    const error = modal().querySelector('#auth-error');
     const submit = form.querySelector('button[type="submit"]');
     const body = { email: form.querySelector('#auth-email').value, password: form.querySelector('#auth-password').value };
-    if (mode === 'signup') body.username = form.querySelector('#auth-username').value;
     submit.disabled = true; error.textContent = '';
     try {
-      const data = await authRequest(`/api/auth/${mode === 'signup' ? 'signup' : 'login'}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await authRequest('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       localStorage.setItem(TOKEN_KEY, data.token); user = data.user; updateBadge(); closeModal(); recordUsage('로그인');
     } catch (err) { error.textContent = err.message; } finally { submit.disabled = false; }
   });

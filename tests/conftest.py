@@ -12,6 +12,7 @@ from scripts.test_database_safety import assert_cleanup_target, target_from_envi
 _TEST_DATABASE_TARGET = target_from_environment(os.environ)
 os.environ["MONGODB_URL"] = _TEST_DATABASE_TARGET.url
 os.environ["MONGODB_DB"] = _TEST_DATABASE_TARGET.database
+os.environ["LEGACY_EMAIL_SIGNUP_ENABLED"] = "true"
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -20,7 +21,7 @@ from app.backend.db import get_db
 from app.backend.main import app
 
 TEST_COLLECTIONS = [
-    "users", "auth_sessions", "user_activity", "strategy_decision_records", "monthly_operations_reports", "strategy_revalidations", "research_revalidation_monthly_snapshots", "broker_sandbox_contract_checks",
+    "users", "auth_sessions", "auth_oauth_states", "user_activity", "strategy_decision_records", "monthly_operations_reports", "strategy_revalidations", "research_revalidation_monthly_snapshots", "broker_sandbox_contract_checks",
     "portfolios", "strategies", "order_proposals", "paper_fills", "paper_accounts", "paper_daily_snapshots", "paper_alerts", "execution_permissions", "execution_audit_events", "execution_audit_counters", "execution_readiness_requests", "strategy_promotion_states", "strategy_promotion_events", "strategy_promotion_monitor_snapshots",
     "market_ohlcv", "market_data_runs", "market_data_refresh_jobs", "market_data_alerts", "market_provider_health_snapshots", "market_provider_backoff", "market_factor_snapshots", "market_factor_universe_snapshots", "market_data_lineage_snapshots", "market_corporate_actions", "strategy_research_runs", "portfolio_risk_policies", "kqs_reconciliation_snapshots", "kqs_candidate_reviews", "kqs_candidate_review_snapshots", "kqs_candidate_queue_snapshots", "kqs_candidate_outcomes", "kqs_operations_alert_acknowledgements",
     "leverage_dca_configs", "leverage_dca_daily_logs", "leverage_dca_alpaca_fills", "kqs_paper_decisions", "kqs_decision_outcomes",
