@@ -2,10 +2,10 @@ name: KQS recommendation runtime
 
 on:
   pull_request:
-    paths: ['engine/kqs/**', 'docs/engine/**', 'docs/KQS*.md', 'app/backend/**', 'app/frontend/js/views/kqsRecommendations.js', 'app/frontend/js/views/kqsEngineViews.js', 'app/frontend/js/views/kqsManualRecords.js', 'app/frontend/js/views/strategyList.js', 'tests/**', 'scripts/check_engine_evidence.py', 'scripts/check_kqs*.py', 'scripts/test_database_safety.py', 'scripts/run_kqs_offline_baseline.py', 'scripts/tests/**', 'requirements*.txt', 'pytest.ini', 'AGENTS.md', 'infra/**', 'docker-compose.prod.yml', 'Dockerfile*', '.github/workflows/kqs-runtime.yml', '.github/workflows/deploy.yml']
+    paths: ['engine/kqs/**', 'docs/engine/**', 'docs/KQS*.md', 'app/backend/**', 'app/frontend/js/views/kqsRecommendations.js', 'app/frontend/js/views/kqsEngineViews.js', 'app/frontend/js/views/kqsManualRecords.js', 'app/frontend/js/views/strategyList.js', 'app/frontend/**', 'tests/**', 'scripts/check_engine_evidence.py', 'scripts/check_kqs*.py', 'scripts/test_database_safety.py', 'scripts/run_kqs_offline_baseline.py', 'scripts/tests/**', 'requirements*.txt', 'pytest.ini', 'AGENTS.md', 'infra/**', 'docker-compose.prod.yml', 'Dockerfile*', '.github/workflows/kqs-runtime.yml', '.github/workflows/deploy.yml']
   push:
     branches: [main]
-    paths: ['engine/kqs/**', 'docs/engine/**', 'docs/KQS*.md', 'app/backend/**', 'app/frontend/js/views/kqsRecommendations.js', 'app/frontend/js/views/kqsEngineViews.js', 'app/frontend/js/views/kqsManualRecords.js', 'app/frontend/js/views/strategyList.js', 'tests/**', 'scripts/check_engine_evidence.py', 'scripts/check_kqs*.py', 'scripts/test_database_safety.py', 'scripts/run_kqs_offline_baseline.py', 'scripts/tests/**', 'requirements*.txt', 'pytest.ini', 'AGENTS.md', 'infra/**', 'docker-compose.prod.yml', 'Dockerfile*', '.github/workflows/kqs-runtime.yml', '.github/workflows/deploy.yml']
+    paths: ['engine/kqs/**', 'docs/engine/**', 'docs/KQS*.md', 'app/backend/**', 'app/frontend/js/views/kqsRecommendations.js', 'app/frontend/js/views/kqsEngineViews.js', 'app/frontend/js/views/kqsManualRecords.js', 'app/frontend/js/views/strategyList.js', 'app/frontend/**', 'tests/**', 'scripts/check_engine_evidence.py', 'scripts/check_kqs*.py', 'scripts/test_database_safety.py', 'scripts/run_kqs_offline_baseline.py', 'scripts/tests/**', 'requirements*.txt', 'pytest.ini', 'AGENTS.md', 'infra/**', 'docker-compose.prod.yml', 'Dockerfile*', '.github/workflows/kqs-runtime.yml', '.github/workflows/deploy.yml']
   workflow_dispatch: {}
   workflow_call: {}
 
@@ -53,6 +53,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Every frontend module parses (a truncated file blanks the whole site)
+        run: |
+          status=0
+          for file in $(find app/frontend/js -name '*.js'); do
+            cp "$file" "$RUNNER_TEMP/check.mjs"
+            node --check "$RUNNER_TEMP/check.mjs" || { echo "::error file=$file::JavaScript syntax error"; status=1; }
+          done
+          exit $status
       - name: Recommendation reason/trace/escaping rendering
         run: |
           node scripts/tests/kqs_recommendations_render.mjs

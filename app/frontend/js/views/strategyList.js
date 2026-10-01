@@ -1130,3 +1130,270 @@ export function strategyListView(container) {
 
   async function loadPaperAlerts(history = false, refresh = false) {
     try {
+      if (refresh) await authRequest('/api/strategy/alerts/refresh', { method: 'POST' });
+      const data = await authRequest(`/api/strategy/alerts?status=${history ? 'history' : 'active'}`);
+      alertsEl.innerHTML = paperAlertsHtml(data.items, history);
+      alertsEl.querySelector('#stg-alert-refresh').addEventListener('click', () => loadPaperAlerts(history, true));
+      alertsEl.querySelector('#stg-alert-history').addEventListener('click', () => loadPaperAlerts(!history, false));
+      alertsEl.querySelectorAll('[data-alert-action]').forEach((button) => button.addEventListener('click', async () => {
+        const action = button.dataset.alertAction;
+        const row = button.closest('[data-paper-alert]');
+        const note = action === 'deferred' ? (prompt('보류 사유(선택 사항)를 입력하세요.') || '') : '';
+        button.disabled = true;
+        try {
+          await authRequest(`/api/strategy/alerts/${row.dataset.paperAlert}/resolve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, note }) });
+          await loadPaperAlerts(history, false);
+        } catch (error) { alert(error.message); button.disabled = false; }
+      }));
+    } catch (error) { alertsEl.innerHTML = `<p style="color:#ef4444; font-size:.8rem; margin:0;">${escapeHtml(error.message)}</p>`; }
+  }
+
+  async function downloadPaperReport(period, format) {
+    const response = await fetch(`/api/strategy/paper-report/export?period=${encodeURIComponent(period)}&format=${format}`, { headers: { Authorization: `Bearer ${localStorage.getItem('investment_analysis_auth_token')}` } });
+    if (!response.ok) { const payload = await response.json().catch(() => ({})); throw new Error(payload.detail || '리포트를 내보내지 못했습니다.'); }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob); const link = document.createElement('a');
+    link.href = url; link.download = `paper-research-report-${period}.${format}`; link.click(); URL.revokeObjectURL(url);
+  }
+
+  async function loadPaperReport(period = '3m') {
+    try {
+      const data = await authRequest(`/api/strategy/paper-report?period=${encodeURIComponent(period)}`);
+      reportEl.innerHTML = paperReportHtml(data);
+      reportEl.querySelector('#stg-report-period').addEventListener('change', (event) => loadPaperReport(event.target.value));
+      reportEl.querySelectorAll('[data-report-export]').forEach((button) => button.addEventListener('click', async () => {
+        button.disabled = true;
+        try { await downloadPaperReport(data.period, button.dataset.reportExport); } catch (error) { alert(error.message); } finally { button.disabled = false; }
+      }));
+    } catch (error) { reportEl.innerHTML = `<p style="color:#ef4444; font-size:.8rem; margin:0;">${escapeHtml(error.message)}</p>`; }
+  }
+
+  async function loadPaperAccount() {
+    try {
+      const account = await authRequest('/api/strategy/paper-account');
+      const formatted = Number(account.initial_capital_krw).toLocaleString('ko-KR');
+      accountEl.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;"><div><h2 style="margin:0 0 5px; color:var(--text); font-size:.9rem;">모의 계좌 위험 통제</h2><p style="margin:0; color:#94a3b8; font-size:.72rem;">실제 보유자산과 분리된 KRW 가상자본입니다. 승인 시 현금·집중도 한도를 자동 점검합니다.</p></div><div style="color:var(--text); font-size:.85rem; font-weight:700;">₩${formatted}</div></div>${account.fill_count === 0 ? `<div style="display:flex; gap:8px; align-items:end; margin-top:12px;"><label style="display:grid; gap:4px; color:#94a3b8; font-size:.7rem;">첫 체결 전 가상자본 (KRW)<input id="stg-paper-capital" class="param-input" type="number" min="1000" step="1000" value="${Number(account.initial_capital_krw)}" style="width:180px;"></label><button type="button" class="run-btn" id="stg-paper-capital-save" style="padding:8px 10px; font-size:.72rem;">설정</button></div>` : `<p style="margin:10px 0 0; color:#64748b; font-size:.7rem;">체결 ${account.fill_count}건 이후에는 원장 일관성을 위해 가상자본을 바꿀 수 없습니다.</p>`}`;
+      accountEl.querySelector('#stg-paper-capital-save')?.addEventListener('click', async (event) => {
+        const value = Number(accountEl.querySelector('#stg-paper-capital').value);
+        if (!Number.isFinite(value) || value < 1000) { alert('가상자본은 1,000 KRW 이상으로 입력하세요.'); return; }
+        event.currentTarget.disabled = true;
+        try {
+          await authRequest('/api/strategy/paper-account', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ initial_capital_krw: value }) });
+          await loadPaperAccount();
+        } catch (error) { alert(error.message); event.currentTarget.disabled = false; }
+      });
+    } catch (error) { accountEl.innerHTML = `<p style="color:#ef4444; font-size:.8rem; margin:0;">${escapeHtml(error.message)}</p>`; }
+  }
+
+  async function loadFills() {
+    try {
+      const data = await authRequest('/api/strategy/fills');
+      fillsEl.innerHTML = data.items.length
+        ? `<div style="overflow-x:auto;"><table style="width:100%; min-width:420px; border-collapse:collapse; font-size:.78rem;"><thead><tr style="color:#64748b; text-align:left;"><th style="padding:6px 10px;">시각</th><th style="padding:6px 10px;">종목</th><th style="padding:6px 10px;">방향</th><th style="padding:6px 10px;">수량</th><th style="padding:6px 10px;">체결가</th></tr></thead><tbody style="color:var(--text);">${data.items.map(fillRow).join('')}</tbody></table></div>`
+        : '<p style="color:#94a3b8; font-size:.8rem; margin:0;">아직 모의 체결 내역이 없습니다.</p>';
+    } catch (error) {
+      fillsEl.innerHTML = `<p style="color:#ef4444; font-size:.8rem; margin:0;">${escapeHtml(error.message)}</p>`;
+    }
+  }
+
+  async function loadProposals(strategyId, root) {
+    try {
+      const data = await authRequest(`/api/strategy/${strategyId}/proposals`);
+      root.innerHTML = data.items.length
+        ? `<div style="overflow-x:auto;"><table style="width:100%; min-width:480px; border-collapse:collapse; font-size:.78rem; margin-top:10px;"><thead><tr style="color:#64748b; text-align:left;"><th style="padding:8px 10px;">방향</th><th style="padding:8px 10px;">근거</th><th style="padding:8px 10px;">기준가</th><th style="padding:8px 10px;">상태</th><th style="padding:8px 10px;"></th></tr></thead><tbody style="color:var(--text);">${data.items.map(proposalRow).join('')}</tbody></table></div>`
+        : '<p style="color:#94a3b8; font-size:.78rem; margin:10px 0 0;">대기 중인 주문 제안이 없습니다.</p>';
+
+      root.querySelectorAll('[data-proposal-approve]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const row = btn.closest('tr');
+          const qty = +row.querySelector('[data-proposal-qty]').value;
+          if (!qty || qty <= 0) { alert('수량을 입력하세요.'); return; }
+          btn.disabled = true;
+          try {
+            const fill = await authRequest(`/api/strategy/proposals/${row.dataset.proposalId}/approve`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quantity: qty }),
+            });
+            if (fill.risk_control?.action === 'reduced') alert(`위험 한도에 맞춰 수량을 ${fill.quantity}로 자동 감액해 모의 체결했습니다.\n${(fill.risk_control.reasons || []).join('\n')}`);
+            await loadProposals(strategyId, root);
+            await loadFills();
+            await loadPaperAccount();
+            await loadPaperDashboard();
+            await loadPaperHistory();
+            await loadPaperAlerts(false, true);
+            await loadPaperReport();
+            await loadExecutionStatus();
+          } catch (error) { alert(error.message); btn.disabled = false; }
+        });
+      });
+      root.querySelectorAll('[data-proposal-reject]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const row = btn.closest('tr');
+          btn.disabled = true;
+          try {
+            await authRequest(`/api/strategy/proposals/${row.dataset.proposalId}/reject`, { method: 'POST' });
+            await loadProposals(strategyId, root);
+          } catch (error) { alert(error.message); btn.disabled = false; }
+        });
+      });
+    } catch (error) {
+      root.innerHTML = `<p style="color:#ef4444; font-size:.78rem;">${escapeHtml(error.message)}</p>`;
+    }
+  }
+
+  async function loadList() {
+    try {
+      const data = await authRequest('/api/strategy');
+      listEl.innerHTML = data.items.length
+        ? data.items.map(strategyCard).join('')
+        : '<p style="color:#94a3b8; font-size:.85rem;">아직 저장된 전략이 없습니다. 전략 백테스트·실제 가격 백테스트·LEAN 리포트 화면에서 "전략으로 저장"을 눌러보세요.</p>';
+      listEl.querySelectorAll('[data-strategy-id]').forEach((card) => {
+        card.addEventListener('click', () => showDetail(card.dataset.strategyId));
+      });
+    } catch (error) {
+      listEl.innerHTML = `<p style="color:#ef4444;">${escapeHtml(error.message)}</p>`;
+    }
+  }
+
+  async function showDetail(strategyId) {
+    detailEl.innerHTML = '<p style="color:#94a3b8;">불러오는 중...</p>';
+    try {
+      const item = await authRequest(`/api/strategy/${strategyId}`);
+      const m = item.snapshot?.metrics;
+      const metricsHtml = m ? `<div style="display:flex; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
+          <div class="metric-box"><div style="font-size:.7rem; color:#64748b;">총수익률</div><div style="font-size:1rem; font-weight:700; color:var(--text);">${pct(m.total_return, 1)}</div></div>
+          <div class="metric-box"><div style="font-size:.7rem; color:#64748b;">CAGR</div><div style="font-size:1rem; font-weight:700; color:var(--text);">${pct(m.cagr, 2)}</div></div>
+          <div class="metric-box"><div style="font-size:.7rem; color:#64748b;">Sharpe</div><div style="font-size:1rem; font-weight:700; color:var(--text);">${m.sharpe?.toFixed(2) ?? '-'}</div></div>
+          <div class="metric-box"><div style="font-size:.7rem; color:#64748b;">Sortino</div><div style="font-size:1rem; font-weight:700; color:var(--text);">${m.sortino?.toFixed(2) ?? '-'}</div></div>
+          <div class="metric-box"><div style="font-size:.7rem; color:#64748b;">MDD</div><div style="font-size:1rem; font-weight:700; color:var(--text);">${pct(m.mdd, 1)}</div></div>
+        </div>` : '';
+      const statsHtml = item.type === 'lean' && item.snapshot?.statistics
+        ? `<div style="display:flex; flex-wrap:wrap; gap:12px; margin-bottom:16px;">${Object.entries(item.snapshot.statistics).slice(0, 8).map(([k, v]) => `<div class="metric-box"><div style="font-size:.66rem; color:#64748b;">${escapeHtml(k)}</div><div style="font-size:.88rem; font-weight:700; color:var(--text);">${escapeHtml(v)}</div></div>`).join('')}</div>`
+        : '';
+
+      detailEl.innerHTML = `<div style="background:#12161f; border:1px solid #232938; border-radius:12px; padding:20px; margin-top:16px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
+          <h2 style="margin:0; color:var(--text); font-size:1.05rem;">${escapeHtml(item.name)}</h2>
+          <div style="display:flex; gap:8px; align-items:center;">${badge(item.type)}<button type="button" data-delete-strategy style="padding:6px 10px; font-size:.72rem; color:#ef4444; background:none; border:1px solid #ef4444; border-radius:6px;">삭제</button></div>
+        </div>
+        ${metadataTable(item)}
+        ${item.parent_id ? '<div id="stg-version-comparison"><p style="color:#94a3b8; font-size:.72rem;">이전 버전과 비교 중...</p></div>' : ''}
+        ${metricsHtml}
+        ${statsHtml}
+        ${item.type === 'real_backtest' ? `
+          <div style="border-top:1px solid #232938; padding-top:14px; margin-top:4px;">
+            <div id="stg-order-preflight"><p style="margin:0 0 8px; color:#94a3b8; font-size:.72rem;">모의 주문 사전 점검 중...</p></div>
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+              <h3 style="margin:0; color:var(--text); font-size:.9rem;">주문 제안</h3>
+              <button type="button" class="run-btn" id="stg-make-proposal" style="padding:8px 12px; font-size:.75rem;">현재 신호 확인 → 주문 제안 생성</button>
+            </div>
+            <p style="margin:8px 0 0; color:#64748b; font-size:.72rem;">최신 시세로 다시 계산한 신호입니다. 승인 시 입력한 수량으로 모의 체결이 기록되며, 실제 보유자산(내 보유자산)에는 반영되지 않습니다.</p>
+            <div id="stg-proposals"></div>
+          </div>` : ''}
+      </div>`;
+
+      detailEl.querySelector('[data-delete-strategy]').addEventListener('click', async () => {
+        if (!confirm('이 전략을 삭제할까요?')) return;
+        try {
+          await authRequest(`/api/strategy/${strategyId}`, { method: 'DELETE' });
+          detailEl.innerHTML = '';
+          await loadList();
+        } catch (error) { alert(error.message); }
+      });
+
+      if (item.type === 'real_backtest') {
+        if (item.parent_id) {
+          const comparisonRoot = detailEl.querySelector('#stg-version-comparison');
+          try {
+            const [comparison, promotion] = await Promise.all([
+              authRequest(`/api/strategy/strategy-version-comparison/${item.id}`),
+              authRequest(`/api/strategy/strategy-version-promotion/${item.id}`),
+            ]);
+            comparisonRoot.innerHTML = versionComparisonHtml(comparison) + versionPromotionHtml(promotion);
+            comparisonRoot.querySelector('[data-promotion-approve]')?.addEventListener('click', async (event) => {
+              if (!confirm('이 전략 버전을 승인 고정할까요? 주문·모의 체결·배분은 변경되지 않습니다.')) return;
+              const note = prompt('승인 메모(선택 사항)를 입력하세요.') || '';
+              event.currentTarget.disabled = true;
+              try {
+                await authRequest(`/api/strategy/strategy-version-promotion/${item.id}/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note }) });
+                await Promise.all([loadList(), loadStrategyPortfolio(), loadRebalancePlan()]);
+                await showDetail(strategyId);
+              } catch (error) { alert(error.message); event.currentTarget.disabled = false; }
+            });
+            comparisonRoot.querySelector('[data-promotion-revoke]')?.addEventListener('click', async (event) => {
+              if (!confirm('이 전략 버전의 승인 고정을 철회할까요? 주문·모의 체결·배분은 변경되지 않습니다.')) return;
+              const note = prompt('철회 메모(선택 사항)를 입력하세요.') || '';
+              event.currentTarget.disabled = true;
+              try {
+                await authRequest(`/api/strategy/strategy-version-promotion/${item.id}/revoke`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note }) });
+                await showDetail(strategyId);
+              } catch (error) { alert(error.message); event.currentTarget.disabled = false; }
+            });
+          }
+          catch (error) { comparisonRoot.innerHTML = `<p style="color:#ef4444; font-size:.72rem;">${escapeHtml(error.message)}</p>`; }
+        }
+        const proposalsRoot = detailEl.querySelector('#stg-proposals');
+        const preflightRoot = detailEl.querySelector('#stg-order-preflight');
+        try {
+          const preflight = await authRequest(`/api/strategy/paper-order-preflight/${item.id}`);
+          preflightRoot.innerHTML = paperOrderPreflightHtml(preflight);
+          if (!preflight.allowed) detailEl.querySelector('#stg-make-proposal').disabled = true;
+        } catch (error) { preflightRoot.innerHTML = `<p style="margin:0 0 8px; color:#ef4444; font-size:.72rem;">${escapeHtml(error.message)}</p>`; }
+        await loadProposals(strategyId, proposalsRoot);
+        detailEl.querySelector('#stg-make-proposal').addEventListener('click', async (event) => {
+          event.currentTarget.disabled = true;
+          try {
+            await authRequest(`/api/strategy/${strategyId}/proposals`, { method: 'POST' });
+            await loadProposals(strategyId, proposalsRoot);
+          } catch (error) { alert(error.message); } finally { event.currentTarget.disabled = false; }
+        });
+      }
+    } catch (error) {
+      detailEl.innerHTML = `<p style="color:#ef4444;">${escapeHtml(error.message)}</p>`;
+    }
+  }
+
+  loadList();
+  loadStrategyPortfolio();
+  loadRebalancePlan();
+  loadPromotionMonitor();
+  loadLiveReviewReadiness();
+  loadOperationsReport();
+  loadKqsStatus();
+  loadKqsRecommendations();
+  loadKqsReviewCandidates();
+  loadKqsDecisionPositions();
+  loadKqsDecisionOutcomes();
+  loadKqsPerformanceReport();
+  loadKqsTrainingReadiness();
+  loadKqsTrainingExperiments();
+  loadKqsDecisionLedger();
+  loadKqsCandidateQueueHistory();
+  loadKqsReviewWorkflow();
+  loadKqsReviewReport();
+  loadKqsSelectionQuality();
+  loadKqsOperationsAlerts();
+  loadStrategyGovernance();
+  loadKqsCandidateOutcomes();
+  loadPerformanceDecomposition();
+  loadDecisionRecords();
+  loadMonthlyOperationsReport();
+  loadDataLineage();
+  loadRevalidationMonitor();
+  loadIntegratedRisk();
+  loadOperationsRunbook();
+  loadSandboxContract();
+  loadResearchRegistry();
+  loadRecoveryReadiness();
+  loadLiveIntegrationReadiness();
+  loadKqsCandidateReviewHistory();
+  loadKqsCandidateReviewSnapshots();
+  loadKqsReconciliation();
+  loadKqsReconciliationHistory();
+  loadFills();
+  loadPaperAccount();
+  loadPaperDashboard();
+  loadPaperAlerts(false, true);
+  loadPaperReport();
+  loadExecutionStatus();
+  loadPaperHistory();
+}
