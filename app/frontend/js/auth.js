@@ -32,8 +32,8 @@ function updateBadge() {
   if (!badge) return;
   badge.innerHTML = user
     ? `<i class="fa-solid fa-user-check"></i><span>${user.username}</span>`
-    : '<i class="fa-solid fa-user"></i><span>네이버 로그인</span>';
-  badge.setAttribute('aria-label', user ? '내 계정과 사용 내역' : '네이버로 로그인');
+    : '<i class="fa-solid fa-user"></i><span>로그인</span>';
+  badge.setAttribute('aria-label', user ? '내 계정과 사용 내역' : '로그인');
 }
 
 function modal() { return document.getElementById('auth-modal'); }
@@ -89,17 +89,23 @@ export async function initAuth() {
     <div id="auth-modal" class="auth-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title" hidden>
       <section class="auth-modal"><button type="button" class="auth-modal-close" aria-label="닫기"><i class="fa-solid fa-xmark"></i></button>
         <div data-auth-panel="form">
-          <div class="auth-naver-mark" aria-hidden="true">N</div>
-          <h2 id="auth-modal-title">네이버로 시작하기</h2>
-          <p>별도 비밀번호 없이 네이버 계정으로 안전하게 가입하고 로그인합니다.</p>
-          <a id="naver-login" class="auth-naver-login" href="/api/auth/naver/start"><b aria-hidden="true">N</b><span>네이버로 로그인</span></a>
-          <p class="auth-naver-note"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> 네이버 비밀번호는 JY investing에 전달되지 않습니다.</p>
+          <div class="auth-brand-mark" aria-hidden="true"><i class="fa-solid fa-chart-line"></i></div>
+          <h2 id="auth-modal-title">로그인</h2>
+          <p>네이버 계정으로 가입·로그인하면 전략 추천과 내 매매 기록·연구 화면을 이용할 수 있습니다.</p>
+          <a id="naver-login" class="auth-naver-login" href="/api/auth/naver/start"><img src="/assets/naver/NAVER_login_Dark_KR_green_wide_H56.png" alt="네이버 로그인" width="368" height="56"></a>
+          <p class="auth-naver-note"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> 네이버 비밀번호는 JY investing에 전달되지 않습니다. 받는 정보(이름·이메일)와 이용 목적은 <a href="/privacy.html" target="_blank" rel="noopener">개인정보처리방침</a>에 있습니다.</p>
           <p id="auth-error" class="auth-error" aria-live="polite"></p>
           <details class="auth-legacy"><summary>기존 이메일 계정 로그인</summary>
             <form id="auth-form"><label>이메일<input id="auth-email" type="email" required autocomplete="email"></label><label>비밀번호<input id="auth-password" type="password" minlength="8" required autocomplete="current-password"></label><button id="auth-submit" class="auth-submit" type="submit">기존 계정 로그인</button></form>
           </details>
         </div>
-        <div data-auth-panel="profile" hidden><h2>내 계정</h2><p id="auth-profile-name"></p><small id="auth-profile-email"></small><span id="auth-profile-provider" class="auth-provider"></span><h3>최근 사용 내역</h3><ul id="auth-activity" class="auth-activity"></ul><button type="button" id="auth-logout" class="auth-logout">로그아웃</button></div>
+        <div data-auth-panel="profile" hidden><h2>내 계정</h2><p id="auth-profile-name"></p><small id="auth-profile-email"></small><span id="auth-profile-provider" class="auth-provider"></span><h3>최근 사용 내역</h3><ul id="auth-activity" class="auth-activity"></ul><button type="button" id="auth-logout" class="auth-logout">로그아웃</button>
+          <details class="auth-legacy auth-withdraw"><summary>회원 탈퇴</summary>
+            <form id="auth-withdraw-form"><p class="auth-naver-note">탈퇴하면 계정 정보(네이버 식별자·이름·이메일), 로그인 세션, 이용 내역이 즉시 삭제됩니다. 자세한 내용은 <a href="/privacy.html" target="_blank" rel="noopener">개인정보처리방침</a>을 확인하세요.</p>
+              <label>확인을 위해 '탈퇴'를 입력하세요<input id="auth-withdraw-confirm" autocomplete="off" required></label>
+              <p id="auth-withdraw-error" class="auth-error" aria-live="polite"></p>
+              <button type="submit" class="auth-submit auth-withdraw-submit">회원 탈퇴</button></form>
+          </details></div>
       </section>
     </div>`);
   document.getElementById('auth-badge')?.addEventListener('click', openAuthModal);
@@ -118,6 +124,17 @@ export async function initAuth() {
     } catch (err) { error.textContent = err.message; } finally { submit.disabled = false; }
   });
   modal().querySelector('#auth-logout').addEventListener('click', async () => { try { await authRequest('/api/auth/logout', { method: 'POST' }); } catch {} localStorage.removeItem(TOKEN_KEY); user = null; updateBadge(); closeModal(); });
+  modal().querySelector('#auth-withdraw-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const error = modal().querySelector('#auth-withdraw-error');
+    const confirmText = modal().querySelector('#auth-withdraw-confirm').value.trim();
+    if (confirmText !== '탈퇴') { error.textContent = "'탈퇴'를 정확히 입력하세요."; return; }
+    try {
+      await authRequest('/api/auth/me', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: confirmText }) });
+      localStorage.removeItem(TOKEN_KEY); user = null; updateBadge(); closeModal();
+      window.alert('탈퇴가 완료됐습니다. 네이버 연동 해제는 네이버 > 내정보 > 이력관리 > 연결된 서비스 관리에서 할 수 있습니다.');
+    } catch (err) { error.textContent = err.message; }
+  });
   if (token()) { try { user = (await authRequest('/api/auth/me')).user; } catch { localStorage.removeItem(TOKEN_KEY); } }
   updateBadge();
 }

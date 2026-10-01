@@ -341,6 +341,26 @@ async def me(user: dict = Depends(current_user)) -> dict:
     return {"user": _public_user(user)}
 
 
+class DeleteAccountRequest(BaseModel):
+    confirm: str = Field(max_length=10)
+
+
+@router.delete("/me")
+async def delete_account(request: DeleteAccountRequest, user: dict = Depends(current_user)) -> dict:
+    """회원 탈퇴: 계정(네이버 식별자·이름·이메일)·로그인 세션·이용 내역을 즉시 삭제한다.
+
+    개인정보처리방침(/privacy.html)과 같은 범위다. 판단 기록·학습 데이터셋·레버리지 DCA 등은
+    운영 지침상 자동 삭제하지 않으며, 계정이 지워지면 더 이상 회원과 연결되지 않는다.
+    """
+    if request.confirm != "탈퇴":
+        raise HTTPException(status_code=422, detail="확인 문구로 '탈퇴'를 입력하세요.")
+    db = get_db()
+    sessions = await db.auth_sessions.delete_many({"user_id": user["_id"]})
+    activity = await db.user_activity.delete_many({"user_id": user["_id"]})
+    await db.users.delete_one({"_id": user["_id"]})
+    return {"deleted": True, "sessions_deleted": sessions.deleted_count, "activity_deleted": activity.deleted_count}
+
+
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(authorization: str | None = Header(default=None)) -> None:
     if authorization and authorization.startswith("Bearer "):
@@ -357,5 +377,5 @@ async def record_activity(request: ActivityRequest, user: dict = Depends(current
 @router.get("/activity")
 async def activity(limit: int = 30, user: dict = Depends(current_user)) -> dict:
     limit = max(1, min(limit, 100))
-    rows = await get_db().user_activity.find({"user_id": user["_id"]}, {"_id": 0}).sort("created_at", -1).to_list(limit)
+    rows = await get_db().user_activity.find({"user_id": user["_id"]}, {"_id": 0, "user_id": 0}).sort("created_at", -1).to_list(limit)
     return {"items": [{**row, "created_at": row["created_at"].isoformat()} for row in rows]}
