@@ -1598,16 +1598,49 @@ async def home_market_candle(market: str = "kospi", period: str = "3mo", interva
 # ─── DART Financial Analysis ─────────────────────────────────────────────────
 
 class DartFinancialAnalysisRequest(BaseModel):
-    corp_code:    str       = Field(min_length=8, max_length=8, description="DART 고유번호 (8자리)")
-    bsns_year:    str       = Field(default="2023", pattern=r"^\d{4}$")
-    reprt_code:   str       = Field(default="11011", pattern=r"^1101[1-4]$",
-                                    description="11011=사업보고서 11012=반기 11013=1분기 11014=3분기")
+    corp_code:    str        = Field(min_length=8, max_length=8, description="DART 고유번호 (8자리)")
+    # 둘 다 비우면 가장 최근에 공시된 정기보고서를 자동으로 찾는다. 연도만 주면 그 해의 가장 최근 보고서.
+    bsns_year:    str | None = Field(default=None, pattern=r"^\d{4}$")
+    reprt_code:   str | None = Field(default=None, pattern=r"^1101[1-4]$",
+                                     description="11011=사업보고서 11012=반기 11013=1분기 11014=3분기")
 
 
-def _parse_dart_amounts(items: list[dict]) -> dict[str, dict[str, float]]:
+# 보고서 코드 → (이름, 포함 개월 수, 짧은 이름, 기간 종료 월·일)
+DART_REPORTS = {
+    "11013": ("1분기보고서", 3, "1분기", (3, 31)),
+    "11012": ("반기보고서", 6, "반기", (6, 30)),
+    "11014": ("3분기보고서", 9, "3분기", (9, 30)),
+    "11011": ("사업보고서", 12, "연간", (12, 31)),
+}
+
+
+def _dart_report_candidates(today, bsns_year: str | None, reprt_code: str | None) -> list[tuple[str, str]]:
+    """확인할 (연도, 보고서) 순서. 기간이 끝나지 않은 보고서는 건너뛰고, 최근 기간부터 본다."""
+    if bsns_year and reprt_code:
+        return [(bsns_year, reprt_code)]
+    if bsns_year:
+        years = [int(bsns_year)]
+        order = lambda y: [(str(y), "11011"), (str(y), "11014"), (str(y), "11012"), (str(y), "11013")]
+    else:
+        years = [today.year, today.year - 1]
+        order = lambda y: [(str(y), "11014"), (str(y), "11012"), (str(y), "11013"), (str(y - 1), "11011")]
+    out = []
+    for year in years:
+        for y, code in order(year):
+            if reprt_code and code != reprt_code:
+                continue
+            month, day = DART_REPORTS[code][3]
+            if datetime(int(y), month, day).date() < today and (y, code) not in out:
+                out.append((y, code))
+    return out
+
+
+def _parse_dart_amounts(items: list[dict], cumulative: bool = False) -> dict[str, dict[str, float]]:
     """Extract key financial line items from DART fnlttSinglAcnt response.
 
     Returns a dict mapping account_nm → {current, prior}.
+    분기·반기 보고서(cumulative=True)의 손익계산서 항목은 3개월 금액(thstrm_amount) 대신 당기 누적
+    (thstrm_add_amount)과 전년 동기 누적(frmtrm_add_amount)을 쓴다. 재무상태표는 기말 잔액 그대로다.
     """
     ACCT_MAP: dict[str, list[str]] = {
         "current_assets":       ["유동자산"],
@@ -1638,9 +1671,10 @@ def _parse_dart_amounts(items: list[dict]) -> dict[str, dict[str, float]]:
         for item in items:
             nm = (item.get("account_nm") or "").strip()
             if any(kw in nm for kw in kws):
+                use_cumulative = cumulative and item.get("sj_div") == "IS" and _num(item.get("thstrm_add_amount"))
                 result[key] = {
-                    "current": _num(item.get("thstrm_amount")),
-                    "prior":   _num(item.get("frmtrm_amount")),
+                    "current": _num(item.get("thstrm_add_amount" if use_cumulative else "thstrm_amount")),
+                    "prior":   _num(item.get("frmtrm_add_amount" if use_cumulative and item.get("frmtrm_add_amount") else "frmtrm_amount")),
                 }
                 break
         if key not in result:
@@ -1648,8 +1682,11 @@ def _parse_dart_amounts(items: list[dict]) -> dict[str, dict[str, float]]:
     return result
 
 
-def _calc_dart_ratios(fin: dict[str, dict[str, float]]) -> dict[str, float | None]:
-    """Compute financial ratios from parsed DART data."""
+def _calc_dart_ratios(fin: dict[str, dict[str, float]], annualize: float = 1.0) -> dict[str, float | None]:
+    """Compute financial ratios from parsed DART data.
+
+    annualize: 분기·반기 누적 순이익을 1년치로 환산하는 배수(1분기 4, 반기 2, 3분기 4/3). ROE·ROA에만 쓴다.
+    """
 
     def g(k: str, period: str = "current") -> float:
         return fin.get(k, {}).get(period, 0.0)
@@ -1674,8 +1711,8 @@ def _calc_dart_ratios(fin: dict[str, dict[str, float]]) -> dict[str, float | Non
         "debt_equity_ratio": safe_r(liab, equity),
         "op_margin":         safe_r(op_inc, rev),
         "net_margin":        safe_r(net_inc, rev),
-        "roe":               safe_r(net_inc, avg_equity),
-        "roa":               safe_r(net_inc, assets),
+        "roe":               safe_r(net_inc * annualize, avg_equity),
+        "roa":               safe_r(net_inc * annualize, assets),
         "current_ratio":     safe_r(cur_a, cur_l),
         "revenue_growth":    safe_r(rev - prev_rev, prev_rev) if prev_rev else None,
         "equity_growth":     safe_r(equity - prev_eq, prev_eq) if prev_eq else None,
@@ -1754,22 +1791,22 @@ def _generate_dart_analysis(
     # Overall verdict
     if score >= 85:
         paragraphs.append(
-            f"{corp_name}의 {bsns_year}년 재무제표는 전반적으로 매우 우수한 건전성을 보입니다. "
+            f"{corp_name}의 {bsns_year} 재무제표는 전반적으로 매우 우수한 건전성을 보입니다. "
             f"{market_ctx} 기업으로, 재무 안정성과 수익성 모두 업계 상위 수준입니다."
         )
     elif score >= 70:
         paragraphs.append(
-            f"{corp_name}의 {bsns_year}년 재무 상태는 양호한 수준입니다. "
+            f"{corp_name}의 {bsns_year} 재무 상태는 양호한 수준입니다. "
             f"{market_ctx} 기업으로, 핵심 재무지표들이 안정적으로 관리되고 있습니다."
         )
     elif score >= 55:
         paragraphs.append(
-            f"{corp_name}의 {bsns_year}년 재무 상태는 보통 수준이며, 일부 지표에서 개선이 필요합니다. "
+            f"{corp_name}의 {bsns_year} 재무 상태는 보통 수준이며, 일부 지표에서 개선이 필요합니다. "
             f"{market_ctx} 기업으로, 선별적 모니터링이 권고됩니다."
         )
     else:
         paragraphs.append(
-            f"{corp_name}의 {bsns_year}년 재무 상태는 취약한 것으로 분석됩니다. "
+            f"{corp_name}의 {bsns_year} 재무 상태는 취약한 것으로 분석됩니다. "
             f"{market_ctx} 기업이나, 재무 리스크가 높아 투자에 각별한 주의가 필요합니다."
         )
 
@@ -1915,15 +1952,15 @@ def dart_financial_analysis(req: DartFinancialAnalysisRequest) -> dict:
     corp_cls = company.get("corp_cls", "")
     market   = {"Y": "KOSPI", "K": "KOSDAQ", "N": "KONEX"}.get(corp_cls, "비상장/기타")
 
-    # ── 2. Financial statements ──────────────────────────────────────────────
-    def _fetch_fin(fs_div: str) -> dict:
+    # ── 2. Financial statements: 요청 보고서, 또는 가장 최근 공시 보고서 ──────────
+    def _fetch_fin(bsns_year: str, reprt_code: str) -> dict:
+        # fnlttSinglAcnt는 fs_div를 받지 않고 연결(CFS)·별도(OFS) 행을 함께 돌려준다.
         url = ("https://opendart.fss.or.kr/api/fnlttSinglAcnt.json?"
                + urllib.parse.urlencode({
                    "crtfc_key":  key,
                    "corp_code":  req.corp_code,
-                   "bsns_year":  req.bsns_year,
-                   "reprt_code": req.reprt_code,
-                   "fs_div":     fs_div,
+                   "bsns_year":  bsns_year,
+                   "reprt_code": reprt_code,
                }))
         try:
             with urllib.request.urlopen(url, timeout=15) as resp:
@@ -1931,23 +1968,46 @@ def dart_financial_analysis(req: DartFinancialAnalysisRequest) -> dict:
         except Exception:
             return {}
 
-    fin_data = _fetch_fin("CFS")  # 연결재무제표 우선
-    is_consolidated = True
-    if fin_data.get("status") != "000" or not fin_data.get("list"):
-        fin_data = _fetch_fin("OFS")  # 별도재무제표 fallback
-        is_consolidated = False
-
-    if fin_data.get("status") != "000" or not fin_data.get("list"):
+    today = datetime.now(timezone(timedelta(hours=9))).date()
+    candidates = _dart_report_candidates(today, req.bsns_year, req.reprt_code)
+    fin_data, bsns_year, reprt_code, tried = {}, "", "", []
+    for year, code in candidates:
+        fin_data = _fetch_fin(year, code)
+        tried.append(f"{year}년 {DART_REPORTS[code][2]}")
+        if fin_data.get("status") == "000" and fin_data.get("list"):
+            bsns_year, reprt_code = year, code
+            break
+    else:
+        message = fin_data.get("message", "알 수 없음") if fin_data else "응답 없음"
         raise HTTPException(
             status_code=404,
-            detail=f"{req.bsns_year}년 재무제표 데이터가 없습니다: {fin_data.get('message', '알 수 없음')}"
+            detail=f"공시된 재무제표를 찾지 못했습니다(확인: {', '.join(tried) or '없음'}). DART 응답: {message}",
         )
 
-    items = fin_data.get("list", [])
-    fin   = _parse_dart_amounts(items)
+    rows = fin_data.get("list", [])
+    consolidated = [row for row in rows if row.get("fs_div") == "CFS"]
+    is_consolidated = bool(consolidated)  # 연결재무제표 우선, 없으면 별도
+    items = consolidated or [row for row in rows if row.get("fs_div") == "OFS"] or rows
+    report_name, months, short_name, _ = DART_REPORTS[reprt_code]
+    fin   = _parse_dart_amounts(items, cumulative=months < 12)
+    income_row = next((row for row in items if row.get("sj_div") == "IS"), {})
+    balance_row = next((row for row in items if row.get("sj_div") == "BS"), {})
+    rcept_no = next((row.get("rcept_no") for row in items if row.get("rcept_no")), "")
+    report = {
+        "bsns_year": bsns_year, "reprt_code": reprt_code, "reprt_name": report_name,
+        "label": f"{bsns_year}년 {short_name}", "months": months, "annualized": months < 12,
+        "mode": "selected" if req.bsns_year and req.reprt_code else "latest",
+        "period": income_row.get("thstrm_dt", ""), "prior_period": income_row.get("frmtrm_dt", ""),
+        "balance_date": balance_row.get("thstrm_dt", ""),
+        "current_label": f"{bsns_year}년 {short_name}" + (" 누적" if months < 12 else ""),
+        "prior_label": f"{int(bsns_year) - 1}년 {short_name}" + (" 누적" if months < 12 else ""),
+        "rcept_no": rcept_no,
+        "dart_url": f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}" if rcept_no else "",
+        "checked": tried,
+    }
 
     # ── 3. Ratios & scoring ──────────────────────────────────────────────────
-    ratios       = _calc_dart_ratios(fin)
+    ratios       = _calc_dart_ratios(fin, annualize=12 / months)
     score, breakdown = _score_financial_health(ratios)
     grade        = (
         "A+" if score >= 90 else "A" if score >= 80 else "B+" if score >= 75
@@ -1978,7 +2038,7 @@ def dart_financial_analysis(req: DartFinancialAnalysisRequest) -> dict:
         "unit":                 "억원",
     }
 
-    analysis = _generate_dart_analysis(company, market, ratios, score, grade, req.bsns_year)
+    analysis = _generate_dart_analysis(company, market, ratios, score, grade, report["label"])
 
     return {
         "company":  {
@@ -2000,7 +2060,8 @@ def dart_financial_analysis(req: DartFinancialAnalysisRequest) -> dict:
             "breakdown": breakdown,
         },
         "analysis":       analysis,
-        "bsns_year":  req.bsns_year,
+        "bsns_year":  bsns_year,
+        "report":     report,
     }
 
 

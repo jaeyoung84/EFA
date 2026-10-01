@@ -115,8 +115,10 @@ function breakdownHTML(breakdown) {
 
 // ── Financial table ───────────────────────────────────────────────────────────
 
-function finTableHTML(snap, bsns_year) {
-  const prevYear = String(Number(bsns_year) - 1);
+function finTableHTML(snap, report) {
+  // 분기·반기 보고서는 손익을 당기 누적과 전년 동기 누적으로 비교한다(재무상태표 항목은 기말 잔액).
+  const currentLabel = report?.current_label || '당기';
+  const priorLabel = report?.prior_label ? `${report.prior_label} (전년 동기)` : '전기';
   const rows = [
     ['매출액',        snap.revenue,       snap.prev_revenue],
     ['영업이익',      snap.op_income,     snap.prev_op_income],
@@ -129,7 +131,7 @@ function finTableHTML(snap, bsns_year) {
     ['이익잉여금',    snap.retained_earnings, null],
   ];
   const ths = (txt) => `<th style="padding:8px 14px; text-align:${txt === '항목' ? 'left' : 'right'}; color:#64748b; font-size:0.75rem; border-bottom:1px solid #334155; white-space:nowrap;">${txt}</th>`;
-  const header = `<tr>${ths('항목')}${ths(bsns_year + '년')}${ths(prevYear + '년 (전기)')}${ths('전기比')}</tr>`;
+  const header = `<tr>${ths('항목')}${ths(currentLabel)}${ths(priorLabel)}${ths('증감')}</tr>`;
   const bodyRows = rows.map(([ lbl, cur, prev ], i) => {
     const bg = i % 2 === 1 ? 'background:#0a1628;' : '';
     const curStr  = cur  !== null ? eok(cur)  : '-';
@@ -155,7 +157,7 @@ function finTableHTML(snap, bsns_year) {
 // ── Main render ───────────────────────────────────────────────────────────────
 
 function renderAnalysis(data, container) {
-  const { company, financials, ratios, health, analysis, bsns_year } = data;
+  const { company, financials, ratios, health, analysis, report = {} } = data;
   const { score, grade, verdict, breakdown } = health;
   const { outlook, outlook_color, outlook_reason, paragraphs, disclaimer } = analysis;
 
@@ -195,8 +197,9 @@ function renderAnalysis(data, container) {
           </div>
         </div>
         <div style="text-align:right; font-size:0.78rem; color:#64748b;">
-          <div>${bsns_year}년 ${financials.is_consolidated ? '연결' : '별도'}재무제표</div>
-          <div style="color:#475569;">DART 공시 기준</div>
+          <div><b style="color:var(--primary);">${esc(report.bsns_year ? `${report.bsns_year}년 ${report.reprt_name}` : '')}</b> · ${financials.is_consolidated ? '연결' : '별도'}재무제표</div>
+          <div style="color:#8a97ad;">${esc(report.period || '')}${report.balance_date ? ` · 재무상태 ${esc(report.balance_date)}` : ''}</div>
+          <div style="color:#8a97ad;">${report.mode === 'latest' ? '가장 최근 공시 자동 선택' : '선택한 보고서'}${report.dart_url ? ` · <a href="${esc(report.dart_url)}" target="_blank" rel="noopener" style="color:var(--primary);">DART 원문</a>` : ''}</div>
         </div>
       </div>
     </div>
@@ -232,9 +235,9 @@ function renderAnalysis(data, container) {
         <div style="display:flex; flex-wrap:wrap; gap:10px;">
           ${ratioCard('부채비율', ratios.debt_equity_ratio, '%', true, '낮을수록 안전')}
           ${ratioCard('영업이익률', ratios.op_margin, '%', false, '높을수록 수익성↑')}
-          ${ratioCard('ROE', ratios.roe, '%', false, '자기자본이익률')}
+          ${ratioCard('ROE', ratios.roe, '%', false, report.annualized ? '자기자본이익률 · 연환산' : '자기자본이익률')}
           ${ratioCard('유동비율', ratios.current_ratio, '%', false, '100%↑ 권장')}
-          ${ratioCard('매출 성장', ratios.revenue_growth, '%', false, '전년 대비')}
+          ${ratioCard('매출 성장', ratios.revenue_growth, '%', false, report.annualized ? '전년 동기 누적 대비' : '전년 대비')}
           ${ratioCard('순이익률', ratios.net_margin, '%', false, '')}
         </div>
       </div>
@@ -275,7 +278,8 @@ function renderAnalysis(data, container) {
         <i class="fa-solid fa-table" style="color:#3b82f6; margin-right:7px;"></i>주요 재무 현황
         <span style="font-size:0.72rem; color:#475569; font-weight:400;">(단위: 억원)</span>
       </div>
-      ${finTableHTML(financials, bsns_year)}
+      ${finTableHTML(financials, report)}
+      ${report.annualized ? `<p style="margin:8px 0 0; color:#8a97ad; font-size:0.74rem;">${esc(report.label)} 보고서라 손익은 ${esc(report.months)}개월 누적입니다. ROE·ROA는 1년치로 환산(×${(12 / report.months).toFixed(2)})했고, 증감은 전년 같은 기간 누적과 비교합니다.</p>` : ''}
     </div>
   `;
 }
@@ -324,12 +328,14 @@ export function dartFinancialAnalysisView(container) {
           <div>
             <label class="param-label" style="display:inline; margin-right:6px;">과세연도</label>
             <select id="dfa-year" class="param-input" style="background:#0f172a; color:#e2e8f0; padding:5px 8px;">
-              ${[2024,2023,2022,2021,2020].map(y => `<option value="${y}"${y===2023?' selected':''}>${y}년</option>`).join('')}
+              <option value="" selected>최신 공시(자동)</option>
+              ${Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - i).map(y => `<option value="${y}">${y}년</option>`).join('')}
             </select>
           </div>
           <div>
             <label class="param-label" style="display:inline; margin-right:6px;">보고서</label>
             <select id="dfa-reprt" class="param-input" style="background:#0f172a; color:#e2e8f0; padding:5px 8px;">
+              <option value="" selected>최신(자동)</option>
               <option value="11011">사업보고서</option>
               <option value="11012">반기보고서</option>
               <option value="11013">1분기</option>
@@ -450,11 +456,10 @@ export function dartFinancialAnalysisView(container) {
     analysisWrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
     try {
-      const payload = {
-        corp_code:    corpCode,
-        bsns_year:    yearSel.value,
-        reprt_code:   reprtSel.value,
-      };
+      // 비워 두면 서버가 가장 최근에 공시된 정기보고서를 찾는다.
+      const payload = { corp_code: corpCode };
+      if (yearSel.value) payload.bsns_year = yearSel.value;
+      if (reprtSel.value) payload.reprt_code = reprtSel.value;
       const data = await apiFetch('/api/dart/financial-analysis', {
         method: 'POST',
         body: JSON.stringify(payload),
@@ -465,7 +470,7 @@ export function dartFinancialAnalysisView(container) {
         <div style="background:#1c0808; border:1px solid #dc2626; border-radius:10px; padding:16px 20px; color:#f87171;">
           <strong>분석 실패:</strong> ${esc(e.message)}
           <p style="font-size:0.8rem; color:#7f1d1d; margin:6px 0 0;">
-            DART 사업보고서가 없거나 아직 공시 전일 수 있습니다. 연도를 변경해 다시 시도하세요.
+            선택한 기간의 보고서가 아직 공시 전일 수 있습니다. 과세연도·보고서를 '최신 공시(자동)'로 두면 가장 최근 공시를 찾습니다.
           </p>
         </div>`;
     } finally {
