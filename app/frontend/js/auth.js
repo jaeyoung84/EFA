@@ -93,7 +93,7 @@ export async function initAuth() {
           <h2 id="auth-modal-title">로그인</h2>
           <p>네이버 계정으로 가입·로그인하면 전략 추천과 내 매매 기록·연구 화면을 이용할 수 있습니다.</p>
           <a id="naver-login" class="auth-naver-login" href="/api/auth/naver/start"><img src="/assets/naver/NAVER_login_Dark_KR_green_wide_H56.png" alt="네이버 로그인" width="368" height="56"></a>
-          <p class="auth-naver-note"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> 네이버 비밀번호는 JY investing에 전달되지 않습니다. 받는 정보(이름·이메일)와 이용 목적은 <a href="/privacy.html" target="_blank" rel="noopener">개인정보처리방침</a>에 있습니다.</p>
+          <p class="auth-naver-note"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> 네이버 비밀번호는 EFA에 전달되지 않습니다. 받는 정보(이름·이메일)와 이용 목적은 <a href="/privacy.html" target="_blank" rel="noopener">개인정보처리방침</a>에 있습니다.</p>
           <p id="auth-error" class="auth-error" aria-live="polite"></p>
           <details class="auth-legacy"><summary>기존 이메일 계정 로그인</summary>
             <form id="auth-form"><label>이메일<input id="auth-email" type="email" required autocomplete="email"></label><label>비밀번호<input id="auth-password" type="password" minlength="8" required autocomplete="current-password"></label><button id="auth-submit" class="auth-submit" type="submit">기존 계정 로그인</button></form>

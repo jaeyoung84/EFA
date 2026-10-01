@@ -104,10 +104,10 @@ def configure_matplotlib_korean_font(plt) -> None:
 
 
 app = FastAPI(
-    title="JY investing API",
+    title="EFA API",
     version="2.0.0",
     description=(
-        "JY investing 개인 퀀트 리서치 및 포트폴리오 API"
+        "EFA(Economic Freedom Automation) 개인 퀀트 리서치 및 포트폴리오 API"
     ),
     default_response_class=DEFAULT_RESPONSE_CLASS,
 )

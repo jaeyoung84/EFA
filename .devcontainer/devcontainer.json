@@ -1,5 +1,5 @@
 {
-  "name": "JY Investing Codespaces",
+  "name": "EFA Codespaces",
   "image": "mcr.microsoft.com/devcontainers/universal:2",
   "features": {
     "ghcr.io/devcontainers/features/docker-in-docker:2": {}
@@ -8,7 +8,7 @@
   "forwardPorts": [8000, 6333],
   "portsAttributes": {
     "8000": {
-      "label": "JY Investing Web Application",
+      "label": "EFA Web Application",
       "onAutoForward": "openBrowser",
       "visibility": "public"
     },

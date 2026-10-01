@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════
-   JY investing — Personal Quant System
+   EFA — Economic Freedom Automation
    Font: Pretendard (Korean), -apple-system fallback
 ═══════════════════════════════════════════════════════ */
 
@@ -2742,7 +2742,7 @@ body.theme-terminal .content-wrap .run-btn { --run-btn-text: #151a10; }
 @media (max-width:760px) { .ipo-chart-summary,.penny-rally-summary { grid-template-columns:repeat(2,1fr); } }
 @media (max-width:640px) { .ipo-chart-modal header,.ipo-chart-modal main,.ipo-chart-tabs,.penny-rally-modal header,.penny-rally-modal main,.penny-rally-tabs { padding-left:15px; padding-right:15px; } }
 
-/* JY investing shell and decision dashboard */
+/* EFA shell and decision dashboard */
 .nav-eyebrow{padding:8px 20px 10px;color:var(--text-subtle);font-size:.6rem;font-weight:800;letter-spacing:.13em}.nav-section-utility{margin-top:auto;padding-top:8px;border-top:1px solid var(--border)}
 .brand-name{color:var(--primary-dark);letter-spacing:-.01em;text-transform:none}.brand-sub{color:#9a7b3f;font-size:.56rem;font-weight:800;letter-spacing:.11em}.visitor-badge,.health-badge{display:none}.auth-badge{background:var(--primary);border-color:var(--primary)}
 .jy-hero{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-bottom:22px;padding:8px 2px}.jy-kicker,.jy-section-label{display:block;margin-bottom:7px;color:var(--primary);font-size:.65rem;font-weight:800;letter-spacing:.12em}.jy-hero h1{margin:0;color:var(--text);font-size:clamp(1.6rem,3vw,2.25rem);letter-spacing:-.045em}.jy-hero p{margin:9px 0 0;color:var(--text-muted);font-size:.86rem}
@@ -2880,3 +2880,9 @@ p.lvdca-badge{display:block;width:fit-content}
 .stock-search-item span{color:var(--text-muted);font-size:.72rem;white-space:nowrap}
 .stock-search-item.is-active,.stock-search-item:hover{background:var(--surface-hover)}
 .stock-search-empty{padding:8px 10px;color:var(--text-muted);font-size:.78rem}
+
+/* EFA 브랜드: 금색 EF 심볼(투명 PNG)과 워드마크 */
+.brand-mark{width:auto;height:36px;background:none;box-shadow:none;border-radius:0}
+.brand-mark img{display:block;height:36px;width:auto}
+.brand-name{font-size:1.15rem;font-weight:800;letter-spacing:.12em;background:linear-gradient(180deg,#f3d29a 0%,#c8894b 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.brand-sub{color:#a9b0bb;font-size:.5rem;font-weight:700;letter-spacing:.14em}

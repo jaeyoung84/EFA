@@ -64,7 +64,7 @@ def install_openapi(app) -> None:
             return app.openapi_schema
 
         schema = get_openapi(
-            title="JY Investing API",
+            title="EFA API",
             version="2.0.0",
             summary="투자 판단 보조 API",
             description=(
