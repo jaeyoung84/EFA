@@ -73,10 +73,10 @@ def test_backend_container_has_a_memory_cap():
 async def test_content_security_policy_blocks_inline_scripts(client):
     csp = (await client.get("/")).headers["content-security-policy"]
     directives = dict((part.strip().split(" ", 1) + [""])[:2] for part in csp.split(";"))
-    assert directives["script-src"] == "'self' https://cdn.jsdelivr.net/npm/apexcharts@3.54.0/"
+    assert directives["script-src"] == "'self' https://cdn.jsdelivr.net/npm/apexcharts@3.54.0/ https://static.cloudflareinsights.com"
     assert "unsafe-inline" not in directives["script-src"] and "unsafe-eval" not in csp
     assert directives["frame-ancestors"] == "'none'" and directives["object-src"] == "'none'"
-    assert directives["connect-src"] == "'self'"
+    assert directives["connect-src"] == "'self' https://cloudflareinsights.com"
     assert "camera=()" in (await client.get("/api/health")).headers["permissions-policy"]
     assert "content-security-policy" not in (await client.get("/docs")).headers
 

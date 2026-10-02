@@ -139,18 +139,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 화면이 실제로 쓰는 출처만 허용한다: 자체 JS·API, ApexCharts(jsDelivr 고정 버전), 글꼴·아이콘 CSS(jsDelivr·Google·cdnjs).
+# 화면이 실제로 쓰는 출처만 허용한다: 자체 JS·API, ApexCharts(jsDelivr 고정 버전), 글꼴·아이콘 CSS(jsDelivr·Google·cdnjs),
+# Cloudflare가 자동으로 넣는 방문 통계(Web Analytics) 스크립트와 그 전송 주소.
 # 인라인 스크립트는 허용하지 않는다(XSS로 로그인 토큰을 빼 가는 것을 막는다). 인라인 style 속성은 화면 전반에 쓰여 허용한다.
 # 응답이 자체 CSP를 정하면(네이버 로그인 결과 페이지의 nonce) 그것을 그대로 둔다.
 CONTENT_SECURITY_POLICY = "; ".join([
     "default-src 'self'",
-    "script-src 'self' https://cdn.jsdelivr.net/npm/apexcharts@3.54.0/",
+    "script-src 'self' https://cdn.jsdelivr.net/npm/apexcharts@3.54.0/ https://static.cloudflareinsights.com",
     "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net/gh/orioncactus/pretendard/ https://fonts.googleapis.com "
     "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/",
     "font-src 'self' data: https://cdn.jsdelivr.net/gh/orioncactus/pretendard/ https://fonts.gstatic.com "
     "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/",
     "img-src 'self' data: blob:",
-    "connect-src 'self'",
+    "connect-src 'self' https://cloudflareinsights.com",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
