@@ -497,7 +497,8 @@ body.theme-terminal .content-wrap {
 }
 .footer-logo { font-size: .95rem; font-weight: 800; letter-spacing: .07em; color: #ffffff; }
 .footer-boundary { flex: 1 1 440px; line-height: 1.45; }
-.service-boundary { display: flex; align-items: flex-start; gap: 10px; max-width: 1460px; margin: 10px auto 0; padding: 11px 20px; color: var(--text-muted); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; font-size: .76rem; line-height: 1.55; }
+.service-boundary { display: flex; align-items: flex-start; gap: 10px; max-width: 1460px; margin: calc(var(--topbar-h) + var(--mainnav-h) + 10px) auto 0; padding: 11px 20px; color: var(--text-muted); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; font-size: .76rem; line-height: 1.55; }
+.service-boundary + .layout { padding-top: 10px; }
 .service-boundary > i { margin-top: 2px; color: var(--primary); }.service-boundary strong { color: var(--text); }.service-boundary p { display: inline; margin: 0 0 0 4px; }.service-boundary a { flex: 0 0 auto; color: var(--primary-light); white-space: nowrap; text-decoration: underline; }
 .footer-line { font-size: .8rem; color: #94a3b8; }
 
