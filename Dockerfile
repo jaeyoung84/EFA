@@ -1,4 +1,5 @@
-FROM python:3.12-slim
+# 파이썬 3.12 + Debian trixie로 고정(보안 패치는 계속 받는다). 운영 이미지와 같은 조합이다.
+FROM python:3.12-slim-trixie
 
 WORKDIR /app
 
@@ -8,9 +9,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       fonts-nanum \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY requirements.txt requirements.lock.txt ./
+# requirements.txt의 패키지를 requirements.lock.txt의 정확한 버전으로 설치한다(배포마다 같은 버전, 2026-10-02 httpx 누락 같은 사고 예방).
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -r requirements.txt
+    pip install -r requirements.txt -c requirements.lock.txt \
+    && pip check
 
 COPY engine/kqs/ ./engine/kqs/
 RUN pip install --no-deps ./engine/kqs
