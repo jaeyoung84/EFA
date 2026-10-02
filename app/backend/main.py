@@ -1292,6 +1292,14 @@ def _cached_ranking(key: str, limit: int, build) -> dict[str, object]:
     return {**result, "cached": False}
 
 
+@app.get("/api/market/quote-provider-status")
+def market_quote_provider_status() -> dict:
+    """한투 시세 연결 상태(키·오류 내용 없음). 운영 확인용."""
+    status = live_quote_provider_status()
+    return {key: status[key] for key in ("enabled", "env", "rest_per_second", "stream_connected", "stream_subscribed",
+                                         "stream_limit", "stream_session_open")}
+
+
 @app.post("/api/market/live-quotes")
 async def market_live_quotes(req: LiveQuotesRequest, user: dict = Depends(current_user)) -> JSONResponse:
     """화면용 현재가(최대 40종목). 국내 개별 종목은 한투 체결가(설정 시), 그 밖과 한투 실패 시에는 Yahoo 지연 시세.

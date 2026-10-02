@@ -25,10 +25,10 @@ DOMAINS = {
     "real": ("https://openapi.koreainvestment.com:9443", "ws://ops.koreainvestment.com:21000"),
     "mock": ("https://openapivts.koreainvestment.com:29443", "ws://ops.koreainvestment.com:31000"),
 }
-# 문서상 실전 초당 20건·모의 2건이지만 신규 키 등은 더 낮게 제한된다(실측: 초당 약 7건부터 EGW00201).
+# 문서상 실전 초당 20건·모의 2건이지만 신규 키 등은 더 낮게 제한된다(실측 2026-10-02: 초당 2~5건에서도 EGW00201).
 # 기본은 보수적으로 두고 KIS_REST_PER_SECOND로 바꿀 수 있다. '초과' 응답을 받으면 속도를 절반으로 낮추고
 # 30초 동안 문제가 없을 때마다 1건씩 다시 올린다.
-REST_PER_SECOND = {"real": 5.0, "mock": 1.5}
+REST_PER_SECOND = {"real": 3.0, "mock": 1.5}
 RATE_LIMIT_CODE = "EGW00201"
 RATE_LIMIT_RETRIES = 2
 RATE_RECOVER_SECONDS = 30

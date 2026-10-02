@@ -373,3 +373,12 @@ async def test_mongo_token_store_round_trip():
         assert "app-key-not-stored" not in json.dumps(row, default=str)
     finally:
         await get_db().kis_access_tokens.delete_many({})
+
+
+@pytest.mark.asyncio
+async def test_public_provider_status_hides_errors(client):
+    service = KisQuotes("key", "secret")
+    service.last_error = "secret-ish detail"
+    kis_quotes._set_service_for_tests(service)
+    data = (await client.get("/api/market/quote-provider-status")).json()
+    assert data["enabled"] is True and "last_error" not in data and "secret-ish" not in json.dumps(data)
