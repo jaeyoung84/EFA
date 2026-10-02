@@ -51,4 +51,6 @@ def test_nginx_takes_client_ip_only_from_cloudflare_and_proxies_locally():
     assert "real_ip_header CF-Connecting-IP;" in conf
     assert "proxy_pass http://127.0.0.1:8801;" in conf
     assert "proxy_set_header X-Forwarded-For $remote_addr;" in conf  # 클라이언트가 보낸 XFF는 버린다
-    assert "return 301 https://$host$request_uri;" in conf
+    assert "return 301 https://efa-quant.com$request_uri;" in conf  # http·www는 기본 주소로
+    www_block = conf[conf.index("server_name www.efa-quant.com;"):]
+    assert www_block.index("return 301 https://efa-quant.com$request_uri;") < www_block.index("}")

@@ -176,7 +176,7 @@ def _oauth_result_page(*, token: str | None = None, error: str | None = None, st
         headers = {"Content-Security-Policy": f"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'none'; base-uri 'none'; frame-ancestors 'none'"}
     else:
         message = html.escape(error or "네이버 로그인을 완료하지 못했습니다.")
-        content = f"""<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>네이버 로그인 실패</title></head><body><main><h1>로그인 실패</h1><p>{message}</p><a href="/">홈으로 돌아가기</a></main></body></html>"""
+        content = f"""<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>네이버 로그인 실패</title></head><body><main><h1>로그인 실패</h1><p>{message}</p><p><a href="/api/auth/naver/start">네이버로 다시 로그인</a> · <a href="/">홈으로 돌아가기</a></p></main></body></html>"""
         headers = {"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"}
     headers.update({"Cache-Control": "no-store", "Pragma": "no-cache", "Referrer-Policy": "no-referrer"})
     return HTMLResponse(content=content, status_code=status_code, headers=headers)
@@ -279,8 +279,13 @@ async def login(request: LoginRequest) -> dict:
 
 
 @router.get("/naver/start")
-async def naver_login_start() -> RedirectResponse:
+async def naver_login_start(request: Request) -> RedirectResponse:
     client_id, _client_secret, redirect_uri = _naver_config()
+    # 로그인 확인 쿠키는 시작한 주소(host)에만 남는다. 콜백 주소와 다르면(예: www로 시작) 콜백에서 쿠키가 없어 실패하므로
+    # 먼저 콜백과 같은 주소의 시작 URL로 옮긴다.
+    callback = urllib.parse.urlsplit(redirect_uri)
+    if request.url.hostname and callback.hostname and request.url.hostname != callback.hostname:
+        return RedirectResponse(f"{callback.scheme}://{callback.netloc}/api/auth/naver/start", status_code=status.HTTP_307_TEMPORARY_REDIRECT)
     await _ensure_indexes()
     state = secrets.token_urlsafe(32)
     state_hash = hashlib.sha256(state.encode()).hexdigest()

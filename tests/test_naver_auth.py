@@ -121,3 +121,22 @@ async def test_same_naver_id_reuses_user_even_if_profile_changes(client, monkeyp
     saved = await get_db().users.find_one({"auth_provider": "naver"})
     assert saved["display_name"] == "새이름"
     assert saved["profile_email"] == "changed@example.com"
+
+
+async def test_start_from_another_host_moves_to_the_callback_host_first(client, monkeypatch):
+    monkeypatch.setenv("NAVER_CLIENT_ID", "test-client-id")
+    monkeypatch.setenv("NAVER_CLIENT_SECRET", "test-client-secret")
+    monkeypatch.setenv("NAVER_REDIRECT_URI", "https://efa-quant.com/api/auth/naver/callback")
+    response = await client.get("/api/auth/naver/start", headers={"host": "www.efa-quant.com"}, follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == "https://efa-quant.com/api/auth/naver/start"
+    assert "set-cookie" not in response.headers  # 확인 쿠키는 콜백과 같은 주소에서만 만든다
+    assert await get_db().auth_oauth_states.count_documents({}) == 0
+
+
+async def test_failure_page_offers_a_retry(client, monkeypatch):
+    _configure(monkeypatch)
+    response = await client.get("/api/auth/naver/callback", params={"state": "x", "code": "y"})
+    assert response.status_code == 400
+    assert 'href="/api/auth/naver/start"' in response.text and "다시 로그인" in response.text
+

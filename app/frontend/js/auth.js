@@ -109,7 +109,8 @@ export async function initAuth() {
   document.getElementById('auth-badge')?.addEventListener('click', openAuthModal);
   modal().querySelector('.auth-modal-close').addEventListener('click', closeModal);
   modal().addEventListener('click', (event) => { if (event.target === modal()) closeModal(); });
-  modal().querySelector('#auth-logout').addEventListener('click', async () => { try { await authRequest('/api/auth/logout', { method: 'POST' }); } catch {} localStorage.removeItem(TOKEN_KEY); user = null; updateBadge(); closeModal(); });
+  // 로그아웃하면 화면을 새로 그려 인사말의 이름·내 자산·추천 판단 같은 개인 정보가 남지 않게 한다.
+  modal().querySelector('#auth-logout').addEventListener('click', async () => { try { await authRequest('/api/auth/logout', { method: 'POST' }); } catch {} localStorage.removeItem(TOKEN_KEY); user = null; updateBadge(); closeModal(); window.location.reload(); });
   modal().querySelector('#auth-withdraw-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const error = modal().querySelector('#auth-withdraw-error');
@@ -118,6 +119,7 @@ export async function initAuth() {
     try {
       await authRequest('/api/auth/me', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: confirmText }) });
       localStorage.removeItem(TOKEN_KEY); user = null; updateBadge(); closeModal();
+      window.setTimeout(() => window.location.reload(), 0);
       window.alert('탈퇴가 완료됐습니다. 네이버 연동 해제는 네이버 > 내정보 > 이력관리 > 연결된 서비스 관리에서 할 수 있습니다.');
     } catch (err) { error.textContent = err.message; }
   });

@@ -62,3 +62,11 @@ async def test_email_login_and_signup_are_closed_by_default(client, make_user, m
 def test_login_window_has_no_email_password_form():
     auth_js = (ROOT / "app/frontend/js/auth.js").read_text()
     assert "auth-password" not in auth_js and "/api/auth/login" not in auth_js
+
+
+def test_logout_and_withdrawal_redraw_the_page():
+    auth_js = (ROOT / "app/frontend/js/auth.js").read_text()
+    logout = auth_js[auth_js.index("#auth-logout').addEventListener"):]
+    assert "window.location.reload()" in logout[:400]  # 이름·개인 데이터가 화면에 남지 않게
+    withdraw = auth_js[auth_js.index("탈퇴가 완료됐습니다") - 200:auth_js.index("탈퇴가 완료됐습니다")]
+    assert "window.location.reload()" in withdraw
