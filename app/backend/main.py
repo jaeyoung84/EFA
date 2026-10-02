@@ -42,6 +42,7 @@ except ImportError:
 try:
     from .sector_rotation import read_sector_rotation
     from .stock_sector import sector_status
+    from .stock_risk import DISCLOSURE_WINDOW_DAYS, risk_summary
     from . import market_movers
     from .kis_quotes import kis_service
     from .live_quotes import provider_status as live_quote_provider_status, resolve_quotes as resolve_live_quotes
@@ -51,6 +52,7 @@ except ImportError:
     from kis_quotes import kis_service  # type: ignore
     from live_quotes import provider_status as live_quote_provider_status, resolve_quotes as resolve_live_quotes  # type: ignore
     from stock_sector import sector_status  # type: ignore
+    from stock_risk import DISCLOSURE_WINDOW_DAYS, risk_summary  # type: ignore
     import market_movers  # type: ignore
     from instrument_catalog import SEARCH_ALIASES, get_krx_catalog, resolve_krx_name, search_krx_instruments  # type: ignore
 
@@ -471,6 +473,68 @@ async def market_stock_sectors(symbols: str = "", user: dict = Depends(current_u
         items = await asyncio.get_running_loop().run_in_executor(None, lambda: list(pool.map(lookup, codes)))
     return {"items": items, "rotation_as_of": rotation.get("latest_week"),
             "note": "업종은 DART 기업개황의 업종코드(한국표준산업분류) 기준, 구역은 섹터 순환(RRG) 기준입니다. 참고용입니다."}
+
+
+@lru_cache(maxsize=1)
+def _dart_corp_by_stock() -> dict[str, str]:
+    return {row["stock_code"]: row["corp_code"] for row in _load_dart_corp_codes() if row.get("stock_code")}
+
+
+def _dart_recent_disclosures(stock_code: str, today) -> list[dict]:
+    """최근 30일 DART 공시 목록(제목·접수일·접수번호). 공시가 없으면 빈 목록, 조회 실패는 예외."""
+    corp_code = _dart_corp_by_stock().get(stock_code)
+    if not corp_code:
+        raise RuntimeError("DART 기업 코드를 찾지 못했습니다.")
+    query = urllib.parse.urlencode({"crtfc_key": _dart_api_key(), "corp_code": corp_code, "page_count": 100,
+                                    "bgn_de": (today - timedelta(days=DISCLOSURE_WINDOW_DAYS)).strftime("%Y%m%d"),
+                                    "end_de": today.strftime("%Y%m%d")})
+    with urllib.request.urlopen("https://opendart.fss.or.kr/api/list.json?" + query, timeout=8) as response:
+        data = json.loads(response.read())
+    if data.get("status") == "013":   # 조회된 공시 없음
+        return []
+    if data.get("status") != "000":
+        raise RuntimeError(f"DART 응답 {data.get('status')}: {data.get('message', '')}")
+    return data.get("list") or []
+
+
+_RISK_CACHE: dict[str, tuple[float, dict]] = {}
+RISK_CACHE_SECONDS = 1800
+
+
+@app.get("/api/market/stock-risk")
+async def market_stock_risk(symbols: str = "", user: dict = Depends(current_user)) -> dict:
+    """EINT-025: 종목(6자리 코드, 쉼표로 최대 30개)의 최근 30일 위험 공시와 거래소 지정 상태. 참고 표시용."""
+    codes = list(dict.fromkeys(code.strip() for code in symbols.split(",") if re.fullmatch(r"[0-9A-Z]{6}", code.strip())))[:30]
+    today = datetime.now(timezone(timedelta(hours=9))).date()
+    service = kis_service()
+
+    async def one(code: str) -> dict:
+        hit = _RISK_CACHE.get(code)
+        if hit and monotonic() - hit[0] < RISK_CACHE_SECONDS and hit[1]["checked_on"] == today.isoformat():
+            return hit[1]
+        errors: dict[str, str] = {}
+        try:
+            disclosures = await asyncio.to_thread(_dart_recent_disclosures, code, today)
+        except HTTPException as exc:
+            disclosures, errors["dart"] = None, f"DART 공시 조회 실패: {exc.detail}"
+        except Exception as exc:
+            disclosures, errors["dart"] = None, f"DART 공시 조회 실패: {exc}"
+        status = None
+        if service.enabled:
+            try:
+                status = await service.stock_status(f"{code}.KS")   # 한투 국내 현재가는 시장 구분 없이 코드로 조회
+            except Exception as exc:
+                errors["krx"] = f"거래소 지정 상태 조회 실패: {exc}"
+        else:
+            errors["krx"] = "한투 키가 없어 거래소 지정 상태는 확인하지 않았습니다."
+        result = risk_summary(code, disclosures=disclosures, status_output=status, errors=errors, checked_on=today)
+        if not errors:
+            _RISK_CACHE[code] = (monotonic(), result)
+        return result
+
+    items = await asyncio.gather(*(one(code) for code in codes))
+    return {"items": items, "window_days": DISCLOSURE_WINDOW_DAYS,
+            "note": "최근 30일 DART 공시 제목과 거래소 지정 상태(한투)에서 찾은 위험 신호입니다. 참고용이며 추천 규칙과 무관합니다."}
 
 
 @app.get("/api/market/instruments")

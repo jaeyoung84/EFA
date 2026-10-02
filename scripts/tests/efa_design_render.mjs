@@ -10,6 +10,7 @@ const STUBS = {
   attachStockSearch: '() => {}', PENDING_STOCK_KEY: "'k'",
   sectorSlot: '(s) => `<span data-sector-symbol="${s}"></span>`', fillSectorBadges: '() => {}',
   liveSlot: '(s, m) => `<span data-live-ticker="${s}.${m}"></span>`', startLiveQuotes: '() => {}', fetchLiveQuotes: 'async () => ({})',
+  riskSlot: "(s, o) => `<span data-risk-symbol=\"${s}\"${o && o.full ? ' data-risk-full' : ''}></span>`", fillRiskBadges: '() => {}',
   TIME_FORMAT: "{ timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }",
 };
 async function load(file) {
@@ -139,6 +140,25 @@ assert.equal(holdings.valuationSourceText({ source: 'market_data_cache_daily', p
 const kisNote = holdings.valuationSourceText({ source: 'kis_live', live_refresh_seconds: 3, positions: [{ quoted_at: '2026-10-02T01:15:00Z' }] });
 assert.ok(kisNote.startsWith('한투 체결가(장중 실시간)') && kisNote.includes('10:15:00') && kisNote.endsWith('3초마다 갱신'));
 
+// 추천 종목 위험 공시(EINT-025)
+const risk = await load('utils/riskBadges.js');
+assert.ok(risk.riskSlot('010170').includes('data-risk-symbol="010170"') && risk.riskSlot('1', { full: true }).includes('data-risk-full'));
+const riskItem = { symbol: '010170', level: 'high', window_days: 30, checked: ['dart', 'krx'], errors: {}, flags: [
+  { source: 'krx', severity: 'high', label: '투자경고', title: '거래소 지정 상태: 투자경고' },
+  { source: 'dart', severity: 'caution', label: '전환사채(CB) 발행', title: XSS, date: '2026-09-25', url: 'https://dart.fss.or.kr/dsaf001/main.do?rcpNo=9' }] };
+const compactRisk = risk.riskBadgeHtml(riskItem);
+assert.ok(compactRisk.includes('is-high') && compactRisk.includes('위험 신호 2건') && !compactRisk.includes('<img'));
+const fullRisk = risk.riskBadgeHtml(riskItem, { full: true });
+assert.ok(fullRisk.startsWith('<details') && fullRisk.includes('rcpNo=9') && fullRisk.includes('rel="noopener noreferrer"') && !fullRisk.includes('<img'));
+assert.ok(risk.riskBadgeHtml({ ...riskItem, level: 'caution', flags: [riskItem.flags[1]] }).includes('주의 신호 1건'));
+assert.ok(risk.riskBadgeHtml({ ...riskItem, level: 'none', flags: [] }).includes('위험 신호 없음(30일)'));
+assert.ok(risk.riskBadgeHtml({ ...riskItem, level: 'none', flags: [], checked: ['dart'], errors: { krx: 'x' } }).includes('거래소 지정 미확인'));
+assert.ok(risk.riskBadgeHtml(null).includes('확인 실패'));
+assert.equal(risk.riskBadgeHtml({ ...riskItem, level: 'none', flags: [] }, { full: true, hideClean: true }), '');
+assert.ok(risk.riskBadgeHtml({ ...riskItem, level: 'none', flags: [] }, { full: true }).includes('위험 신호 없음'));
+assert.ok(risk.riskSlot('1', { full: true, hideClean: true }).includes('data-risk-hide-clean'));
+assert.ok(queue.includes('data-risk-symbol="010170" data-risk-full'));
+
 // 재무 차트: x축 라벨 간격(좁으면 건너뛰기)
 const finSource = (await readFile(new URL('../../app/frontend/js/utils/financialCharts.js', import.meta.url), 'utf8'));
 const fin = await import(`data:text/javascript;base64,${Buffer.from(`const window = {};\n${finSource}`).toString('base64')}`);
@@ -147,4 +167,4 @@ assert.equal(fin.labelStep(38, 45), 2);
 assert.equal(fin.labelStep(40, 10), 5);
 assert.equal(fin.labelStep(40, 0), 1);
 
-console.log('EFA design: greeting, briefing, queue, treemap, flow, system, bell, watchlist, notes, financial label spacing, market movers, holdings lists, live quotes passed');
+console.log('EFA design: greeting, briefing, queue, treemap, flow, system, bell, watchlist, notes, financial label spacing, market movers, holdings lists, live quotes, risk badges passed');

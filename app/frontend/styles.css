@@ -3264,3 +3264,23 @@ body { background: var(--bg); }
 .dash-queue-live { margin: 2px 0 6px; }
 .dash-brief-price .live-quote small, .sb-close .live-quote small { display: block; margin-left: 0; }
 .dash-brief-price .live-quote, .sb-close .live-quote { white-space: nowrap; }
+
+/* 추천 종목 위험 공시·거래소 지정 상태(EINT-025) */
+.risk-badge { display: inline-block; white-space: nowrap; margin: 3px 4px 0 0; padding: 1px 7px; border-radius: 6px; font-size: .68rem; line-height: 1.6; border: 1px solid var(--border); color: var(--text-muted); }
+.risk-badge.is-loading { opacity: .6; }
+.risk-badge.is-none { color: var(--text-muted); }
+.risk-badge.is-caution { color: #f5b800; border-color: rgba(245, 184, 0, .45); background: rgba(245, 184, 0, .08); }
+.risk-badge.is-high { color: #ff4d5e; border-color: rgba(255, 77, 94, .5); background: rgba(255, 77, 94, .08); font-weight: 700; }
+.risk-badge.is-full { display: block; white-space: normal; margin: 8px 0 4px; padding: 6px 10px; }
+.sb-pick .risk-badge.is-full { margin: 8px 10px; }
+.sb-pick .risk-badge.is-full > summary { display: list-item; list-style: disclosure-closed; padding: 0; gap: 0; }
+.sb-pick .risk-badge.is-full[open] > summary { list-style: disclosure-open; }
+.risk-badge.is-full summary { cursor: pointer; }
+.risk-badge.is-full summary small { color: var(--text-muted); font-weight: 400; margin-left: 4px; }
+.risk-badge.is-full ul { margin: 6px 0 2px; padding-left: 16px; color: var(--text); font-weight: 400; }
+.risk-badge.is-full li { margin: 3px 0; }
+.risk-badge.is-full li small { color: var(--text-muted); }
+.risk-badge.is-full li.is-high b { color: #ff4d5e; }
+.risk-badge.is-full li.is-caution b { color: #f5b800; }
+.risk-badge.is-full a { color: var(--text); text-decoration: underline; }
+.risk-badge.is-full p { margin: 4px 0 0; color: var(--text-muted); font-size: .64rem; font-weight: 400; }

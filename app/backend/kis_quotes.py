@@ -36,6 +36,8 @@ REST_CACHE_SECONDS = 5
 ERROR_CACHE_SECONDS = 2
 # 조회가 잠깐 실패해도 이 시간 안의 마지막 한투 시세를 계속 쓴다(전일 종가로 되돌아가지 않게).
 LAST_GOOD_SECONDS = 600
+# 종목 상태(관리종목·투자경고 등)는 하루 중 거의 바뀌지 않는다. 현재가 조회 응답에 함께 오므로 그것도 재사용한다.
+STATUS_CACHE_SECONDS = 600
 REST_TIMEOUT_SECONDS = 4
 # 한투 WebSocket은 세션당 실시간 등록이 41건까지다. 여유를 두고 40개만 쓴다.
 STREAM_LIMIT = 40
@@ -170,6 +172,7 @@ class KisQuotes:
         self._rest_cache: dict[str, tuple[float, dict]] = {}
         self._last_good: dict[str, tuple[float, dict]] = {}
         self._inflight: dict[str, asyncio.Future] = {}
+        self._status_cache: dict[str, tuple[float, dict]] = {}
         self.interest: dict[str, float] = {}
         self.ticks: dict[str, dict] = {}
         self.subscribed: set[str] = set()
@@ -249,7 +252,7 @@ class KisQuotes:
             self.rate = min(self.max_rate, self.rate + 1)
             self._rate_changed_at = now
 
-    async def _rest_price(self, code: str, retry: bool = True) -> dict:
+    async def _rest_payload(self, code: str, retry: bool = True) -> dict:
         for attempt in range(RATE_LIMIT_RETRIES + 1):
             payload = await self._rest_call(code)
             if payload.get("msg_cd") != RATE_LIMIT_CODE or attempt == RATE_LIMIT_RETRIES:
@@ -257,10 +260,27 @@ class KisQuotes:
             self._slow_down()   # 초당 건수 초과: 속도를 낮춰 다시 줄을 선다
         if payload.get("msg_cd") == "EGW00123" and retry:   # 토큰 만료: 한 번만 새로 발급
             self._token = None
-            return await self._rest_price(code, retry=False)
-        price = parse_rest_price(payload)
+            return await self._rest_payload(code, retry=False)
+        if str(payload.get("rt_cd")) == "0" and isinstance(payload.get("output"), dict):
+            self._status_cache[code] = (self._clock(), payload["output"])
+        return payload
+
+    async def _rest_price(self, code: str) -> dict:
+        price = parse_rest_price(await self._rest_payload(code))
         self._maybe_speed_up()
         return price
+
+    async def stock_status(self, ticker: str) -> dict:
+        """한투 현재가 응답의 원본 output(종목 상태 필드 포함). 10분 캐시. 실패하면 KisError."""
+        code = domestic_code(ticker)
+        if not self.enabled or not code:
+            raise KisError("한투 시세 대상이 아닙니다.")
+        cached = self._status_cache.get(code)
+        if cached and self._clock() - cached[0] < STATUS_CACHE_SECONDS:
+            return cached[1]
+        payload = await asyncio.wait_for(self._rest_payload(code), timeout=REST_TIMEOUT_SECONDS + 4)
+        parse_rest_price(payload)   # 오류 응답이면 KisError
+        return payload["output"]
 
     async def _rest_call(self, code: str) -> dict:
         token = await self._access_token()
