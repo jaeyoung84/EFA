@@ -11,12 +11,14 @@ from datetime import datetime, timezone
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 try:
     from ..db import get_db
     from ..quote_cache import fetch_quote_cached
     from ..live_quotes import domestic_kis_quotes, provider_status as live_quote_provider_status
+    from ..holdings_news import holdings_news_feed
     from ..market_data import MarketDataError, market_factor_snapshot, market_factor_universe_snapshot
     from ..risk_engine import DEFAULT_RISK_POLICY, evaluate_policy, volatility_target
     from .auth import current_user
@@ -24,6 +26,7 @@ except ImportError:
     from db import get_db
     from quote_cache import fetch_quote_cached
     from live_quotes import domestic_kis_quotes, provider_status as live_quote_provider_status  # type: ignore
+    from holdings_news import holdings_news_feed  # type: ignore
     from market_data import MarketDataError, market_factor_snapshot, market_factor_universe_snapshot  # type: ignore
     from risk_engine import DEFAULT_RISK_POLICY, evaluate_policy, volatility_target  # type: ignore
     from routers.auth import current_user
@@ -369,6 +372,12 @@ async def update_portfolio(payload: PortfolioUpdate, user: dict = Depends(curren
         upsert=True,
     )
     return _serialize(document)
+
+
+@router.get("/news")
+async def get_portfolio_news(user: dict = Depends(current_user)) -> JSONResponse:
+    """내 보유종목 주요 뉴스(비중 높은 종목부터). 스케줄러가 모아 둔 캐시만 읽고 한투·네이버를 직접 부르지 않는다."""
+    return JSONResponse(content=await holdings_news_feed(user["_id"]), headers={"Cache-Control": "no-store"})
 
 
 @router.get("/valuation")

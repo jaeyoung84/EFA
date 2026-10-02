@@ -21,6 +21,7 @@ from datetime import date, datetime, timedelta, timezone
 try:
     from .db import get_db
     from .dart_market_activity import collect_market_activity
+    from .holdings_news import collect_holdings_news
     from .market_data import MarketDataError, capture_market_data_lineage_snapshot, get_daily_ohlcv, market_factor_snapshot, sync_market_data_alerts
     from .quote_cache import fetch_quote_cached
     from .routers.strategy import capture_paper_snapshot, refresh_paper_alerts, capture_monthly_operations_reports, capture_monthly_revalidation_evidence, run_leverage_dca_daily_cycle
@@ -29,6 +30,7 @@ try:
 except ImportError:
     from db import get_db
     from dart_market_activity import collect_market_activity
+    from holdings_news import collect_holdings_news  # type: ignore
     from market_data import MarketDataError, capture_market_data_lineage_snapshot, get_daily_ohlcv, market_factor_snapshot, sync_market_data_alerts
     from quote_cache import fetch_quote_cached
     from routers.strategy import capture_paper_snapshot, refresh_paper_alerts, capture_monthly_operations_reports, capture_monthly_revalidation_evidence, run_leverage_dca_daily_cycle
@@ -59,6 +61,10 @@ def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
     except ValueError:
         return default
     return min(maximum, max(minimum, value))
+
+
+# 보유종목 뉴스 수집 주기(분). 한투 호출 한도를 지키려고 5~10분 사이로만 허용한다.
+HOLDINGS_NEWS_INTERVAL_MINUTES = _env_int("HOLDINGS_NEWS_INTERVAL_MINUTES", 10, 5, 10)
 
 
 def _daily_refresh_enabled() -> bool:
@@ -393,6 +399,16 @@ def start_scheduler() -> None:
         coalesce=True,
         max_instances=1,
         misfire_grace_time=21600,
+    )
+    # 내 보유종목 뉴스: 화면이 아니라 이 작업만 한투 뉴스 TR을 부른다(06~23시 KST, 10분마다, 겹침 없음).
+    _scheduler.add_job(
+        collect_holdings_news,
+        "interval",
+        minutes=HOLDINGS_NEWS_INTERVAL_MINUTES,
+        id="collect_holdings_news",
+        coalesce=True,
+        max_instances=1,
+        next_run_time=datetime.now(timezone.utc) + timedelta(seconds=60),
     )
     _scheduler.start()
     logger.info("백그라운드 시세(%d분)·일봉 수집(평일 장 마감 후)·모의계좌 스냅샷 스케줄러 시작", QUOTE_REFRESH_INTERVAL_MINUTES)

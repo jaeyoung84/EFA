@@ -283,14 +283,36 @@ class KisQuotes:
         return payload["output"]
 
     async def _rest_call(self, code: str) -> dict:
+        return await self._rest_get("/uapi/domestic-stock/v1/quotations/inquire-price", "FHKST01010100",
+                                    {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": code})
+
+    async def _rest_get(self, path: str, tr_id: str, params: dict) -> dict:
+        """한투 조회 TR 공통 호출. 현재가·뉴스가 같은 초당 호출 한도(_wait_rate_slot)를 나눠 쓴다."""
         token = await self._access_token()
         await self._wait_rate_slot()
         response = await self._client().get(
-            f"{self.rest_base}/uapi/domestic-stock/v1/quotations/inquire-price",
-            params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": code},
+            f"{self.rest_base}{path}", params=params,
             headers={"authorization": f"Bearer {token}", "appkey": self.app_key, "appsecret": self.app_secret,
-                     "tr_id": "FHKST01010100", "custtype": "P"})
+                     "tr_id": tr_id, "custtype": "P"})
         return response.json() if response.content else {}
+
+    async def news_titles(self, code: str) -> list[dict]:
+        """종합 시황/공시(제목) TR(FHKST01011800): 이 종목이 관련 종목에 들어간 최신 뉴스 제목 40건.
+
+        원문 링크·본문은 주지 않는다(제목·언론사·일시·관련 종목만). 초당 건수 초과면 속도를 낮춰 재시도한다.
+        """
+        params = {"FID_NEWS_OFER_ENTP_CODE": "", "FID_COND_MRKT_CLS_CODE": "", "FID_INPUT_ISCD": code, "FID_TITL_CNTT": "",
+                  "FID_INPUT_DATE_1": "", "FID_INPUT_HOUR_1": "", "FID_RANK_SORT_CLS_CODE": "", "FID_INPUT_SRNO": ""}
+        for attempt in range(RATE_LIMIT_RETRIES + 1):
+            payload = await self._rest_get("/uapi/domestic-stock/v1/quotations/news-title", "FHKST01011800", params)
+            if payload.get("msg_cd") != RATE_LIMIT_CODE or attempt == RATE_LIMIT_RETRIES:
+                break
+            self._slow_down()
+        if payload.get("msg_cd") == "EGW00123":   # 토큰 만료: 다음 호출에서 새로 발급
+            self._token = None
+        if str(payload.get("rt_cd")) != "0":
+            raise KisError(f"{payload.get('msg_cd', '')} {payload.get('msg1', '뉴스 응답 오류')}".strip())
+        return payload.get("output") or []
 
     # ── 조회 ──
     def note_interest(self, tickers: list[str]) -> None:

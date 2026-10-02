@@ -1,4 +1,4 @@
-// EFA 대시보드: 인사·오늘의 투자 브리핑·내 자산 지도·KQS 의사결정 큐·시장 흐름·지수 차트·데이터 상태.
+// EFA 대시보드: 인사·오늘의 투자 브리핑(내 보유종목 뉴스 등)·내 자산 지도·KQS 의사결정 큐·시장 흐름·지수 차트·데이터 상태.
 // 모든 숫자는 실제 API 값만 쓴다. 데이터가 없으면 "없음"과 이유를 보여 주고 지어내지 않는다.
 // 주문·자동 체결은 없으며, 의사결정 큐의 버튼은 사용자의 수동 판단 기록(POST /api/kqs/decisions)이다.
 import { authRequest, currentUserInfo, isAuthenticated, openAuthModal } from '../auth.js';
@@ -57,24 +57,49 @@ export function picksOf(board) {
   return (board?.items || []).flatMap((item) => item.picks.map((pick) => ({ ...pick, item: item.item })));
 }
 
-export function briefingHtml(tab, { board, outcomes, loggedIn }) {
+// 내 보유종목 주요 뉴스: 비중 높은 종목부터(서버가 정렬), 헤드라인은 원문을 새 창으로 연다.
+const safeUrl = (url) => (/^https?:\/\//i.test(String(url || '')) ? String(url) : null);
+
+export function newsAge(iso, now = Date.now()) {
+  const at = new Date(iso || '').getTime();
+  if (!Number.isFinite(at)) return '';
+  const minutes = Math.max(0, Math.round((now - at) / 60000));
+  if (minutes < 60) return `${minutes}분 전`;
+  if (minutes < 24 * 60) return `${Math.floor(minutes / 60)}시간 전`;
+  return new Date(at).toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric' });
+}
+
+export function newsHtml(news, now = Date.now()) {
+  if (!news) return '<div class="dash-empty"><p>보유종목 뉴스를 불러오는 중…</p></div>';
+  if (news.error) return `<div class="dash-empty"><p>뉴스를 불러오지 못했습니다. ${esc(news.error)}</p></div>`;
+  if (!news.holdings?.length) {
+    return `<div class="dash-empty"><p>${esc(news.note || '내 자산에 국내 보유 종목이 없습니다.')}</p>
+      <button type="button" class="dash-btn is-primary" data-dash-go="portfolio-holdings">보유자산 등록</button></div>`;
+  }
+  if (!news.items?.length) {
+    return `<div class="dash-empty"><p>${news.pending?.length ? '보유 종목 뉴스를 모으는 중입니다. 잠시 후(최대 10분) 다시 표시됩니다.' : '최근 보유 종목 관련 뉴스가 없습니다.'}</p></div>`;
+  }
+  const rows = news.items.map((item) => {
+    const url = safeUrl(item.url);
+    const title = url
+      ? `<a class="dash-news-title" href="${esc(url)}" target="_blank" rel="noopener noreferrer"${item.link_kind === 'original' ? '' : ' title="원문을 찾지 못해 네이버 증권 종목 뉴스로 연결합니다"'}>${esc(item.title)}</a>`
+      : `<span class="dash-news-title">${esc(item.title)}</span>`;
+    const when = item.published_at ? `<time datetime="${esc(item.published_at)}" title="${esc(kstTime(item.published_at, true))}">${esc(newsAge(item.published_at, now))}</time>` : '';
+    return `<li><span class="dash-news-tag" title="보유 비중 ${esc(item.weight_pct)}%">${esc(item.name)}</span>
+      <div class="dash-news-body">${title}<span class="dash-news-meta">${esc(item.source || '언론사 미상')}${when ? ' · ' : ''}${when}</span></div></li>`;
+  }).join('');
+  const fetched = news.fetched_at ? `수집 ${esc(kstTime(news.fetched_at))}` : '';
+  return `<ol class="dash-news-list">${rows}</ol>
+    <p class="dash-note">보유 비중이 높은 종목 순 · 종목당 최근 3건 · ${fetched}. 한국투자증권 뉴스 제목, 원문은 네이버 뉴스 검색으로 연결합니다.</p>`;
+}
+
+export function briefingHtml(tab, { board, outcomes, news, loggedIn }) {
   if (!loggedIn) {
     return `<div class="dash-empty"><p>로그인하면 오늘의 KQS 추천과 내 판단 기록을 볼 수 있습니다.</p>
       <button type="button" class="dash-btn is-primary" data-dash-login>로그인</button></div>`;
   }
+  if (tab === 'news') return newsHtml(news);
   if (!board) return '<div class="dash-empty"><p>추천을 불러오는 중…</p></div>';
-  if (tab === 'decisions') {
-    const picks = picksOf(board);
-    if (!board.available) return `<div class="dash-empty"><p>검증된 추천을 사용할 수 없습니다. ${esc(board.detail || '')}</p></div>`;
-    if (!picks.length) return '<div class="dash-empty"><p>오늘은 3개 아이템 모두 조건을 만족한 종목이 없습니다.</p></div>';
-    return `<ol class="dash-brief-list">${picks.map((pick, index) => `<li>
-      <span class="dash-rank">${index + 1}</span>
-      <span class="dash-brief-name"><strong>${esc(pick.name)}</strong><small>${esc(pick.symbol)} · ${esc(ITEM_SHORT[pick.item])} ${esc(pick.rank)}위</small>${sectorSlot(pick.symbol)}${riskSlot(pick.symbol)}</span>
-      ${decisionBadge(board.my_decisions?.[pick.signal_id])}
-      <span class="dash-brief-price">${fmt(pick.close)}<small>기준일 종가</small>${liveSlot(pick.symbol, pick.market)}</span>
-      <ul class="dash-brief-reasons" title="${esc((pick.reasons || []).join('\n'))}">${(pick.reason_labels?.length ? pick.reason_labels : pick.reasons || []).filter(Boolean).slice(0, 3).map((reason) => `<li>${esc(reason)}</li>`).join('')}</ul>
-    </li>`).join('')}</ol>`;
-  }
   if (tab === 'sells') {
     const sells = (board.sell_signals || []).filter((row) => row.state === 'exit_signal');
     if (!(board.sell_signals || []).length) return '<div class="dash-empty"><p>기록된 보유 종목이 없습니다. 매수하면 추천 카드에서 기록하세요.</p></div>';
@@ -239,7 +264,7 @@ const STATUS_TEXT = { ok: '정상', warn: '주의', error: '오류', unknown: '�
 export function dashboardView(container) {
   const loggedIn = isAuthenticated();
   const state = { loggedIn, board: null, outcomes: null, insight: null, error: null, quotes: {}, quotesAt: null,
-    refresh: null, flowPeriod: '1mo', chartMarket: 'kospi', chartFrame: 'day', briefTab: 'decisions', queueFilter: 'all' };
+    refresh: null, flowPeriod: '1mo', chartMarket: 'kospi', chartFrame: 'day', briefTab: 'news', news: null, queueFilter: 'all' };
   const charts = [];
   let alive = true;
   window._viewCleanup = () => { alive = false; charts.splice(0).forEach((chart) => { try { chart.destroy(); } catch { /* 이미 해제 */ } }); };
@@ -249,13 +274,13 @@ export function dashboardView(container) {
     <section class="dash-card dash-brief">
       <header class="dash-head"><h2>오늘의 투자 브리핑</h2>
         <div class="dash-tabs" role="tablist">
-          <button type="button" role="tab" data-brief-tab="decisions">오늘의 판단 <b data-brief-count></b></button>
+          <button type="button" role="tab" data-brief-tab="news">보유종목 뉴스 <b data-brief-count></b></button>
           <button type="button" role="tab" data-brief-tab="sells">매도 신호 <b data-sell-count></b></button>
           <button type="button" role="tab" data-brief-tab="outcomes">추천 성과</button>
           <button type="button" role="tab" data-brief-tab="health">엔진 상태</button>
         </div></header>
-      <div class="dash-brief-sub"><h3>오늘의 판단</h3><span class="dash-kqs"><i class="fa-solid fa-star"></i> KQS</span></div>
-      <p class="dash-note">KQS가 선별한 오늘의 종목입니다. 충분히 검토한 뒤 투자 판단은 본인이 직접 결정하세요.</p>
+      <div class="dash-brief-sub"><h3>내 보유종목 주요 뉴스</h3><span class="dash-kqs" data-brief-badge><i class="fa-regular fa-newspaper"></i> 뉴스</span></div>
+      <p class="dash-note" data-brief-note>내 자산의 보유 비중이 높은 종목 뉴스부터 보여 줍니다. 헤드라인을 누르면 새 창에서 원문이 열립니다.</p>
       <div data-dash-brief></div>
     </section>
     <section class="dash-card dash-assets">
@@ -300,15 +325,17 @@ export function dashboardView(container) {
   const renderGreeting = () => { $('[data-dash-greet]').innerHTML = greetingHtml(new Date(), currentUserInfo()?.username || ''); };
   const renderBrief = () => {
     container.querySelectorAll('[data-brief-tab]').forEach((tab) => tab.setAttribute('aria-selected', String(tab.dataset.briefTab === state.briefTab)));
-    const titles = { decisions: '오늘의 판단', sells: '내 보유 종목 매도 신호', outcomes: '추천 성과(전향 관측)', health: '엔진 상태' };
+    const titles = { news: '내 보유종목 주요 뉴스', sells: '내 보유 종목 매도 신호', outcomes: '추천 성과(전향 관측)', health: '엔진 상태' };
     $('.dash-brief-sub h3').textContent = titles[state.briefTab];
+    $('[data-brief-note]').hidden = state.briefTab !== 'news';
+    $('[data-brief-badge]').hidden = state.briefTab !== 'news';
     const el = $('[data-dash-brief]');
     el.innerHTML = briefingHtml(state.briefTab, state);
     bindCommon(el);
     fillSectorBadges(el);
     fillRiskBadges(el);
     startLiveQuotes(el);
-    $('[data-brief-count]').textContent = state.board ? `(${picksOf(state.board).length})` : '';
+    $('[data-brief-count]').textContent = state.news?.items?.length ? `(${state.news.items.length})` : '';
     const sells = (state.board?.sell_signals || []).filter((row) => row.state === 'exit_signal').length;
     $('[data-sell-count]').textContent = sells ? `(${sells})` : '';
   };
@@ -343,6 +370,14 @@ export function dashboardView(container) {
     try { state.board = await authRequest('/api/kqs/strategy-board'); } catch (error) { state.board = { available: false, detail: error.message, items: [] }; }
     if (!alive) return;
     renderGreeting(); renderBrief(); renderQueue(); renderSystem();
+  }
+  async function loadNews() {
+    if (!state.loggedIn || !alive) return;
+    try { state.news = await authRequest('/api/portfolio/news'); } catch (error) { state.news = { error: error.message }; }
+    if (!alive) return;
+    if (state.briefTab === 'news') renderBrief(); else $('[data-brief-count]').textContent = state.news?.items?.length ? `(${state.news.items.length})` : '';
+    // 서버 캐시는 10분 주기로 갱신된다. 수집 대기 종목이 있으면 1분 뒤, 아니면 5분 뒤 캐시를 다시 읽는다.
+    setTimeout(loadNews, (state.news?.pending?.length ? 60 : 300) * 1000);
   }
   async function loadOutcomes() {
     if (!state.loggedIn) return;
@@ -451,5 +486,5 @@ export function dashboardView(container) {
   $('[data-chart-market]').addEventListener('change', (event) => { state.chartMarket = event.target.value; loadChart(); });
 
   renderGreeting(); renderBrief(); renderAssets(); renderQueue(); renderFlow(); renderSystem();
-  loadBoard(); loadOutcomes(); loadAssets(); loadQuotes(); loadFlow(); loadChart(); loadRefresh();
+  loadBoard(); loadNews(); loadOutcomes(); loadAssets(); loadQuotes(); loadFlow(); loadChart(); loadRefresh();
 }

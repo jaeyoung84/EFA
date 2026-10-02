@@ -3300,3 +3300,13 @@ body { background: var(--bg); }
 
 /* 거시지표 종목 선택: 마우스를 올리면 테두리 강조(인라인 onmouseover 대체, CSP) */
 .macro-ticker-option:hover { border-color: #3b82f6 !important; }
+
+/* 대시보드: 내 보유종목 주요 뉴스(비중 높은 종목부터) */
+.dash-news-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; max-height: 330px; overflow-y: auto; }
+.dash-news-list > li { display: grid; grid-template-columns: minmax(84px, max-content) minmax(0, 1fr); gap: 12px; align-items: start; padding: 10px 12px; background: var(--surface-soft); border: 1px solid var(--border); border-radius: 10px; }
+.dash-news-tag { justify-self: start; max-width: 140px; padding: 2px 8px; overflow: hidden; color: var(--primary); font-size: .72rem; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; background: rgba(245, 184, 0, .1); border: 1px solid rgba(245, 184, 0, .35); border-radius: 999px; }
+.dash-news-body { min-width: 0; }
+.dash-news-title { display: block; color: var(--text); font-size: .86rem; font-weight: 600; line-height: 1.45; text-decoration: none; }
+a.dash-news-title:hover { color: var(--primary); text-decoration: underline; }
+.dash-news-meta { display: block; margin-top: 3px; color: var(--text-muted); font-size: .7rem; }
+@media (max-width: 640px) { .dash-news-list > li { grid-template-columns: 1fr; gap: 4px; } }

@@ -37,10 +37,24 @@ const board = { available: true, as_of: '2026-09-30', expires_at: '2026-10-01T21
   items: [{ item: 'pullback_v4', picks: [{ signal_id: 's1', rank: 1, name: XSS, symbol: '010170', close: 16680, reasons: ['r1'], reason_labels: ['상승 추세'] },
     { signal_id: 's2', rank: 2, name: '우리로', symbol: '046970', close: 7420, reasons: [], reason_labels: [] }] }],
   my_decisions: { s2: [{ decision: 'hold' }] }, sell_signals: [], health: { level: 'ok', alerts: [], published_session: '2026-09-30' } };
-assert.ok(dash.briefingHtml('decisions', { loggedIn: false }).includes('data-dash-login'));
-const brief = dash.briefingHtml('decisions', { board, loggedIn: true });
-assert.ok(!brief.includes('<img') && brief.includes('판단 대기') && brief.includes('관망') && brief.includes('상승 추세'));
-assert.ok(dash.briefingHtml('decisions', { board: { ...board, items: [] }, loggedIn: true }).includes('조건을 만족한 종목이 없습니다'));
+assert.ok(dash.briefingHtml('news', { loggedIn: false }).includes('data-dash-login'));
+// 내 보유종목 뉴스(오늘의 판단 목록을 대체): 비중 순서 유지, 헤드라인은 새 창, http(s)만 링크
+const news = { holdings: [{ code: '000660', name: 'SK하이닉스', weight_pct: 62.1 }], fetched_at: '2026-10-02T01:00:00Z', items: [
+  { id: '1', code: '000660', name: 'SK하이닉스', weight_pct: 62.1, title: XSS, source: '연합뉴스', published_at: '2026-10-02T10:00:00+09:00',
+    url: 'https://news.example/a', link_kind: 'original' },
+  { id: '2', code: '263750', name: '펄어비스', weight_pct: 5, title: '펄어비스 신작', source: null, published_at: '2026-10-01T10:00:00+09:00',
+    url: 'javascript:alert(1)', link_kind: 'original' }] };
+const newsList = dash.briefingHtml('news', { news, loggedIn: true });
+assert.ok(newsList.indexOf('SK하이닉스') < newsList.indexOf('펄어비스'));
+assert.ok(newsList.includes('href="https://news.example/a" target="_blank" rel="noopener noreferrer"') && !newsList.includes('<img'));
+assert.ok(!newsList.includes('javascript:') && newsList.includes('언론사 미상') && newsList.includes('연합뉴스'));
+assert.equal(dash.newsAge('2026-10-02T10:00:00+09:00', new Date('2026-10-02T01:45:00Z').getTime()), '45분 전');
+assert.equal(dash.newsAge('2026-10-02T06:00:00+09:00', new Date('2026-10-02T01:45:00Z').getTime()), '4시간 전');
+assert.ok(dash.newsHtml(null).includes('불러오는 중'));
+assert.ok(dash.newsHtml({ holdings: [], items: [], note: '국내 보유 종목이 없습니다.' }).includes('data-dash-go="portfolio-holdings"'));
+assert.ok(dash.newsHtml({ holdings: news.holdings, items: [], pending: ['000660'] }).includes('모으는 중'));
+assert.ok(dash.newsHtml({ holdings: news.holdings, items: [], pending: [] }).includes('관련 뉴스가 없습니다'));
+assert.ok(!dash.briefingHtml('news', { news, loggedIn: true }).includes('판단 대기'));   // 추천 목록은 브리핑에 없다
 assert.ok(dash.briefingHtml('sells', { board, loggedIn: true }).includes('기록된 보유 종목이 없습니다'));
 assert.ok(dash.briefingHtml('outcomes', { board, outcomes: { available: false, detail: '아직' }, loggedIn: true }).includes('아직'));
 assert.ok(dash.briefingHtml('health', { board, loggedIn: true }).includes('엔진 정상'));
@@ -167,4 +181,4 @@ assert.equal(fin.labelStep(38, 45), 2);
 assert.equal(fin.labelStep(40, 10), 5);
 assert.equal(fin.labelStep(40, 0), 1);
 
-console.log('EFA design: greeting, briefing, queue, treemap, flow, system, bell, watchlist, notes, financial label spacing, market movers, holdings lists, live quotes, risk badges passed');
+console.log('EFA design: greeting, briefing, queue, treemap, flow, system, bell, watchlist, notes, financial label spacing, market movers, holdings lists, live quotes, risk badges, holdings news passed');
