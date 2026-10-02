@@ -31,6 +31,8 @@ try:
                                       native_positions_not_applicable)
     from ..kqs_strategy_board import board_items, holding_signals, read_outcome_report
     from ..kqs_pipeline_health import pipeline_health
+    from ..kis_quotes import KisError, kis_service
+    from .. import position_sizing as sizing
     from .auth import current_user
 except ImportError:
     from db import get_db  # type: ignore
@@ -42,6 +44,8 @@ except ImportError:
                                     native_positions_not_applicable)  # type: ignore
     from kqs_strategy_board import board_items, holding_signals, read_outcome_report  # type: ignore
     from kqs_pipeline_health import pipeline_health  # type: ignore
+    from kis_quotes import KisError, kis_service  # type: ignore
+    import position_sizing as sizing  # type: ignore
     from routers.auth import current_user  # type: ignore
 
 
@@ -1382,6 +1386,91 @@ async def get_kqs_strategy_board(user: dict = Depends(current_user)) -> dict:
                         generated_at=payload["generated_at"], expires_at=payload["expires_at"],
                         snapshot_id=payload.get("snapshot_id"), package_version=payload["engine"].get("package_version"))
     return JSONResponse(content=response, headers={"Cache-Control": "no-store"})
+
+
+# 평균회귀 추천 종목의 ATR(14)은 기준일마다 한 번만 한투 일봉으로 계산한다(종목·기준일별, 프로세스 메모리).
+_SIZING_ATR_CACHE: dict[tuple[str, str], dict] = {}
+
+
+async def _reversion_atr(code: str, as_of: str) -> dict:
+    key = (code, as_of)
+    if key in _SIZING_ATR_CACHE and _SIZING_ATR_CACHE[key].get("atr"):
+        return _SIZING_ATR_CACHE[key]
+    service = kis_service()
+    if not service.enabled:
+        return {"atr": None, "reason": "한투 키가 없어 ATR을 계산하지 못했습니다."}
+    start, end = sizing.daily_window(as_of)
+    try:
+        bars = await asyncio.wait_for(service.daily_bars(code, start, end), timeout=10)
+    except (KisError, asyncio.TimeoutError, ValueError) as exc:
+        return {"atr": None, "reason": f"일봉 조회 실패: {exc}"}
+    bars = [bar for bar in bars if bar["date"] <= as_of]   # 추천 기준일까지(게시 시점과 같은 정보만)
+    atr = sizing.wilder_atr(bars)
+    result = {"atr": atr, "reason": None if atr else "일봉이 14일보다 적어 ATR을 계산하지 못했습니다."}
+    _SIZING_ATR_CACHE[key] = result
+    return result
+
+
+@router.get("/position-sizing")
+async def get_kqs_position_sizing(risk_pct: float = sizing.RISK_PCT_DEFAULT, user: dict = Depends(current_user)) -> JSONResponse:
+    """EINT-027: 오늘 추천 종목의 권장 매수 수량(참고 계산, 주문 없음).
+
+    (총자산 × 1회 손실 한도%) ÷ 주당 위험 단위를 리스크 정책의 종목당 최대 비중으로 제한한다. 위험 단위는 v4는 검증된
+    손절 폭(1.5×ATR), 평균회귀 2종은 손절이 없으므로 2×ATR 하락을 가정한 값이다. 엔진·추천 규칙과 무관하다.
+    """
+    try:
+        from .portfolio import _compute_valuation, _get_risk_policy
+    except ImportError:
+        from routers.portfolio import _compute_valuation, _get_risk_policy  # type: ignore
+    risk_pct = sizing.clamp_risk_pct(risk_pct)
+    base = {"risk_pct": risk_pct, "risk_pct_range": [sizing.RISK_PCT_MIN, sizing.RISK_PCT_MAX], "items": {},
+            "note": "참고 계산입니다. 주문하지 않으며, 체결가·수수료·세금에 따라 실제 위험은 달라집니다."}
+    try:
+        payload = await asyncio.to_thread(read_local_recommendations)
+    except RuntimeError as exc:
+        return JSONResponse(content={**base, "available": False, "reason": str(exc)})
+    portfolio = await get_db().portfolios.find_one({"user_id": user["_id"]})
+    valuation = await _compute_valuation(portfolio) if portfolio else None
+    cash = float((portfolio or {}).get("cash_krw") or 0)
+    if valuation and valuation.get("value_krw"):
+        equity, partial = float(valuation["value_krw"]), False
+    elif valuation:   # 일부 종목 시세가 없으면 확인된 종목과 현금만으로(표시)
+        equity = cash + sum(float(p.get("value_krw") or 0) for p in valuation["positions"] if p.get("status") == "ok")
+        partial = True
+    else:
+        equity, partial = 0.0, False
+    if equity <= 0:
+        return JSONResponse(content={**base, "available": False,
+                                     "reason": "내 자산(현금 포함)을 등록하면 권장 수량을 계산합니다."})
+    policy = await _get_risk_policy(user["_id"])
+    max_position_pct = float(policy["max_position_pct"])
+    as_of = payload["engine"]["data_as_of"]
+    picks = [(item["item"], pick) for item in board_items(payload) for pick in item["picks"]]
+    quotes = await kis_service().quotes([f"{pick['symbol']}.{'KQ' if pick['market'] == 'KOSDAQ' else 'KS'}" for _, pick in picks])
+    items: dict[str, dict] = {}
+    for item, pick in picks:
+        ticker = f"{pick['symbol']}.{'KQ' if pick['market'] == 'KOSDAQ' else 'KS'}"
+        quote = quotes.get(ticker) or {}
+        price = float(quote["price"]) if quote.get("status") == "ok" else float(pick.get("close") or 0)
+        price_basis = "현재가" if quote.get("status") == "ok" else "기준일 종가"
+        if item == "pullback_v4":
+            unit = sizing.risk_unit(item, v4_atr=(pick.get("exit_plan") or {}).get("atr"), atr14=None)
+            reason = None if unit else "게시본에 ATR이 없어 계산하지 못했습니다."
+        else:
+            atr = await _reversion_atr(pick["symbol"], as_of)
+            unit = sizing.risk_unit(item, v4_atr=None, atr14=atr["atr"])
+            reason = atr["reason"]
+        if not unit or price <= 0:
+            items[pick["signal_id"]] = {"available": False, "reason": reason or "가격을 확인하지 못했습니다."}
+            continue
+        items[pick["signal_id"]] = {"available": True, "price": price, "price_basis": price_basis,
+                                    "risk_unit_krw": round(unit["per_share"], 2), "atr": round(unit["atr"], 2),
+                                    "basis": unit["basis"], "basis_label": unit["label"],
+                                    **sizing.size_position(equity=equity, cash=cash, price=price, unit=unit["per_share"],
+                                                           risk_pct=risk_pct, max_position_pct=max_position_pct)}
+    return JSONResponse(content={**base, "available": True, "as_of": as_of, "equity_krw": round(equity), "cash_krw": round(cash),
+                                 "equity_partial": partial, "max_position_pct": max_position_pct, "items": items},
+                        headers={"Cache-Control": "no-store"})
 
 
 @router.get("/pipeline-health")
