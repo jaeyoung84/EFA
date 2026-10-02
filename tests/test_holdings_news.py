@@ -203,4 +203,23 @@ def test_naver_search_prefers_dedicated_search_keys(monkeypatch):
     monkeypatch.setenv("NAVER_SEARCH_CLIENT_ID", "search-id")
     monkeypatch.setenv("NAVER_SEARCH_CLIENT_SECRET", "search-secret")
     search = hn.NaverNewsSearch()
-    assert (search.client_id, search.client_secret, search.disabled_reason) == ("search-id", "search-secret", None)
+    assert (search.client_id, search.client_secret, search.disabled_reason, search.api_hub) == ("search-id", "search-secret", None, True)
+
+
+@pytest.mark.asyncio
+async def test_api_hub_search_uses_ncp_address_and_headers(monkeypatch):
+    """2026-07-31부터 검색 API는 NAVER API HUB로 이관: 주소·인증 헤더가 다르고 응답 필드는 같다."""
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, json={"items": [{"title": "t", "originallink": "https://a.example/1", "pubDate": "x"}]})
+
+    monkeypatch.setenv("NAVER_SEARCH_CLIENT_ID", "hub-id")
+    monkeypatch.setenv("NAVER_SEARCH_CLIENT_SECRET", "hub-secret")
+    search = hn.NaverNewsSearch(http=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    assert (await search.search("SK하이닉스 HBM4"))[0]["originallink"] == "https://a.example/1"
+    request = seen[0]
+    assert str(request.url).startswith("https://naverapihub.apigw.ntruss.com/search/v1/news?")
+    assert request.headers["X-NCP-APIGW-API-KEY-ID"] == "hub-id" and request.headers["X-NCP-APIGW-API-KEY"] == "hub-secret"
+    assert "X-Naver-Client-Id" not in request.headers

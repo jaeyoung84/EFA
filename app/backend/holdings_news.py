@@ -49,7 +49,10 @@ NAME_ALIASES = {
     "현대자동차": ("현대차",), "LG에너지솔루션": ("LG엔솔", "엔솔"), "삼성바이오로직스": ("삼바",),
     "두산에너빌리티": ("두산에빌",), "한화에어로스페이스": ("한화에어로",), "POSCO홀딩스": ("포스코홀딩스",),
 }
-NAVER_SEARCH_URL = "https://openapi.naver.com/v1/search/news.json"
+# 네이버 검색 API는 2026-07-31부터 developers.naver.com 신규 발급이 끝나고 NAVER API HUB(네이버 클라우드)로 옮겨졌다.
+# API HUB 키(NAVER_SEARCH_*)는 아래 주소·헤더를 쓴다. 응답 필드(title·originallink·link·pubDate)는 예전과 같다.
+NAVER_API_HUB_NEWS_URL = "https://naverapihub.apigw.ntruss.com/search/v1/news"
+NAVER_LEGACY_NEWS_URL = "https://openapi.naver.com/v1/search/news.json"
 NAVER_STOCK_NEWS_URL = "https://m.stock.naver.com/domestic/stock/{code}/news"
 TITLE_MATCH_MIN = 0.72
 COLLECT_START_HOUR_KST, COLLECT_END_HOUR_KST = 6, 23
@@ -183,12 +186,14 @@ def best_link(title: str, published_at: str | None, candidates: list[dict]) -> s
 
 
 class NaverNewsSearch:
-    def __init__(self, client_id: str = "", client_secret: str = "", http: httpx.AsyncClient | None = None):
-        # 검색 전용 애플리케이션 키(NAVER_SEARCH_*)를 쓴다. 로그인 앱에 검색 API를 추가할 수 없어 따로 발급했다.
-        # 없으면 로그인 키로 시도한다(그 앱에 검색 권한이 있으면 동작).
-        self.client_id = client_id or (os.getenv("NAVER_SEARCH_CLIENT_ID", "").strip() or os.getenv("NAVER_CLIENT_ID", "").strip())
-        self.client_secret = client_secret or (os.getenv("NAVER_SEARCH_CLIENT_SECRET", "").strip()
-                                               or os.getenv("NAVER_CLIENT_SECRET", "").strip())
+    def __init__(self, client_id: str = "", client_secret: str = "", http: httpx.AsyncClient | None = None,
+                 api_hub: bool = True):
+        # NAVER API HUB에서 발급한 검색 키(NAVER_SEARCH_*)를 쓴다. 없으면 예전 개발자센터 방식으로 로그인 키를 시도한다.
+        hub_id, hub_secret = os.getenv("NAVER_SEARCH_CLIENT_ID", "").strip(), os.getenv("NAVER_SEARCH_CLIENT_SECRET", "").strip()
+        # 키를 직접 넘기면 api_hub 인자를 따르고, 환경변수에서 읽을 때는 API HUB 키가 있을 때만 API HUB 방식이다.
+        self.api_hub = api_hub if client_id else bool(hub_id)
+        self.client_id = client_id or hub_id or os.getenv("NAVER_CLIENT_ID", "").strip()
+        self.client_secret = client_secret or hub_secret or os.getenv("NAVER_CLIENT_SECRET", "").strip()
         self._http = http
         self.disabled_reason: str | None = None if self.client_id and self.client_secret else "네이버 키 없음"
 
@@ -198,8 +203,13 @@ class NaverNewsSearch:
         query = re.sub(r"[\[\]【】<>“”\"'‘’…·]", " ", title)[:80]
         client = self._http or httpx.AsyncClient(timeout=6)
         try:
-            response = await client.get(NAVER_SEARCH_URL, params={"query": query, "display": 5, "sort": "sim"},
-                                        headers={"X-Naver-Client-Id": self.client_id, "X-Naver-Client-Secret": self.client_secret})
+            if self.api_hub:
+                url, headers = NAVER_API_HUB_NEWS_URL, {"X-NCP-APIGW-API-KEY-ID": self.client_id,
+                                                        "X-NCP-APIGW-API-KEY": self.client_secret}
+            else:
+                url, headers = NAVER_LEGACY_NEWS_URL, {"X-Naver-Client-Id": self.client_id,
+                                                       "X-Naver-Client-Secret": self.client_secret}
+            response = await client.get(url, params={"query": query, "display": 5, "sort": "sim"}, headers=headers)
         finally:
             if self._http is None:
                 await client.aclose()
