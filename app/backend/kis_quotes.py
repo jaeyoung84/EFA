@@ -34,6 +34,9 @@ RATE_LIMIT_RETRIES = 2
 RATE_RECOVER_SECONDS = 30
 REST_CACHE_SECONDS = 5
 ERROR_CACHE_SECONDS = 2
+# 장이 닫혀 있을 때 현재가 재사용 시간. 한 번에 묶어 조회할 수 있는 최대 종목 수(멀티종목 시세 TR).
+OFF_SESSION_CACHE_SECONDS = 300
+MULTI_PRICE_MAX = 30
 # 조회가 잠깐 실패해도 이 시간 안의 마지막 한투 시세를 계속 쓴다(전일 종가로 되돌아가지 않게).
 LAST_GOOD_SECONDS = 600
 # 종목 상태(관리종목·투자경고 등)는 하루 중 거의 바뀌지 않는다. 현재가 조회 응답에 함께 오므로 그것도 재사용한다.
@@ -331,35 +334,94 @@ class KisQuotes:
         return tick if self._clock() - tick["received"] <= STALE_TICK_SECONDS else None
 
     async def quote(self, ticker: str) -> dict:
-        """국내 종목 체결가. 실패도 {'status': 'error', 'reason'}로 돌려준다."""
-        code = domestic_code(ticker)
-        if not self.enabled or not code:
-            return {"status": "error", "reason": "한투 시세 대상이 아닙니다."}
-        self.note_interest([ticker])
-        tick = self._live_tick(code)
-        if tick:
-            return {"status": "ok", "price": tick["price"], "change": tick["change"], "change_pct": tick["change_pct"],
-                    "quoted_at": tick["traded_at"], "source": "kis_realtime"}
+        """국내 종목 체결가 하나. 실패도 {'status': 'error', 'reason'}로 돌려준다."""
+        return (await self.quotes([ticker]))[ticker]
+
+    def _cache_ttl(self, result: dict) -> float:
+        if result["status"] != "ok":
+            return ERROR_CACHE_SECONDS
+        # 장이 닫혀 있으면(저녁·주말·휴장) 가격이 바뀌지 않으므로 오래 재사용한다.
+        return REST_CACHE_SECONDS if stream_session_open() else OFF_SESSION_CACHE_SECONDS
+
+    async def _multi_price(self, codes: list[str], retry: bool = True) -> dict[str, dict]:
+        """관심종목(멀티종목) 시세 TR(FHKST11300006): 최대 30종목을 한 번에. {code: {price, change, change_pct}}"""
+        params: dict[str, str] = {}
+        for index, code in enumerate(codes, start=1):
+            params[f"FID_COND_MRKT_DIV_CODE_{index}"] = "J"
+            params[f"FID_INPUT_ISCD_{index}"] = code
+        for attempt in range(RATE_LIMIT_RETRIES + 1):
+            payload = await self._rest_get("/uapi/domestic-stock/v1/quotations/intstock-multprice", "FHKST11300006", params)
+            if payload.get("msg_cd") != RATE_LIMIT_CODE or attempt == RATE_LIMIT_RETRIES:
+                break
+            self._slow_down()
+        if payload.get("msg_cd") == "EGW00123" and retry:   # 토큰 만료: 한 번만 새로 발급
+            self._token = None
+            return await self._multi_price(codes, retry=False)
+        if str(payload.get("rt_cd")) != "0":
+            raise KisError(f"{payload.get('msg_cd', '')} {payload.get('msg1', '응답 오류')}".strip())
+        prices: dict[str, dict] = {}
+        for row in payload.get("output") or []:
+            code, price = str(row.get("inter_shrn_iscd") or "").strip(), _num(row.get("inter2_prpr"))
+            if code and price:
+                prices[code] = {"price": price, "change": _num(row.get("inter2_prdy_vrss")), "change_pct": _num(row.get("prdy_ctrt"))}
+        self._maybe_speed_up()
+        return prices
+
+    async def quotes(self, tickers: list[str]) -> dict[str, dict]:
+        """여러 종목 체결가. 실시간 체결 → 캐시 → 나머지는 30종목씩 묶어 한 번에 조회(종목마다 부르지 않는다)."""
+        unique = list(dict.fromkeys(tickers))
+        results: dict[str, dict] = {}
+        need: dict[str, str] = {}
         now = self._clock()
-        cached = self._rest_cache.get(code)
-        if cached and now - cached[0] < (REST_CACHE_SECONDS if cached[1]["status"] == "ok" else ERROR_CACHE_SECONDS):
-            return self._with_last_good(code, cached[1])
-        if code in self._inflight:   # 같은 종목을 동시에 여러 화면이 물으면 한 번만 조회한다
-            return self._with_last_good(code, await asyncio.shield(self._inflight[code]))
-        future = asyncio.get_running_loop().create_future()
-        self._inflight[code] = future
+        for ticker in unique:
+            code = domestic_code(ticker)
+            if not self.enabled or not code:
+                results[ticker] = {"status": "error", "reason": "한투 시세 대상이 아닙니다."}
+                continue
+            self.note_interest([ticker])
+            tick = self._live_tick(code)
+            if tick:
+                results[ticker] = {"status": "ok", "price": tick["price"], "change": tick["change"],
+                                   "change_pct": tick["change_pct"], "quoted_at": tick["traded_at"], "source": "kis_realtime"}
+                continue
+            cached = self._rest_cache.get(code)
+            if cached and now - cached[0] < self._cache_ttl(cached[1]):
+                results[ticker] = self._with_last_good(code, cached[1])
+                continue
+            need[ticker] = code
+        # 같은 종목을 이미 다른 요청이 조회 중이면 그 결과를 기다린다. 나머지만 새로 묶어 조회한다.
+        waiting = {ticker: self._inflight[code] for ticker, code in need.items() if code in self._inflight}
+        codes = list(dict.fromkeys(code for ticker, code in need.items() if ticker not in waiting))
+        loop = asyncio.get_running_loop()
+        futures = {code: loop.create_future() for code in codes}
+        self._inflight.update(futures)
         try:
-            price = await asyncio.wait_for(self._rest_price(code), timeout=REST_TIMEOUT_SECONDS + 4)
-            result = {"status": "ok", **price, "quoted_at": datetime.now(timezone.utc).isoformat(), "source": "kis_rest"}
-            self._last_good[code] = (self._clock(), result)
-        except (KisError, httpx.HTTPError, asyncio.TimeoutError, ValueError) as exc:
-            self.last_error = f"REST {code}: {exc or type(exc).__name__}"
-            result = {"status": "error", "reason": f"한투 시세 조회 실패: {exc or type(exc).__name__}"}
+            for start in range(0, len(codes), MULTI_PRICE_MAX):
+                chunk = codes[start:start + MULTI_PRICE_MAX]
+                try:
+                    prices = await asyncio.wait_for(self._multi_price(chunk), timeout=REST_TIMEOUT_SECONDS + 4)
+                    error = None
+                except (KisError, httpx.HTTPError, asyncio.TimeoutError, ValueError) as exc:
+                    prices, error = {}, f"한투 시세 조회 실패: {exc or type(exc).__name__}"
+                    self.last_error = f"REST {','.join(chunk)}: {exc or type(exc).__name__}"
+                quoted_at = datetime.now(timezone.utc).isoformat()
+                for code in chunk:
+                    if code in prices:
+                        result = {"status": "ok", **prices[code], "quoted_at": quoted_at, "source": "kis_rest"}
+                        self._last_good[code] = (self._clock(), result)
+                    else:
+                        result = {"status": "error", "reason": error or "한투 시세 응답에 이 종목이 없습니다."}
+                    self._rest_cache[code] = (now, result)
+                    futures[code].set_result(result)
         finally:
-            self._inflight.pop(code, None)
-        self._rest_cache[code] = (now, result)
-        future.set_result(result)
-        return self._with_last_good(code, result)
+            for code, future in futures.items():
+                if not future.done():
+                    future.set_result({"status": "error", "reason": "한투 시세 조회가 중단되었습니다."})
+                self._inflight.pop(code, None)
+        for ticker, code in need.items():
+            future = waiting.get(ticker) or futures[code]
+            results[ticker] = self._with_last_good(code, await asyncio.shield(future))
+        return {ticker: results[ticker] for ticker in unique}
 
     def _with_last_good(self, code: str, result: dict) -> dict:
         """실패했어도 10분 안의 마지막 한투 시세(실시간 체결 포함)가 있으면 그것을 '지연'으로 표시해 쓴다."""
@@ -380,11 +442,6 @@ class KisQuotes:
         if age > LAST_GOOD_SECONDS:
             return result
         return {**good, "stale_seconds": round(age), "stale_reason": result.get("reason")}
-
-    async def quotes(self, tickers: list[str]) -> dict[str, dict]:
-        unique = list(dict.fromkeys(tickers))
-        results = await asyncio.gather(*(self.quote(ticker) for ticker in unique))
-        return dict(zip(unique, results))
 
     def status(self) -> dict:
         return {"enabled": self.enabled, "env": self.env, "rest_per_second": self.rate, "stream_connected": self.connected,

@@ -12,6 +12,8 @@ import pytest
 from app.backend import kis_quotes, live_quotes
 from app.backend.kis_quotes import KisQuotes, parse_rest_price, parse_ws_frame, plan_subscriptions
 
+REAL_SESSION_OPEN = kis_quotes.stream_session_open   # 아래 자동 고정 전에 보관(장 시간 판정 자체를 시험할 때 사용)
+
 
 class Clock:
     def __init__(self):
@@ -37,9 +39,21 @@ def kis_http(handler_calls, price_responses=None):
         if request.url.path == "/oauth2/Approval":
             return httpx.Response(200, json={"approval_key": "approval-1"})
         body = responses.pop(0) if responses else price_payload()
+        if request.url.path.endswith("intstock-multprice") and isinstance(body.get("output"), dict):
+            # 단일 현재가 형태의 가짜 응답을 멀티종목 시세 형태로 바꾼다(요청한 종목마다 같은 가격).
+            out = body["output"]
+            codes = [v for k, v in request.url.params.items() if k.startswith("FID_INPUT_ISCD_")]
+            body = {**body, "output": [{"inter_shrn_iscd": code, "inter2_prpr": out["stck_prpr"],
+                                        "inter2_prdy_vrss": out["prdy_vrss"], "prdy_ctrt": out["prdy_ctrt"]} for code in codes]}
         return httpx.Response(200, json=body)
 
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+
+@pytest.fixture(autouse=True)
+def _market_open_by_default(monkeypatch):
+    """캐시 시간이 장 운영 여부에 따라 달라지므로, 테스트는 실행한 날과 무관하게 '장중'을 기본으로 한다."""
+    monkeypatch.setattr(kis_quotes, "stream_session_open", lambda now=None: True)
 
 
 @pytest.fixture(autouse=True)
@@ -53,9 +67,9 @@ def test_domestic_code_and_session_window():
     assert kis_quotes.domestic_code("0091P0.kq") == "0091P0"
     assert kis_quotes.domestic_code("AAPL") is None and kis_quotes.domestic_code("^KS11") is None
     kst = lambda h, m, day=1: datetime(2026, 10, day, h - 9 if h >= 9 else h + 15, m, tzinfo=timezone.utc)  # noqa: E731
-    assert kis_quotes.stream_session_open(kst(10, 0)) is True          # 목요일 10:00
-    assert kis_quotes.stream_session_open(kst(15, 36)) is False
-    assert kis_quotes.stream_session_open(datetime(2026, 10, 3, 1, 0, tzinfo=timezone.utc)) is False   # 토요일
+    assert REAL_SESSION_OPEN(kst(10, 0)) is True          # 목요일 10:00
+    assert REAL_SESSION_OPEN(kst(15, 36)) is False
+    assert REAL_SESSION_OPEN(datetime(2026, 10, 3, 1, 0, tzinfo=timezone.utc)) is False   # 토요일
 
 
 def test_parse_rest_price_and_errors():
@@ -94,12 +108,12 @@ async def test_rest_quote_is_cached_and_reuses_token():
     assert first["status"] == "ok" and first["source"] == "kis_rest" and first["price"] == 71900.0
     assert await service.quote("005930.KS") is not None
     assert [c.url.path for c in calls].count("/oauth2/tokenP") == 1
-    assert sum(c.url.path.endswith("inquire-price") for c in calls) == 1      # 5초 캐시
-    price_call = next(c for c in calls if c.url.path.endswith("inquire-price"))
-    assert price_call.headers["tr_id"] == "FHKST01010100" and price_call.url.params["FID_INPUT_ISCD"] == "005930"
+    assert sum(c.url.path.endswith("intstock-multprice") for c in calls) == 1      # 5초 캐시
+    price_call = next(c for c in calls if c.url.path.endswith("intstock-multprice"))
+    assert price_call.headers["tr_id"] == "FHKST11300006" and price_call.url.params["FID_INPUT_ISCD_1"] == "005930"
     clock.now += kis_quotes.REST_CACHE_SECONDS + 1
     await service.quote("005930.KS")
-    assert sum(c.url.path.endswith("inquire-price") for c in calls) == 2
+    assert sum(c.url.path.endswith("intstock-multprice") for c in calls) == 2
     assert [c.url.path for c in calls].count("/oauth2/tokenP") == 1
 
 
@@ -115,7 +129,7 @@ async def test_expired_token_is_reissued_once_and_errors_are_reported():
     failing = KisQuotes("key", "secret", http=kis_http(calls2, [LIMITED] * 3), clock=Clock())
     error = await failing.quote("000660.KS")
     assert error["status"] == "error" and "EGW00201" in error["reason"]
-    assert sum(c.url.path.endswith("inquire-price") for c in calls2) == 3      # 처음 + 재시도 2번
+    assert sum(c.url.path.endswith("intstock-multprice") for c in calls2) == 3      # 처음 + 재시도 2번
 
 
 LIMITED = {"rt_cd": "1", "msg_cd": "EGW00201", "msg1": "초당 거래건수를 초과하였습니다."}
@@ -127,7 +141,7 @@ async def test_rate_limit_reply_slows_down_retries_and_recovers():
     service = KisQuotes("key", "secret", http=kis_http(calls, [LIMITED, price_payload("1234")]), clock=clock, rest_per_second=4)
     quote = await service.quote("005930.KS")
     assert quote["status"] == "ok" and quote["price"] == 1234.0
-    assert service.rate == 2.0 and sum(c.url.path.endswith("inquire-price") for c in calls) == 2
+    assert service.rate == 2.0 and sum(c.url.path.endswith("intstock-multprice") for c in calls) == 2
     clock.now += kis_quotes.RATE_RECOVER_SECONDS + 1
     clock.now += kis_quotes.REST_CACHE_SECONDS
     await service.quote("005930.KS")
@@ -155,7 +169,7 @@ async def test_concurrent_requests_for_one_stock_share_a_single_call():
     service = KisQuotes("key", "secret", http=kis_http(calls), clock=Clock())
     first, second = await asyncio.gather(service.quote("005930.KS"), service.quote("005930.KS"))
     assert first["price"] == second["price"] == 71900.0
-    assert sum(c.url.path.endswith("inquire-price") for c in calls) == 1
+    assert sum(c.url.path.endswith("intstock-multprice") for c in calls) == 1
 
 
 @pytest.mark.asyncio
@@ -234,6 +248,9 @@ async def test_live_quotes_api_requires_login_and_uses_kis_then_yahoo(client, ma
     headers = await make_user("live@test.com")
 
     class FakeKis(KisQuotes):
+        async def quotes(self, tickers):
+            return {ticker: await self.quote(ticker) for ticker in dict.fromkeys(tickers)}
+
         async def quote(self, ticker):
             if ticker == "000660.KS":
                 return {"status": "error", "reason": "한투 시세 조회 실패: 테스트"}
@@ -264,6 +281,9 @@ async def test_portfolio_valuation_prefers_kis_for_domestic_holdings(monkeypatch
     from app.backend.routers import portfolio
 
     class FakeKis(KisQuotes):
+        async def quotes(self, tickers):
+            return {ticker: await self.quote(ticker) for ticker in dict.fromkeys(tickers)}
+
         async def quote(self, ticker):
             return {"status": "ok", "price": 500.0, "change": 0.0, "change_pct": 0.0, "quoted_at": "t", "source": "kis_realtime"}
 
@@ -303,6 +323,9 @@ async def test_kis_failure_tries_yahoo_intraday_before_previous_close(monkeypatc
     from app.backend.routers import portfolio
 
     class FakeKis(KisQuotes):
+        async def quotes(self, tickers):
+            return {ticker: await self.quote(ticker) for ticker in dict.fromkeys(tickers)}
+
         async def quote(self, ticker):
             if ticker == "005930.KS":
                 return {"status": "ok", "price": 500.0, "change": 0.0, "change_pct": 0.0, "quoted_at": "t", "source": "kis_realtime"}
@@ -351,7 +374,7 @@ async def test_access_token_is_shared_through_the_store_across_restarts():
     restarted = KisQuotes("key", "secret", http=kis_http(calls2), clock=Clock(), token_store=store)
     await restarted.quote("005930.KS")
     assert [c.url.path for c in calls2].count("/oauth2/tokenP") == 0           # 저장된 토큰 재사용
-    price_call = next(c for c in calls2 if c.url.path.endswith("inquire-price"))
+    price_call = next(c for c in calls2 if c.url.path.endswith("intstock-multprice"))
     assert price_call.headers["authorization"] == f"Bearer {store.saved[0][0]}"
     nearly_expired = MemoryTokenStore(("old", datetime.now(timezone.utc) + timedelta(minutes=5)))
     calls3 = []
@@ -382,3 +405,36 @@ async def test_public_provider_status_hides_errors(client):
     kis_quotes._set_service_for_tests(service)
     data = (await client.get("/api/market/quote-provider-status")).json()
     assert data["enabled"] is True and "last_error" not in data and "secret-ish" not in json.dumps(data)
+
+
+@pytest.mark.asyncio
+async def test_many_holdings_are_priced_in_one_call_and_cached_longer_when_closed(monkeypatch):
+    """보유 11종목을 종목마다 부르면 초당 한도 때문에 7~8초 걸렸다(2026-10-03 측정). 이제 한 번에 묶는다."""
+    calls, clock = [], Clock()
+    service = KisQuotes("key", "secret", http=kis_http(calls), clock=clock)
+    tickers = [f"{i:06d}.KS" for i in range(1, 36)]                       # 35종목 → 30 + 5, 두 번
+    quotes = await service.quotes(tickers)
+    multi = [c for c in calls if c.url.path.endswith("intstock-multprice")]
+    assert len(multi) == 2 and len(multi[0].url.params) == 60 and len(multi[1].url.params) == 10
+    assert all(q["status"] == "ok" and q["source"] == "kis_rest" for q in quotes.values())
+    monkeypatch.setattr(kis_quotes, "stream_session_open", lambda now=None: False)
+    clock.now += 120                                                         # 장 마감 뒤에는 2분이 지나도 캐시
+    await service.quotes(tickers[:11])
+    assert len([c for c in calls if c.url.path.endswith("intstock-multprice")]) == 2
+    clock.now += kis_quotes.OFF_SESSION_CACHE_SECONDS
+    await service.quotes(tickers[:11])
+    assert len([c for c in calls if c.url.path.endswith("intstock-multprice")]) == 3
+
+
+@pytest.mark.asyncio
+async def test_missing_stock_in_multi_response_is_an_error_not_a_guess():
+    def handler(request):
+        if request.url.path == "/oauth2/tokenP":
+            return httpx.Response(200, json={"access_token": "t", "expires_in": 86400})
+        return httpx.Response(200, json={"rt_cd": "0", "output": [
+            {"inter_shrn_iscd": "005930", "inter2_prpr": "70000", "inter2_prdy_vrss": "100", "prdy_ctrt": "0.14"}]})
+
+    service = KisQuotes("k", "s", http=httpx.AsyncClient(transport=httpx.MockTransport(handler)), clock=Clock())
+    quotes = await service.quotes(["005930.KS", "000660.KS"])
+    assert quotes["005930.KS"]["price"] == 70000.0 and quotes["005930.KS"]["change_pct"] == 0.14
+    assert quotes["000660.KS"]["status"] == "error" and "응답에 이 종목이 없습니다" in quotes["000660.KS"]["reason"]

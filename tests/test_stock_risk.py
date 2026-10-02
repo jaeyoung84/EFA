@@ -121,7 +121,7 @@ async def test_stock_risk_without_kis_keys_reports_unchecked_status(client, make
 
 
 @pytest.mark.asyncio
-async def test_kis_stock_status_reuses_quote_response():
+async def test_kis_stock_status_is_cached():
     import httpx
     calls = []
 
@@ -133,6 +133,6 @@ async def test_kis_stock_status_reuses_quote_response():
                                                                    "iscd_stat_cls_code": "54"}})
 
     service = KisQuotes("k", "s", http=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-    await service.quote("005930.KS")
     status = await service.stock_status("005930.KS")
-    assert status["iscd_stat_cls_code"] == "54" and sum(p.endswith("inquire-price") for p in calls) == 1
+    again = await service.stock_status("005930.KS")                 # 10분 캐시
+    assert status["iscd_stat_cls_code"] == "54" and again == status and sum(p.endswith("inquire-price") for p in calls) == 1
