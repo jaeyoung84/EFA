@@ -14,11 +14,14 @@ from datetime import date
 DISCLOSURE_WINDOW_DAYS = 30
 DART_VIEW_URL = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"
 
-# (심각도, 표시 이름, 공시 제목에 들어 있는 문구들 — 공백을 지우고 비교). 위에서부터 먼저 맞는 것 하나만 쓴다.
-DISCLOSURE_RULES: list[tuple[str, str, tuple[str, ...]]] = [
+# (심각도, 표시 이름, 찾을 문구들[, 있으면 건너뛸 문구들[, 하나는 꼭 있어야 할 문구들]]) — 공백을 지우고 비교.
+# 위에서부터 먼저 맞는 것 하나만 쓴다. 실데이터(2026-10-02, 코스닥 60종목) 확인으로 우려·병합분할·종속회사를 구분했다.
+DISCLOSURE_RULES: list[tuple] = [
     ("high", "상장폐지 관련", ("상장폐지",)),
     ("high", "상장적격성 실질심사", ("상장적격성", "실질심사")),
+    ("high", "관리종목 지정 우려", ("관리종목지정우려",)),
     ("high", "관리종목 지정", ("관리종목",)),
+    ("caution", "매매거래 정지(병합·분할)", ("매매거래정지", "거래정지"), (), ("병합", "분할")),
     ("high", "매매거래 정지", ("매매거래정지", "거래정지")),
     ("high", "횡령·배임", ("횡령", "배임")),
     ("high", "회생·파산 절차", ("회생절차", "파산")),
@@ -26,11 +29,11 @@ DISCLOSURE_RULES: list[tuple[str, str, tuple[str, ...]]] = [
     ("high", "불성실공시법인 지정", ("불성실공시",)),
     ("high", "감사의견 비적정", ("의견거절", "부적정의견", "한정의견", "감사의견비적정")),
     ("high", "투자주의환기종목 지정", ("투자주의환기종목",)),
-    ("caution", "전환사채(CB) 발행", ("전환사채권발행결정",)),
-    ("caution", "신주인수권부사채(BW) 발행", ("신주인수권부사채권발행결정",)),
-    ("caution", "교환사채(EB) 발행", ("교환사채권발행결정",)),
-    ("caution", "유상증자", ("유상증자결정", "유무상증자결정", "증권신고서(지분증권)")),
-    ("caution", "최대주주 변경", ("최대주주변경",)),
+    ("caution", "전환사채(CB) 발행", ("전환사채권발행결정",), ("종속회사",)),
+    ("caution", "신주인수권부사채(BW) 발행", ("신주인수권부사채권발행결정",), ("종속회사",)),
+    ("caution", "교환사채(EB) 발행", ("교환사채권발행결정",), ("종속회사",)),
+    ("caution", "유상증자", ("유상증자결정", "유무상증자결정", "증권신고서(지분증권)"), ("종속회사",)),
+    ("caution", "최대주주 변경 관련", ("최대주주변경",)),
     ("caution", "소송 제기", ("소송등의제기",)),
     ("caution", "조회공시 요구", ("조회공시요구",)),
 ]
@@ -50,23 +53,30 @@ def classify_disclosure(report_nm: str) -> tuple[str, str] | None:
     text = re.sub(r"\s+", "", str(report_nm or ""))
     if "해제" in text:   # 지정 해제·거래정지 해제 등은 위험이 끝났다는 공시다
         return None
-    for severity, label, needles in DISCLOSURE_RULES:
-        if any(needle in text for needle in needles):
+    for severity, label, needles, *rest in DISCLOSURE_RULES:
+        excludes = rest[0] if rest else ()
+        requires = rest[1] if len(rest) > 1 else ()
+        if (any(needle in text for needle in needles) and not any(word in text for word in excludes)
+                and (not requires or any(word in text for word in requires))):
             return severity, label
     return None
 
 
 def disclosure_flags(items: list[dict]) -> list[dict]:
-    flags = []
+    """위험 공시 목록. 같은 날 같은 유형(원본과 정정 공시)은 한 번만 센다."""
+    flags, seen = [], set()
     for item in items:
         found = classify_disclosure(item.get("report_nm", ""))
         if not found:
             continue
         severity, label = found
         rcept_dt = str(item.get("rcept_dt") or "")
+        if (label, rcept_dt) in seen:
+            continue
+        seen.add((label, rcept_dt))
         flags.append({
             "source": "dart", "severity": severity, "label": label,
-            "title": str(item.get("report_nm") or "").strip(),
+            "title": re.sub(r"\s+", " ", str(item.get("report_nm") or "")).strip(),
             "date": f"{rcept_dt[:4]}-{rcept_dt[4:6]}-{rcept_dt[6:8]}" if len(rcept_dt) == 8 else None,
             "url": DART_VIEW_URL.format(rcept_no=item["rcept_no"]) if item.get("rcept_no") else None,
         })

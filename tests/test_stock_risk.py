@@ -27,7 +27,12 @@ def _reset():
     ("주요사항보고서(유상증자결정)", ("caution", "유상증자")),
     ("주요사항보고서(유무상증자결정)", ("caution", "유상증자")),
     ("주요사항보고서(무상증자결정)", None),
-    ("최대주주 변경", ("caution", "최대주주 변경")),
+    ("최대주주 변경", ("caution", "최대주주 변경 관련")),
+    ("[기재정정]최대주주변경을수반하는주식담보제공계약체결", ("caution", "최대주주 변경 관련")),
+    ("기타시장안내(관리종목지정우려종목)              (시가총액 20억원 미만)", ("high", "관리종목 지정 우려")),
+    ("주권매매거래정지              (주식의 병합, 분할 등 전자등록 변경)", ("caution", "매매거래 정지(병합·분할)")),
+    ("유상증자결정(종속회사의주요경영사항)", None),
+    ("[첨부정정]주요사항보고서(전환사채권발행결정)", ("caution", "전환사채(CB) 발행")),
     ("최대주주등소유주식변동신고서", None),
     ("임원ㆍ주요주주특정증권등소유상황보고서", None),
     ("기업설명회(IR)개최", None),
@@ -35,6 +40,19 @@ def _reset():
 ])
 def test_classify_disclosure(title, expected):
     assert classify_disclosure(title) == expected
+
+
+def test_corrected_filings_count_once_and_titles_are_tidy():
+    from app.backend.stock_risk import disclosure_flags
+    flags = disclosure_flags([
+        {"report_nm": "[첨부정정]주요사항보고서(전환사채권발행결정)", "rcept_dt": "20260928", "rcept_no": "2"},
+        {"report_nm": "주요사항보고서(전환사채권발행결정)", "rcept_dt": "20260928", "rcept_no": "1"},
+        {"report_nm": "주요사항보고서(전환사채권발행결정)", "rcept_dt": "20260910", "rcept_no": "0"},
+        {"report_nm": "기타시장안내(관리종목지정우려종목)     (시가총액)", "rcept_dt": "20260915", "rcept_no": "3"},
+    ])
+    assert [(f["label"], f["date"]) for f in flags] == [("전환사채(CB) 발행", "2026-09-28"), ("전환사채(CB) 발행", "2026-09-10"),
+                                                        ("관리종목 지정 우려", "2026-09-15")]
+    assert flags[2]["title"] == "기타시장안내(관리종목지정우려종목) (시가총액)"
 
 
 def test_market_status_flags_from_kis_fields():
