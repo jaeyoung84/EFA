@@ -38,7 +38,10 @@ MIN_COMMON_TRADING_DAYS = 20
 MIN_RISK_COVERAGE = 0.6
 # 외부 시세 공급자 장애가 개인 포트폴리오 화면 전체를 멈추지 않게 하는 상한이다.
 QUOTE_FETCH_TIMEOUT_SECONDS = 4
-MAX_NETWORK_QUOTE_FETCHES = 8
+# 화면이 보유 종목을 최대 20개까지 보여 주므로 캐시에 없는 종목도 20개까지 외부 시세를 조회한다.
+# Yahoo에 한꺼번에 몰리지 않도록 동시에 10개까지만 요청한다(각 4초 제한).
+MAX_NETWORK_QUOTE_FETCHES = 20
+MAX_CONCURRENT_QUOTE_FETCHES = 10
 
 
 def _now() -> datetime:
@@ -133,9 +136,15 @@ async def _valuation_quotes(holdings: list[dict]) -> dict[str, dict]:
     cached = await _cached_daily_quotes(tickers)
     missing = [ticker for ticker in dict.fromkeys(tickers) if ticker not in cached]
     network_tickers, skipped_tickers = missing[:MAX_NETWORK_QUOTE_FETCHES], missing[MAX_NETWORK_QUOTE_FETCHES:]
-    fetched = await asyncio.gather(*(_bounded_quote(ticker) for ticker in network_tickers))
+    gate = asyncio.Semaphore(MAX_CONCURRENT_QUOTE_FETCHES)
+
+    async def limited(ticker: str) -> dict:
+        async with gate:
+            return await _bounded_quote(ticker)
+
+    fetched = await asyncio.gather(*(limited(ticker) for ticker in network_tickers))
     quotes = {**cached, **dict(zip(network_tickers, fetched))}
-    quotes.update({ticker: {"status": "error", "reason": "외부 시세 조회 대상이 많아 이번 평가에서 제외되었습니다."} for ticker in skipped_tickers})
+    quotes.update({ticker: {"status": "error", "reason": f"외부 시세 조회는 한 번에 {MAX_NETWORK_QUOTE_FETCHES}종목까지라 이번 평가에서 제외되었습니다."} for ticker in skipped_tickers})
     return quotes
 
 

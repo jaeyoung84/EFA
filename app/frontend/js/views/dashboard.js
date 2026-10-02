@@ -2,7 +2,7 @@
 // 모든 숫자는 실제 API 값만 쓴다. 데이터가 없으면 "없음"과 이유를 보여 주고 지어내지 않는다.
 // 주문·자동 체결은 없으며, 의사결정 큐의 버튼은 사용자의 수동 판단 기록(POST /api/kqs/decisions)이다.
 import { authRequest, currentUserInfo, isAuthenticated, openAuthModal } from '../auth.js';
-import { portfolioInsights, portfolioValuation } from './portfolioHoldings.js';
+import { portfolioInsights, portfolioValuation, weightBasis } from './portfolioHoldings.js';
 import { DECISION_LABEL, bindDecisionForm, decisionForm } from './strategyBoard.js';
 import { fillSectorBadges, sectorSlot } from '../utils/sectorBadges.js';
 
@@ -310,7 +310,7 @@ export function dashboardView(container) {
     const el = $('[data-dash-assets]');
     el.innerHTML = assetsHtml(state);
     bindCommon(el);
-    $('[data-dash-total]').innerHTML = state.insight ? `총 자산 <b>${fmt(state.insight.total)}원</b>` : '';
+    $('[data-dash-total]').innerHTML = state.insight ? `총 자산 <b>${fmt(state.insight.total)}원</b>${state.partialNote ? ` <small>(${esc(state.partialNote)})</small>` : ''}` : '';
   };
   const renderQueue = () => {
     const el = $('[data-dash-queue]');
@@ -348,8 +348,9 @@ export function dashboardView(container) {
     try {
       const portfolio = await authRequest('/api/portfolio');
       const valuation = await portfolioValuation(portfolio);
-      state.insight = portfolioInsights(portfolio, valuation.available ? valuation : { value_krw: 0, positions: [] });
-      if (!valuation.available) state.error = valuation.reason || '평가 시세를 가져오지 못했습니다.';
+      const basis = weightBasis(portfolio, valuation);
+      state.insight = portfolioInsights(portfolio, basis.valuation);
+      state.partialNote = basis.partial ? `시세 확인된 ${basis.priced}개 기준 · ${basis.excluded}개 제외` : '';
     } catch (error) { state.error = error.message; }
     if (alive) renderAssets();
   }

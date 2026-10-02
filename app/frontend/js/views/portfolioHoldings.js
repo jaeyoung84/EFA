@@ -47,16 +47,28 @@ export async function portfolioValuation(portfolio) {
   return authRequest('/api/portfolio/valuation');
 }
 
+/** 일부 종목 시세가 없을 때: 총평가는 '평가 불가'로 두되, 비중·집중도는 시세가 확인된 종목(+현금) 기준으로 계산한다. */
+export function weightBasis(portfolio, valuation) {
+  if (valuation.available) return { valuation, partial: false, priced: valuation.priced_count, excluded: 0 };
+  const priced = (valuation.positions || []).filter((item) => item.status === 'ok' && Number.isFinite(item.value_krw));
+  const value = (Number(portfolio.cash_krw) || 0) + priced.reduce((sum, item) => sum + item.value_krw, 0);
+  return { valuation: { ...valuation, value_krw: value }, partial: true, priced: priced.length,
+           excluded: (valuation.positions || []).length - priced.length };
+}
+
 export function portfolioInsights(portfolio, valuation) {
   const total = Number(valuation.value_krw) || 0;
   const positions = [
     ...(Number(portfolio.cash_krw) > 0 ? [{ ticker: 'CASH', name: '현금', currency: 'KRW', value_krw: Number(portfolio.cash_krw), profit_krw: 0 }] : []),
     ...(valuation.positions || []),
-  ].map((item) => ({ ...item, weight_pct: total ? item.value_krw / total * 100 : 0 })).sort((a, b) => b.value_krw - a.value_krw);
-  const currency = positions.reduce((result, item) => { result[item.currency] = (result[item.currency] || 0) + item.value_krw; return result; }, {});
-  const maxPosition = positions[0] || null;
-  const hhi = positions.reduce((sum, item) => sum + (item.weight_pct / 100) ** 2, 0);
-  return { total, positions, currency, max_position: maxPosition, hhi, concentration: hhi >= 0.45 ? '높음' : hhi >= 0.25 ? '보통' : '낮음' };
+  ].map((item) => ({ ...item, weight_pct: total && Number.isFinite(item.value_krw) ? item.value_krw / total * 100 : NaN }));
+  // 시세가 없는 종목(value_krw 없음)은 정렬·집중도 계산에서 빼고 목록 끝에 둔다.
+  const priced = positions.filter((item) => Number.isFinite(item.value_krw)).sort((a, b) => b.value_krw - a.value_krw);
+  const unpriced = positions.filter((item) => !Number.isFinite(item.value_krw));
+  const currency = priced.reduce((result, item) => { result[item.currency] = (result[item.currency] || 0) + item.value_krw; return result; }, {});
+  const maxPosition = priced[0] || null;
+  const hhi = priced.reduce((sum, item) => sum + (item.weight_pct / 100) ** 2, 0);
+  return { total, positions: [...priced, ...unpriced], currency, max_position: maxPosition, hhi, concentration: hhi >= 0.45 ? '높음' : hhi >= 0.25 ? '보통' : '낮음' };
 }
 
 function holdingRow(holding, index) {
@@ -86,12 +98,36 @@ function readHoldings(container) {
   })).filter((holding) => holding.ticker || holding.name || holding.quantity || holding.average_price);
 }
 
-function factorExposureHtml(data) {
+export const MAX_LISTED_HOLDINGS = 20;
+
+/** "보유 N개 중 상위 20개 표시 (최대 20개)" / "보유 N개 전체 표시 (최대 20개)" */
+export function listedNote(shown, total, unit = '종목') {
+  return total > shown
+    ? `${unit} ${total}개 중 상위 ${shown}개 표시 (최대 ${MAX_LISTED_HOLDINGS}개)`
+    : `${unit} ${total}개 전체 표시 (최대 ${MAX_LISTED_HOLDINGS}개)`;
+}
+
+export function weightListHtml(positions) {
+  const priced = positions.filter((item) => Number.isFinite(item.weight_pct) && item.value_krw > 0);
+  const shown = priced.slice(0, MAX_LISTED_HOLDINGS);
+  const missing = positions.length - priced.length;
+  return `<p class="holdings-list-note">${listedNote(shown.length, priced.length, '자산(현금 포함)')}${missing ? ` · 시세 없음 ${missing}개 제외` : ''}</p>
+    <ol class="holdings-weight-list">${shown.map((item) => `<li><span>${escapeHtml(item.name || item.ticker)} <small>${escapeHtml(item.ticker)}</small></span><b>${item.weight_pct.toFixed(1)}%</b><i><em style="width:${Math.min(item.weight_pct, 100)}%"></em></i></li>`).join('')}</ol>`;
+}
+
+export function factorExposureHtml(data, names = {}) {
   if (!data.available) return `<header><div><span class="jy-section-label">FACTOR EXPOSURE</span><h2>보유 팩터 노출</h2></div></header><p class="holdings-valuation-note">${escapeHtml(data.reason || '팩터 데이터를 준비 중입니다.')}</p>`;
   const factors = data.weighted_factors || {};
   const pct = (value) => value == null ? '-' : `${(Number(value) * 100).toFixed(2)}%`;
-  const rows = (data.positions || []).map((position) => `<tr><td>${escapeHtml(position.name || position.ticker)}</td><td>${position.weight_pct.toFixed(1)}%</td><td>${pct(position.factors.return_20d)}</td><td>${pct(position.factors.realized_volatility_20d)}</td><td>${pct(position.factors.max_drawdown_60d)}</td></tr>`).join('');
-  return `<header><div><span class="jy-section-label">FACTOR EXPOSURE</span><h2>보유 팩터 노출</h2></div><small>${escapeHtml(data.as_of)} 기준 · 종목 커버리지 ${data.coverage_pct}%</small></header><div class="holdings-insight-grid"><article><span>20일 수익률</span><strong>${pct(factors.return_20d)}</strong><small>보유비중 가중 관측값</small></article><article><span>20일 변동성</span><strong>${pct(factors.realized_volatility_20d)}</strong><small>연율화 실현변동성</small></article><article><span>60일 최대낙폭</span><strong>${pct(factors.max_drawdown_60d)}</strong><small>보유비중 가중 관측값</small></article></div><div class="holdings-table-wrap"><table><thead><tr><th>종목</th><th>비중</th><th>20일 수익률</th><th>20일 변동성</th><th>60일 MDD</th></tr></thead><tbody>${rows}</tbody></table></div><p class="holdings-valuation-note">${escapeHtml(data.disclaimer)}</p>`;
+  const positions = data.positions || [];
+  const covered = new Set(positions.map((position) => position.ticker));
+  const missing = (data.excluded || []).filter((item) => !covered.has(item.ticker));
+  const total = positions.length + missing.length;
+  const rows = [
+    ...positions.map((position) => `<tr><td>${escapeHtml(position.name || position.ticker)}</td><td>${position.weight_pct.toFixed(1)}%</td><td>${pct(position.factors.return_20d)}</td><td>${pct(position.factors.realized_volatility_20d)}</td><td>${pct(position.factors.max_drawdown_60d)}</td></tr>`),
+    ...missing.map((item) => `<tr class="is-missing"><td>${escapeHtml(names[item.ticker] || item.ticker)}</td><td colspan="4" class="holdings-missing-reason">팩터 데이터 없음 · ${escapeHtml(item.reason || '')}</td></tr>`),
+  ].slice(0, MAX_LISTED_HOLDINGS).join('');
+  return `<header><div><span class="jy-section-label">FACTOR EXPOSURE</span><h2>보유 팩터 노출</h2></div><small>${escapeHtml(data.as_of)} 기준 · 종목 커버리지 ${data.coverage_pct}%</small></header><div class="holdings-insight-grid"><article><span>20일 수익률</span><strong>${pct(factors.return_20d)}</strong><small>보유비중 가중 관측값</small></article><article><span>20일 변동성</span><strong>${pct(factors.realized_volatility_20d)}</strong><small>연율화 실현변동성</small></article><article><span>60일 최대낙폭</span><strong>${pct(factors.max_drawdown_60d)}</strong><small>보유비중 가중 관측값</small></article></div><p class="holdings-list-note">${listedNote(Math.min(total, MAX_LISTED_HOLDINGS), total)}${missing.length ? ` · 팩터 데이터 없는 ${missing.length}개는 사유 표시(비중 계산 제외)` : ''}</p><div class="holdings-table-wrap"><table><thead><tr><th>종목</th><th>비중</th><th>20일 수익률</th><th>20일 변동성</th><th>60일 MDD</th></tr></thead><tbody>${rows}</tbody></table></div><p class="holdings-valuation-note">${escapeHtml(data.disclaimer)}</p>`;
 }
 
 export function portfolioHoldingsView(container) {
@@ -137,17 +173,18 @@ export function portfolioHoldingsView(container) {
     note.textContent = `${source}${asOf ? ` · 기준일 ${asOf.slice(0, 10)}` : ''} · ${valuation.priced_count}개 종목 평가 완료 · USD 자산은 USD/KRW 환율로 원화 환산`;
   };
   const renderInsights = (data, valuation) => {
-    const insight = portfolioInsights(data, valuation);
+    const basis = weightBasis(data, valuation);
+    const insight = portfolioInsights(data, basis.valuation);
     const root = container.querySelector('#holdings-insights');
-    if (!valuation.available || (!valuation.positions?.length && !Number(data.cash_krw))) { root.hidden = true; return; }
+    if ((basis.partial && !basis.priced) || (!valuation.positions?.length && !Number(data.cash_krw))) { root.hidden = true; return; }
     const currencies = Object.entries(insight.currency).map(([currency, value]) => `<div><span>${currency}</span><strong>${(value / insight.total * 100).toFixed(1)}%</strong></div>`).join('');
-    const positions = insight.positions.slice(0, 6).map((item) => `<li><span>${escapeHtml(item.name || item.ticker)} <small>${escapeHtml(item.ticker)}</small></span><b>${item.weight_pct.toFixed(1)}%</b><i><em style="width:${Math.min(item.weight_pct, 100)}%"></em></i></li>`).join('');
-    root.innerHTML = `<header><div><span class="jy-section-label">PORTFOLIO INSIGHTS</span><h2>비중과 집중도</h2></div><span class="holdings-concentration is-${insight.concentration === '높음' ? 'high' : insight.concentration === '보통' ? 'mid' : 'low'}">집중도 ${insight.concentration}</span></header><div class="holdings-insight-grid"><article><span>최대 비중</span><strong>${insight.max_position ? `${escapeHtml(insight.max_position.name || insight.max_position.ticker)} ${insight.max_position.weight_pct.toFixed(1)}%` : '-'}</strong><small>현금도 하나의 자산으로 포함합니다.</small></article><article><span>통화 노출</span><div class="holdings-currency">${currencies}</div><small>USD는 현재 환율 기준 원화 환산입니다.</small></article></div><ol class="holdings-weight-list">${positions}</ol>`;
+    root.innerHTML = `<header><div><span class="jy-section-label">PORTFOLIO INSIGHTS</span><h2>비중과 집중도</h2>${basis.partial ? `<small class="holdings-partial">시세 확인된 ${basis.priced}개 종목(+현금) 기준 · ${basis.excluded}개 제외</small>` : ''}</div><span class="holdings-concentration is-${insight.concentration === '높음' ? 'high' : insight.concentration === '보통' ? 'mid' : 'low'}">집중도 ${insight.concentration}</span></header><div class="holdings-insight-grid"><article><span>최대 비중</span><strong>${insight.max_position ? `${escapeHtml(insight.max_position.name || insight.max_position.ticker)} ${insight.max_position.weight_pct.toFixed(1)}%` : '-'}</strong><small>현금도 하나의 자산으로 포함합니다.</small></article><article><span>통화 노출</span><div class="holdings-currency">${currencies}</div><small>USD는 현재 환율 기준 원화 환산입니다.</small></article></div>${weightListHtml(insight.positions)}`;
     root.hidden = false;
   };
   const loadFactorExposure = async () => {
     const root = container.querySelector('#holdings-factor-exposure');
-    try { const data = await authRequest('/api/portfolio/factor-exposure'); root.hidden = false; root.innerHTML = factorExposureHtml(data); } catch { root.hidden = false; root.innerHTML = factorExposureHtml({ available: false, reason: '팩터 노출 데이터를 불러오지 못했습니다.' }); }
+    const names = Object.fromEntries(readHoldings(container).map((holding) => [holding.ticker, holding.name]));
+    try { const data = await authRequest('/api/portfolio/factor-exposure'); root.hidden = false; root.innerHTML = factorExposureHtml(data, names); } catch { root.hidden = false; root.innerHTML = factorExposureHtml({ available: false, reason: '팩터 노출 데이터를 불러오지 못했습니다.' }); }
   };
   const load = async () => {
     try {

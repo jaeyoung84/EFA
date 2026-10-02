@@ -98,6 +98,25 @@ const moverStamp = movers.moverStampText({ market_status: 'OPEN', as_of: '2026-1
 assert.ok(moverStamp.startsWith('장중') && moverStamp.includes('10:22 체결 기준'));
 assert.ok(movers.moverStampText({ market_status: 'CLOSE', stale: true }).includes('이전 값'));
 
+// 포트폴리오: 비중·팩터 표는 최대 20종목 + 표시 개수 안내
+const holdings = await load('views/portfolioHoldings.js');
+assert.equal(holdings.listedNote(20, 25), '종목 25개 중 상위 20개 표시 (최대 20개)');
+assert.equal(holdings.listedNote(8, 8), '종목 8개 전체 표시 (최대 20개)');
+const many = Array.from({ length: 25 }, (_, i) => ({ ticker: `T${i}`, name: `종목${i}`, value_krw: 100 - i, weight_pct: 4 - i * 0.1 }));
+const weights = holdings.weightListHtml([...many, { ticker: 'X', name: '시세없음', weight_pct: NaN }]);
+assert.equal((weights.match(/<li>/g) || []).length, 20);
+assert.ok(weights.includes('자산(현금 포함) 25개 중 상위 20개 표시') && weights.includes('시세 없음 1개 제외'));
+const factor = holdings.factorExposureHtml({ available: true, as_of: '2026-10-01', coverage_pct: 90, weighted_factors: {}, disclaimer: '',
+  positions: [{ ticker: 'A.KS', name: '에이', weight_pct: 100, factors: { return_20d: 0.1 } }],
+  excluded: [{ ticker: 'B.KQ', reason: '공통 기준일의 일봉이 없어 비교에서 제외했습니다.' }] }, { 'B.KQ': '<b>비</b>' });
+assert.ok(factor.includes('종목 2개 전체 표시') && factor.includes('팩터 데이터 없음') && factor.includes('&lt;b&gt;비'));
+const insight = holdings.portfolioInsights({ cash_krw: 0 }, { value_krw: 300, positions: [{ ticker: 'N', value_krw: undefined }, { ticker: 'S', value_krw: 100 }, { ticker: 'L', value_krw: 200 }] });
+assert.deepEqual(insight.positions.map((p) => p.ticker), ['L', 'S', 'N']);
+assert.equal(insight.max_position.ticker, 'L');
+const partial = holdings.weightBasis({ cash_krw: 100 }, { available: false, positions: [{ status: 'ok', value_krw: 300 }, { status: 'error' }] });
+assert.deepEqual([partial.partial, partial.priced, partial.excluded, partial.valuation.value_krw], [true, 1, 1, 400]);
+assert.equal(holdings.weightBasis({}, { available: true, priced_count: 3, value_krw: 9 }).partial, false);
+
 // 재무 차트: x축 라벨 간격(좁으면 건너뛰기)
 const finSource = (await readFile(new URL('../../app/frontend/js/utils/financialCharts.js', import.meta.url), 'utf8'));
 const fin = await import(`data:text/javascript;base64,${Buffer.from(`const window = {};\n${finSource}`).toString('base64')}`);
@@ -106,4 +125,4 @@ assert.equal(fin.labelStep(38, 45), 2);
 assert.equal(fin.labelStep(40, 10), 5);
 assert.equal(fin.labelStep(40, 0), 1);
 
-console.log('EFA design: greeting, briefing, queue, treemap, flow, system, bell, watchlist, notes, financial label spacing, market movers passed');
+console.log('EFA design: greeting, briefing, queue, treemap, flow, system, bell, watchlist, notes, financial label spacing, market movers, holdings lists passed');

@@ -68,3 +68,30 @@ async def test_endpoint_per_market_and_failure(client, monkeypatch):
     monkeypatch.setattr(mm, "_fetch", lambda market: (_ for _ in ()).throw(OSError("timeout")))
     failed = await client.get("/api/market/top-gainers", params={"market": "KOSPI"})
     assert failed.status_code == 503 and "데이터 없음" in failed.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_portfolio_valuation_fetches_up_to_20_quotes_10_at_a_time(monkeypatch):
+    import asyncio
+    from app.backend.routers import portfolio
+
+    running, peak, seen = [0], [0], []
+
+    async def cached(tickers):
+        return {}
+
+    async def bounded(ticker):
+        running[0] += 1
+        peak[0] = max(peak[0], running[0])
+        await asyncio.sleep(0.01)
+        running[0] -= 1
+        seen.append(ticker)
+        return {"status": "ok", "price": 100.0, "change_pct": 0.0, "quoted_at": "t", "source": "test"}
+
+    monkeypatch.setattr(portfolio, "_cached_daily_quotes", cached)
+    monkeypatch.setattr(portfolio, "_bounded_quote", bounded)
+    holdings = [{"ticker": f"{i:06d}.KS", "currency": "KRW"} for i in range(25)]
+    quotes = await portfolio._valuation_quotes(holdings)
+    assert len(seen) == 20 and peak[0] <= 10
+    skipped = [q for q in quotes.values() if q["status"] == "error"]
+    assert len(skipped) == 5 and "20종목까지" in skipped[0]["reason"]

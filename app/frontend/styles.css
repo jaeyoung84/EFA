@@ -3120,6 +3120,10 @@ body { background: var(--bg); }
   .dash-queue-list { flex: 1; min-height: 0; max-height: none; }
 }
 .dash-queue-price { color: #fff; }
+.holdings-partial { display: block; margin-top: 4px; color: var(--yellow, #f5b800); font-size: .74rem; }
+.holdings-list-note { margin: 10px 0 6px; color: var(--text-muted); font-size: .76rem; }
+.holdings-table-wrap tr.is-missing td { color: var(--text-muted); }
+.holdings-missing-reason { font-size: .76rem; }
 /* 금일 상승종목: 코스피·코스닥 전 종목 */
 .gainers-page.is-wide { max-width: none; width: 100%; }
 .gainers-markets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
