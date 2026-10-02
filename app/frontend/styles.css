@@ -3320,3 +3320,15 @@ body { background: var(--bg); }
 a.dash-news-title:hover { color: var(--primary); text-decoration: underline; }
 .dash-news-meta { display: block; margin-top: 3px; color: var(--text-muted); font-size: .7rem; }
 @media (max-width: 640px) { .dash-news-list > li { grid-template-columns: 1fr; gap: 4px; } }
+
+/* EINT-026: 추천 카드의 청산 기준(검증된 규칙을 가격·수치로) */
+.exit-plan { margin: 8px 0 6px; padding: 8px 10px; background: var(--surface-soft); border: 1px solid var(--border); border-radius: 8px; font-size: .74rem; }
+.exit-plan-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin: 0 0 4px; }
+.exit-plan-head b { color: var(--text); }
+.exit-plan-head small { color: var(--text-muted); font-size: .68rem; }
+.exit-plan ul { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.exit-plan li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; color: var(--text-muted); }
+.exit-plan li b { color: var(--text); font-variant-numeric: tabular-nums; }
+.exit-plan li i { font-style: normal; font-size: .7rem; }
+.exit-plan-basis { margin: 4px 0 0; color: var(--text-subtle, var(--text-muted)); font-size: .66rem; }
+.sb-pick .exit-plan { margin: 8px 10px; }

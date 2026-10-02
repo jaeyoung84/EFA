@@ -10,6 +10,7 @@ const STUBS = {
   attachStockSearch: '() => {}', PENDING_STOCK_KEY: "'k'",
   sectorSlot: '(s) => `<span data-sector-symbol="${s}"></span>`', fillSectorBadges: '() => {}',
   liveSlot: '(s, m) => `<span data-live-ticker="${s}.${m}"></span>`', startLiveQuotes: '() => {}', fetchLiveQuotes: 'async () => ({})',
+  exitPlanHtml: "(plan) => (plan ? '<div class=\"exit-plan\"></div>' : '')",
   riskSlot: "(s, o) => `<span data-risk-symbol=\"${s}\"${o && o.full ? ' data-risk-full' : ''}></span>`", fillRiskBadges: '() => {}',
   TIME_FORMAT: "{ timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }",
 };
@@ -173,6 +174,21 @@ assert.ok(risk.riskBadgeHtml({ ...riskItem, level: 'none', flags: [] }, { full: 
 assert.ok(risk.riskSlot('1', { full: true, hideClean: true }).includes('data-risk-hide-clean'));
 assert.ok(queue.includes('data-risk-symbol="010170" data-risk-full'));
 
+// 청산 기준(EINT-026): 가격·수치, 목표가·손익비 없음, escape
+const exitPlan = await load('utils/exitPlan.js');
+const v4Plan = exitPlan.exitPlanHtml({ item: 'pullback_v4', note: '먼저 닿는 조건으로 청산', basis: XSS, rules: [
+  { kind: 'stop', label: '손절(매수가 − 1.5×ATR)', price: 18800, pct: -6 },
+  { kind: 'trailing', label: '추적 청산(최고 종가 − 2×ATR)', price: 18400, pct: -8 },
+  { kind: 'time', label: '15거래일 보유 상한' }] });
+assert.ok(v4Plan.includes('≈ 18,800원') && v4Plan.includes('-6.0%') && v4Plan.includes('is-down') && v4Plan.includes('15거래일'));
+assert.ok(!v4Plan.includes('<img') && !v4Plan.includes('목표가') && !v4Plan.includes('손익비'));
+const swingPlan = exitPlan.exitPlanHtml({ item: 'swing', note: '가격 손절·보유기간 상한 없음(검증된 규칙)', rules: [
+  { kind: 'target_line', label: '볼린저 중간선(20일) 회복', price: 10450, pct: 4.5 },
+  { kind: 'indicator', label: '또는 RSI(14) ≥ 50', current: 27.3, threshold: 50 }] });
+assert.ok(swingPlan.includes('+4.5%') && swingPlan.includes('현재 27.3') && swingPlan.includes('가격 손절·보유기간 상한 없음'));
+assert.equal(exitPlan.exitPlanHtml(null), '');
+assert.ok(dash.queueHtml({ board: { ...board, items: [{ item: 'swing', picks: [{ ...board.items[0].picks[0], exit_plan: { rules: [] } }] }] }, loggedIn: true }).includes('exit-plan'));
+
 // 재무 차트: x축 라벨 간격(좁으면 건너뛰기)
 const finSource = (await readFile(new URL('../../app/frontend/js/utils/financialCharts.js', import.meta.url), 'utf8'));
 const fin = await import(`data:text/javascript;base64,${Buffer.from(`const window = {};\n${finSource}`).toString('base64')}`);
@@ -181,4 +197,4 @@ assert.equal(fin.labelStep(38, 45), 2);
 assert.equal(fin.labelStep(40, 10), 5);
 assert.equal(fin.labelStep(40, 0), 1);
 
-console.log('EFA design: greeting, briefing, queue, treemap, flow, system, bell, watchlist, notes, financial label spacing, market movers, holdings lists, live quotes, risk badges, holdings news passed');
+console.log('EFA design: greeting, briefing, queue, treemap, flow, system, bell, watchlist, notes, financial label spacing, market movers, holdings lists, live quotes, risk badges, holdings news, exit plan passed');

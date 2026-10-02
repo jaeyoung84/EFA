@@ -30,9 +30,12 @@ def test_board_items_group_by_item_and_keep_published_rank():
         {"signal_id": "b", "action": "entry", "selection_outcome": "selected", "signal_type": "pullback_v4",
          "selection_rank": 1, "symbol": "005930", "name": "A", "reasons": []},
         {"signal_id": "c", "action": "entry", "selection_outcome": "selected", "signal_type": "swing",
-         "selection_rank": 1, "symbol": "005930", "name": "A", "reasons": []},
+         "selection_rank": 1, "symbol": "005930", "name": "A", "reasons": [],
+         "features": {"close": 10000, "bb_middle20": 10450, "rsi14": 27.3}},
     ]}
     items = {row["item"]: row for row in board.board_items(payload)}
+    assert items["swing"]["picks"][0]["exit_plan"]["rules"][0]["price"] == 10450.0      # 게시된 features로 계산
+    assert items["pullback_v4"]["picks"][0]["exit_plan"] is None                         # features 없으면 표시 안 함
     assert [p["symbol"] for p in items["pullback_v4"]["picks"]] == ["005930", "000660"]
     assert [p["symbol"] for p in items["swing"]["picks"]] == ["005930"]  # same symbol, two items
     assert items["long_term"]["picks"] == []
@@ -152,3 +155,23 @@ async def test_recommendation_outcomes_api_requires_login(client, make_user, mon
     headers = await make_user("outcomes@example.com")
     response = await client.get("/api/kqs/recommendation-outcomes", headers=headers)
     assert response.status_code == 200 and response.json()["available"] is False
+
+
+def test_exit_plan_follows_each_items_tested_rules():
+    """EINT-026: 검증된 청산 규칙만 가격·수치로. 평균회귀는 가격 손절 없음(D-3·D-4), 목표가·손익비는 만들지 않는다."""
+    from app.backend.kqs_strategy_board import exit_plan
+    swing = exit_plan("swing", {"close": 10000, "bb_middle20": 10450, "rsi14": 27.3})
+    assert swing["rules"][0] == {"kind": "target_line", "label": "볼린저 중간선(20일) 회복", "price": 10450.0, "pct": 4.5}
+    assert swing["rules"][1]["current"] == 27.3 and swing["rules"][1]["threshold"] == 50
+    assert "손절" not in str(swing["rules"]) and "가격 손절·보유기간 상한 없음" in swing["note"]
+    long_term = exit_plan("long_term", {"close": 50000, "rsi14": 31.2})
+    assert [r["kind"] for r in long_term["rules"]] == ["indicator"]
+    v4 = exit_plan("pullback_v4", {"close": 20000, "atr": 800})
+    stop, trail = v4["rules"][0], v4["rules"][1]
+    assert (stop["price"], stop["pct"]) == (18800.0, -6.0)            # 20000 − 1.5×800
+    assert (trail["price"], trail["pct"]) == (18400.0, -8.0)          # 20000 − 2×800
+    assert [r["kind"] for r in v4["rules"]] == ["stop", "trailing", "time", "market"]
+    for plan in (swing, long_term, v4):
+        assert not any(word in str(plan) for word in ("목표가", "손익비", "R/R"))
+    assert exit_plan("swing", {"close": 10000}) is None and exit_plan("pullback_v4", {"close": 0, "atr": 5}) is None
+    assert exit_plan("unknown", {"close": 1}) is None and exit_plan("long_term", None) is None

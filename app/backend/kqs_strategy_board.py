@@ -41,6 +41,57 @@ EXIT_REASON_LABELS = {
 }
 
 
+def _num(value) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number == number else None   # NaN 제외
+
+
+def exit_plan(item: str, features: dict | None) -> dict | None:
+    """EINT-026: 각 아이템의 '검증된 청산 규칙'을 추천 시점 값으로 가격·수치화한다(참고 표시).
+
+    규칙을 새로 만들지 않는다. 평균회귀 2종은 연구 결정대로 가격 손절·보유기간 상한이 없다(D-3·D-4, 청산 D-2).
+    목표가·손익비는 어느 아이템에도 규칙이 없어 만들지 않는다. 엔진이 게시한 features만 쓰고, 없으면 None.
+    """
+    features = features or {}
+    close, rsi = _num(features.get("close")), _num(features.get("rsi14", features.get("rsi")))
+    if not close or close <= 0:
+        return None
+    pct = lambda price: round((price / close - 1) * 100, 2)  # noqa: E731
+    no_stop = "가격 손절·보유기간 상한 없음(검증된 규칙)"
+    if item == "swing":
+        middle = _num(features.get("bb_middle20"))
+        if middle is None or rsi is None:
+            return None
+        return {"item": item, "rules": [
+            {"kind": "target_line", "label": "볼린저 중간선(20일) 회복", "price": round(middle, 2), "pct": pct(middle)},
+            {"kind": "indicator", "label": "또는 RSI(14) ≥ 50", "current": round(rsi, 2), "threshold": 50},
+        ], "note": no_stop, "basis": "기준일 종가 기준. 중간선은 매일 바뀝니다."}
+    if item == "long_term":
+        if rsi is None:
+            return None
+        return {"item": item, "rules": [
+            {"kind": "indicator", "label": "RSI(14) ≥ 50", "current": round(rsi, 2), "threshold": 50},
+        ], "note": no_stop, "basis": "가격으로 바꿀 수 있는 공개 값이 없어 RSI 기준만 표시합니다."}
+    if item == "pullback_v4":
+        atr = _num(features.get("atr"))
+        if atr is None or atr <= 0:
+            return None
+        stop = close - V4_ATR_MULTIPLE * atr
+        trail = close - V4_TRAILING_ATR_MULTIPLE * atr
+        return {"item": item, "rules": [
+            {"kind": "stop", "label": f"손절(매수가 − {V4_ATR_MULTIPLE:g}×ATR)", "price": round(stop, 2), "pct": pct(stop)},
+            {"kind": "trailing", "label": f"추적 청산(최고 종가 − {V4_TRAILING_ATR_MULTIPLE:g}×ATR)", "price": round(trail, 2),
+             "pct": pct(trail)},
+            {"kind": "time", "label": f"{V4_HOLDING_LIMIT}거래일 보유 상한"},
+            {"kind": "market", "label": "시장 ETF가 50일선 이하이면 다음 날 시가"},
+        ], "atr": round(atr, 2), "note": "먼저 닿는 조건으로 청산",
+            "basis": "기준일 종가로 계산한 근사치입니다. 실제 손절가는 매수가 기준이고, 추적 기준선은 최고 종가가 오르면 함께 오릅니다."}
+    return None
+
+
 def board_items(payload: dict) -> list[dict]:
     """Group selected entry signals by item, keeping the published per-item rank."""
     picks = {item: [] for item in ITEMS}
@@ -57,6 +108,7 @@ def board_items(payload: dict) -> list[dict]:
             "reason_labels": [reason.get("label", "") for reason in signal.get("reasons", [])],
             "exit_reference": signal.get("exit_reference"), "selection_note": signal.get("selection_note"),
             "close": (signal.get("features") or {}).get("close"),
+            "exit_plan": exit_plan(item, signal.get("features")),
         })
     v2 = payload.get("schema_version") == "kqs-recommendations/v2"
     out = []
