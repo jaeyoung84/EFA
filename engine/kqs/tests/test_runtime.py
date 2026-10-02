@@ -87,7 +87,7 @@ class MigrationTests(unittest.TestCase):
         self.assertFalse(any(name.startswith("app.backend") for name in sys.modules))
 
     def test_approved_runtime_defaults_not_research_default(self):
-        self.assertEqual(APPROVED_CONFIG.market_filter_window, 200)
+        self.assertEqual(APPROVED_CONFIG.market_filter_window, 0)  # EINT-023: gate off by user decision
         self.assertTrue(APPROVED_CONFIG.market_filter_inverted)
         self.assertEqual(dict(APPROVED_CONFIG.market_cap_tiers), {"KOSPI": 200, "KOSDAQ": 150})
 
@@ -213,12 +213,18 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(result["status"], "no_recommendations")
         self.assertEqual({row["state"] for row in result["audit"]}, {"no_signal"})
 
-    def test_closed_market_gate_records_real_blocked_signal(self):
+    def test_strong_market_no_longer_blocks_and_is_shown_as_reference(self):
+        # EINT-023: a benchmark far above its 200-day average used to block every entry (regime_gate_blocked).
+        baseline = self.generate()
         for market, series in self.benchmarks.items():
             self.benchmarks[market] = 400.0 - series
         result = self.generate()
-        self.assertEqual(result["recommendations"], [])
-        self.assertEqual({row["selection_outcome"] for row in result["audit"]}, {"regime_gate_blocked"})
+        self.assertNotIn("regime_gate_blocked", {row["selection_outcome"] for row in result["audit"]})
+        self.assertEqual([r["symbol"] for r in result["recommendations"]], [r["symbol"] for r in baseline["recommendations"]])
+        self.assertTrue(result["recommendations"])
+        for row in result["recommendations"]:
+            self.assertIn("매수 조건 아님", row["reasons"][-1])
+            self.assertIn("benchmark_gap_pct", row["features"])
 
     def test_liquidity_rejection_is_retained_in_audit(self):
         self.history["TradingValue"] = 4e9

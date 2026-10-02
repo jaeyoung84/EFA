@@ -15,13 +15,13 @@ ITEMS = ("swing", "long_term", "pullback_v4")
 ITEM_META = {
     "swing": {
         "label": "Bollinger-RSI", "title": "과매도 평균회귀",
-        "summary": "볼린저 하단 이탈 + RSI(14) ≤ 30. 시장 ETF가 200일선 아래일 때만, 시총 상위·거래대금 50억 이상.",
+        "summary": "볼린저 하단 이탈 + RSI(14) ≤ 30. 시총 상위·거래대금 50억 이상. 시장 조건 없음(시장 ETF의 200일선 대비 위치는 근거에 참고로 표시).",
         "exit": "종가가 볼린저 중간선 이상 또는 RSI ≥ 50",
         "order": "시가총액 순위 순",
     },
     "long_term": {
         "label": "RSI-OBV", "title": "RSI 회복·OBV 상승 장기",
-        "summary": "RSI(14)가 30을 상향 돌파 + OBV가 9일 평균 위·당일 증가. 시장 ETF 200일선 아래일 때만.",
+        "summary": "RSI(14)가 30을 상향 돌파 + OBV가 9일 평균 위·당일 증가. 시장 조건 없음(시장 상태는 근거에 참고로 표시).",
         "exit": "RSI ≥ 50",
         "order": "시가총액 순위 순",
     },

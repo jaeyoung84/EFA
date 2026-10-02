@@ -13,9 +13,9 @@ from .contract import (
 
 REASON_CODES = {
     "swing": [("bollinger_lower", "볼린저 하단 조건"), ("rsi_oversold", "RSI 과매도"),
-              ("market_cap_proxy", "시총 proxy 범위"), ("liquidity20", "20일 거래대금"), ("bearish_regime200", "시장 레짐")],
+              ("market_cap_proxy", "시총 proxy 범위"), ("liquidity20", "20일 거래대금"), ("market_context200", "시장 상태(참고)")],
     "long_term": [("rsi_recovery", "RSI 회복"), ("obv_confirmation", "OBV 상승 확인"),
-                  ("market_cap_proxy", "시총 proxy 범위"), ("liquidity20", "20일 거래대금"), ("bearish_regime200", "시장 레짐")],
+                  ("market_cap_proxy", "시총 proxy 범위"), ("liquidity20", "20일 거래대금"), ("market_context200", "시장 상태(참고)")],
     "pullback_v4": [("weekly_trend_ema", "상승 추세"), ("ema10_pullback", "EMA10 눌림 회복"),
                     ("momentum_band", "RSI·ADX·MACD 조건"), ("liquidity20", "20일 거래대금"),
                     ("bullish_regime50", "시장 50일선 위")],

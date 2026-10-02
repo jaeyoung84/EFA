@@ -27,8 +27,11 @@ from kqs_runtime import pullback_v4 as v4
 from kqs_runtime.inputs import COLUMNS, normalize_symbol, validated_inputs
 from kqs_runtime.provenance import code_identity, digest
 
-# D-19: the research dataclass intentionally defaults to filter OFF; runtime must be explicit.
-APPROVED_CONFIG = ReversionScannerConfig(market_filter_window=200, market_filter_inverted=True)
+# EINT-023 (user decision, 2026-10-02): the D-19 market regime gate (W=200, bearish) is turned OFF for the
+# live reversion items. The user judges the market and records the decisions for learning; the market state
+# stays visible as a reference reason (benchmark vs its 200-day average), not as an entry filter.
+# The D-33 forward observation under the gate ends at the 2026-10-01 session; a gate-off stream starts here.
+APPROVED_CONFIG = ReversionScannerConfig(market_filter_window=0, market_filter_inverted=True)
 ITEMS = ("swing", "long_term", "pullback_v4")
 MAX_PICKS_PER_ITEM = 5
 EXIT_SERIES_SESSIONS = 40
@@ -100,13 +103,16 @@ def input_fingerprint(data: pd.DataFrame, benchmarks: dict[str, pd.Series]) -> s
 
 def explain(row: dict, prices: pd.DataFrame, benchmark: pd.Series) -> dict:
     market_sma = float(benchmark.tail(200).mean())
+    market_gap = (float(benchmark.iloc[-1]) / market_sma - 1) * 100
     features = {"close": float(prices["Close"].iloc[-1]),
                 "benchmark_close": float(benchmark.iloc[-1]), "benchmark_sma200": market_sma,
+                "benchmark_gap_pct": round(market_gap, 2),
                 "market_cap_rank": int(row["market_cap_rank"]),
                 "average_trading_value20": float(row["average_trading_value"])}
     common = [f"{row['market']} 시가총액 순위 {features['market_cap_rank']}위: 선정 범위 통과",
               f"20거래일 평균 거래대금 {features['average_trading_value20']:,.0f}원: 50억원 이상",
-              f"시장 ETF 종가 {features['benchmark_close']:,.2f} < 200일 평균 {market_sma:,.2f}"]
+              f"참고: 시장 ETF 종가 {features['benchmark_close']:,.2f} · 200일 평균 {market_sma:,.2f} "
+              f"({market_gap:+.1f}%, {'위' if market_gap >= 0 else '아래'}) — 매수 조건 아님, 시장 판단용"]
     if row["signal_type"] == "swing":
         signals = bollinger_rsi_signals(prices["Close"])
         latest = signals.iloc[-1]
