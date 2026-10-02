@@ -36,7 +36,8 @@ async def test_privacy_page_is_public_and_covers_required_sections(client):
     assert response.status_code == 200
     page = response.text
     for phrase in ("개인정보처리방침", "네이버 회원 고유 식별자", "이용 목적", "보관 기간", "제3자 제공",
-                   "처리 위탁", "Cloudflare", "회원 탈퇴", "연결된 서비스 관리", "시행일"):
+                   "처리 위탁", "Cloudflare", "회원 탈퇴", "연결된 서비스 관리", "시행일",
+                   "서비스 성격과 제공하지 않는 기능", "증권계좌를 연결하지 않으며", "투자일임"):
         assert phrase in page, phrase
 
 
@@ -46,7 +47,10 @@ def test_login_uses_the_official_naver_button_and_links_the_policy():
     assert asset.is_file() and asset.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
     assert 'src="/assets/naver/NAVER_login_Dark_KR_green_wide_H56.png" alt="네이버 로그인"' in auth_js
     assert 'href="/privacy.html"' in auth_js and "auth-naver-mark" not in auth_js
-    assert 'href="/privacy.html"' in (ROOT / "app/frontend/index.html").read_text()
+    index_html = (ROOT / "app/frontend/index.html").read_text()
+    assert 'href="/privacy.html"' in index_html
+    assert "개인 포트폴리오 관리·시장 데이터 확인 서비스" in index_html
+    assert "증권계좌 연동, 주문 전송·체결" in auth_js
 
 
 @pytest.mark.asyncio

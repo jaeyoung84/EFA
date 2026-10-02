@@ -267,6 +267,7 @@ img { max-width: 100%; }
 .auth-naver-note a { color:var(--primary-light); text-decoration:underline; }
 .auth-withdraw-submit { background:var(--red); color:#fff; }
 .auth-naver-note { display:flex; align-items:flex-start; gap:7px; margin:12px 0 0; color:var(--text-muted); font-size:.68rem; line-height:1.5; }.auth-naver-note i { margin-top:2px; color:#03c75a; }
+.auth-service-boundary { display:flex; align-items:flex-start; gap:7px; margin:0 0 14px; padding:10px; color:var(--text-muted); background:var(--surface-soft); border:1px solid var(--border); border-radius:8px; font-size:.7rem; line-height:1.55; }.auth-service-boundary i { margin-top:2px; color:var(--primary); }
 .auth-provider { display:block; width:max-content; margin-top:9px; padding:4px 8px; color:#6ee7a2; background:rgba(3,199,90,.12); border:1px solid rgba(3,199,90,.28); border-radius:999px; font-size:.65rem; font-weight:800; }
 .auth-legacy { margin-top:16px; padding-top:14px; border-top:1px solid var(--border); }.auth-legacy summary { color:var(--text-muted); cursor:pointer; font-size:.7rem; text-align:center; }.auth-legacy[open] summary { margin-bottom:13px; color:var(--text); }.auth-legacy .auth-submit { margin-top:2px; }
 
@@ -495,6 +496,9 @@ body.theme-terminal .content-wrap {
   display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px;
 }
 .footer-logo { font-size: .95rem; font-weight: 800; letter-spacing: .07em; color: #ffffff; }
+.footer-boundary { flex: 1 1 440px; line-height: 1.45; }
+.service-boundary { display: flex; align-items: flex-start; gap: 10px; max-width: 1460px; margin: 10px auto 0; padding: 11px 20px; color: var(--text-muted); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; font-size: .76rem; line-height: 1.55; }
+.service-boundary > i { margin-top: 2px; color: var(--primary); }.service-boundary strong { color: var(--text); }.service-boundary p { display: inline; margin: 0 0 0 4px; }.service-boundary a { flex: 0 0 auto; color: var(--primary-light); white-space: nowrap; text-decoration: underline; }
 .footer-line { font-size: .8rem; color: #94a3b8; }
 
 /* ═══════════════════════════════════════════════════════

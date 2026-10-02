@@ -93,6 +93,7 @@ export async function initAuth() {
           <div class="auth-brand-mark" aria-hidden="true"><i class="fa-solid fa-chart-line"></i></div>
           <h2 id="auth-modal-title">로그인</h2>
           <p>네이버 계정으로 가입·로그인하면 전략 추천과 내 매매 기록·연구 화면을 이용할 수 있습니다.</p>
+          <p class="auth-service-boundary"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> EFA는 개인 포트폴리오·리서치 기록과 공개 시장 데이터 확인을 위한 서비스입니다. 네이버 로그인은 회원별 기록을 저장·조회하기 위한 본인 식별에만 사용합니다. 증권계좌 연동, 주문 전송·체결, 투자일임·자산운용은 제공하지 않습니다.</p>
           <a id="naver-login" class="auth-naver-login" href="/api/auth/naver/start"><img src="/assets/naver/NAVER_login_Dark_KR_green_wide_H56.png" alt="네이버 로그인" width="368" height="56"></a>
           <p class="auth-naver-note"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> 네이버 비밀번호는 EFA에 전달되지 않습니다. 받는 정보(이름·이메일)와 이용 목적은 <a href="/privacy.html" target="_blank" rel="noopener">개인정보처리방침</a>에 있습니다.</p>
           <p id="auth-error" class="auth-error" aria-live="polite"></p>
