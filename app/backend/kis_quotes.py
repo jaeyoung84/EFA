@@ -252,7 +252,8 @@ class KisQuotes:
             today = datetime.now(KST).date().isoformat()
             received = self._clock()
             for tick in parse_ws_frame(text, today):
-                self.ticks[tick.pop("code")] = {**tick, "received": received}
+                code = tick.pop("code")
+                self.ticks[code] = {**tick, "received": received}
             return None
         try:
             data = json.loads(text)

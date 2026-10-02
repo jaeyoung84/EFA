@@ -184,7 +184,7 @@ async def test_stream_session_subscribes_recent_codes_and_records_ticks(monkeypa
     registered = [(m["body"]["input"]["tr_key"], m["header"]["tr_type"]) for m in socket.sent]
     assert sorted(registered) == [("000660", "1"), ("005930", "1")]
     assert all(m["header"]["approval_key"] == "approval-1" and m["body"]["input"]["tr_id"] == "H0STCNT0" for m in socket.sent)
-    assert service.ticks["000660"]["price"] == 181000.0
+    assert service.ticks["000660"]["price"] == 181000.0 and "code" not in service.ticks["000660"]
     assert service.connected is False and service.subscribed == set()
 
 
