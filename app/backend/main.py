@@ -39,11 +39,6 @@ try:
 except ImportError:
     from db import get_db
 
-
-try:
-    from .dart_market_activity import ensure_market_activity_indexes, latest_market_activity
-except ImportError:
-    from dart_market_activity import ensure_market_activity_indexes, latest_market_activity  # type: ignore
 try:
     from .sector_rotation import read_sector_rotation
     from .stock_sector import sector_status
@@ -220,10 +215,6 @@ async def _start_background_scheduler() -> None:
         # 시세 DB가 잠시 준비되지 않아도 기존 화면과 스케줄러 기동은 유지한다.
         print(f"Market-data indexes not ready during startup: {exc}")
     start_scheduler()
-    try:
-        await ensure_market_activity_indexes()
-    except Exception as exc:
-        print(f"DART market-activity indexes not ready during startup: {exc}")
     kis_service().start()   # 한투 키가 없으면 아무것도 하지 않는다
 
 
@@ -496,12 +487,6 @@ def dart_company_search(req: DartCompanySearchRequest) -> dict[str, object]:
 
 
 @app.get("/api/market/sector-rotation")
-
-@app.get("/api/dart/market-activity")
-async def dart_market_activity() -> dict:
-    """Latest scheduled, read-only DART treasury-stock and ownership snapshot."""
-    return await latest_market_activity()
-
 def market_sector_rotation() -> JSONResponse:
     """섹터 순환(RRG) 참고 자료: 엔진이 매 거래일 계산한 섹터 ETF의 상대강도·모멘텀과 최근 이동 궤적."""
     return JSONResponse(content=read_sector_rotation(), headers={"Cache-Control": "no-cache"})
