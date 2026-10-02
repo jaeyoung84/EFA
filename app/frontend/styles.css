@@ -3288,3 +3288,6 @@ body { background: var(--bg); }
 .risk-badge.is-full li.is-caution b { color: #f5b800; }
 .risk-badge.is-full a { color: var(--text); text-decoration: underline; }
 .risk-badge.is-full p { margin: 4px 0 0; color: var(--text-muted); font-size: .64rem; font-weight: 400; }
+
+/* 거시지표 종목 선택: 마우스를 올리면 테두리 강조(인라인 onmouseover 대체, CSP) */
+.macro-ticker-option:hover { border-color: #3b82f6 !important; }

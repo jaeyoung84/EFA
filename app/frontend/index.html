@@ -11,22 +11,22 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
-  <link rel="stylesheet" href="styles.css?v=41" />
+  <link rel="stylesheet" href="styles.css?v=42" />
 </head>
 <body>
 
   <!-- ── 모바일 오버레이 ── -->
-  <div id="overlay" class="overlay" onclick="closeMainnav()"></div>
+  <div id="overlay" class="overlay" data-action="close-mainnav"></div>
 
   <!-- ═══════════════════════════════════════════
        HEADER — 로고 · 메인 메뉴 7개 · 종목 검색 · 알림 · 설정 · 로그인
        화면 목록은 js/app.js의 routes·NAV_SECTIONS, pages/partials/sidebar-nav.html과 같아야 한다.
   ═══════════════════════════════════════════ -->
   <header class="topbar efa-header">
-    <button id="mainnav-toggle" class="topbar-toggle mainnav-toggle-mobile" type="button" onclick="toggleMainnav()"
+    <button id="mainnav-toggle" class="topbar-toggle mainnav-toggle-mobile" type="button" data-action="toggle-mainnav"
             aria-label="메뉴 열기" aria-controls="mainnav" aria-expanded="false"><i class="fa-solid fa-bars"></i></button>
 
-    <button class="brand" type="button" onclick="navigate('home')" aria-label="EFA 대시보드로 이동">
+    <button class="brand" type="button" data-nav="home" aria-label="EFA 대시보드로 이동">
       <span class="brand-mark"><img src="/assets/brand/efa-symbol.png" alt="" width="46" height="36"></span>
       <span class="brand-text">
         <span class="brand-name">EFA</span>

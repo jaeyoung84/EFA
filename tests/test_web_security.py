@@ -49,7 +49,7 @@ def test_nginx_takes_client_ip_only_from_cloudflare_and_proxies_locally():
     ranges = re.findall(r"^set_real_ip_from (\S+);", conf, re.M)
     assert len(ranges) >= 15 and "0.0.0.0/0" not in ranges and "::/0" not in ranges
     assert "real_ip_header CF-Connecting-IP;" in conf
-    assert "proxy_pass http://127.0.0.1:8801;" in conf
+    assert conf.count("proxy_pass http://127.0.0.1:8801;") == 4
     assert "proxy_set_header X-Forwarded-For $remote_addr;" in conf  # 클라이언트가 보낸 XFF는 버린다
     assert "return 301 https://efa-quant.com$request_uri;" in conf  # http·www는 기본 주소로
     www_block = conf[conf.index("server_name www.efa-quant.com;"):]
@@ -67,3 +67,39 @@ def test_backend_container_has_a_memory_cap():
     compose = (ROOT / "docker-compose.prod.yml").read_text()
     backend = compose[compose.index("  backend:"):compose.index("  mongo:")]
     assert re.search(r"^\s*mem_limit: 1g$", backend, re.M) and "restart: unless-stopped" in backend
+
+
+@pytest.mark.asyncio
+async def test_content_security_policy_blocks_inline_scripts(client):
+    csp = (await client.get("/")).headers["content-security-policy"]
+    directives = dict((part.strip().split(" ", 1) + [""])[:2] for part in csp.split(";"))
+    assert directives["script-src"] == "'self' https://cdn.jsdelivr.net/npm/apexcharts@3.54.0/"
+    assert "unsafe-inline" not in directives["script-src"] and "unsafe-eval" not in csp
+    assert directives["frame-ancestors"] == "'none'" and directives["object-src"] == "'none'"
+    assert directives["connect-src"] == "'self'"
+    assert "camera=()" in (await client.get("/api/health")).headers["permissions-policy"]
+    assert "content-security-policy" not in (await client.get("/docs")).headers
+
+
+def test_frontend_has_no_inline_handlers_or_scripts():
+    root = ROOT / "app/frontend"
+    for path in [root / "index.html", root / "privacy.html", *sorted((root / "js").rglob("*.js"))]:
+        text = path.read_text()
+        assert not re.search(r"\son(click|load|error|change|submit|input|mouseover)\s*=", text), path
+        assert "javascript:" not in text, path
+        if path.suffix == ".html":
+            assert not re.search(r"<script(?![^>]*\bsrc=)[^>]*>", text), path
+
+
+def test_nginx_rate_limits_login_kis_and_api():
+    conf = (ROOT / "infra/nginx/efa-quant.conf").read_text()
+    assert "limit_req_zone $binary_remote_addr zone=efa_login:10m rate=10r/m;" in conf
+    assert "limit_req_zone $binary_remote_addr zone=efa_kis:10m rate=3r/s;" in conf
+    assert "limit_req_zone $binary_remote_addr zone=efa_api:10m rate=20r/s;" in conf
+    assert "limit_req_status 429;" in conf
+    login = conf[conf.index("location ~ ^/api/auth/(login|signup|naver/)"):]
+    assert login.index("limit_req zone=efa_login") < login.index("}")
+    kis = conf[conf.index("location ~ ^/api/(market/live-quotes|market/stock-risk|portfolio/valuation)$"):]
+    assert kis.index("limit_req zone=efa_kis") < kis.index("}")
+    assert re.search(r"location /api/ \{\s*limit_req zone=efa_api burst=120 nodelay;", conf)
+    assert re.search(r"location / \{\s*proxy_pass http://127.0.0.1:8801;\s*\}", conf)   # 화면 파일은 제한 없음

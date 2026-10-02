@@ -115,6 +115,15 @@ function navigate(requested) {
 
 window.navigate = navigate;
 
+// 인라인 onclick 대신 data-nav·data-action으로 연결한다(CSP가 인라인 스크립트를 막기 때문).
+document.addEventListener('click', (event) => {
+  const nav = event.target.closest('[data-nav]');
+  if (nav) { event.preventDefault(); navigate(nav.dataset.nav); return; }
+  const action = event.target.closest('[data-action]')?.dataset.action;
+  if (action === 'toggle-mainnav') window.toggleMainnav?.();
+  if (action === 'close-mainnav') window.closeMainnav?.();
+});
+
 // 개별 뷰마다 저장 코드를 반복하지 않고 모든 입력·선택 변경을 자동 보관한다.
 app.addEventListener('input', (event) => saveFormState(currentView, app));
 app.addEventListener('change', (event) => saveFormState(currentView, app));

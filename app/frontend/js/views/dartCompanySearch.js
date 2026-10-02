@@ -72,7 +72,7 @@ export function dartCompanySearchView(container) {
           <strong>재무 데이터 조회 실패</strong>
           <p style="margin:4px 0 0;">${escapeHtml(err.message)}</p>
           <p style="margin:4px 0 0;color:var(--text-muted);">Yahoo Finance 조회 가능 티커인지 확인하거나 직접
-            <a href="#" onclick="navigate('company-financial');return false;"
+            <a href="#" data-nav="company-financial"
                style="color:var(--primary);text-decoration:underline;">기업 파이낸셜 분석</a> 메뉴에서 입력해 보세요.</p>
         </div>`;
     } finally {
@@ -176,7 +176,7 @@ export function dartCompanySearchView(container) {
           const panel   = result.querySelector(`.fin-panel[data-corp="${corp}"]`);
           if (!ticker || ticker === 'null') {
             panel.innerHTML = `<p style="color:#b45309;font-size:0.82rem;">Yahoo 티커를 확인할 수 없습니다. 직접
-              <a href="#" onclick="navigate('company-financial');return false;"
+              <a href="#" data-nav="company-financial"
                  style="color:var(--primary);text-decoration:underline;">기업 파이낸셜 분석</a> 메뉴에서 종목코드.KS 로 입력해 보세요.</p>`;
             return;
           }

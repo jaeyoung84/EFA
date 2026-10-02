@@ -57,12 +57,10 @@ export function macroRealtimeView(container) {
         <label class="param-label" style="margin-bottom:8px; display:block;">조회 종목 선택 (복수 선택 가능)</label>
         <div id="ticker-grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:8px;">
           ${TICKER_OPTIONS.map(t => `
-            <label style="display:flex; align-items:center; gap:8px; padding:8px 12px;
+            <label class="macro-ticker-option" style="display:flex; align-items:center; gap:8px; padding:8px 12px;
                    background:#0f172a; border-radius:8px; cursor:pointer;
                    border:1px solid #334155; font-size:0.8rem; color:#94a3b8;
-                   transition:border-color 0.15s;"
-                   onmouseover="this.style.borderColor='#3b82f6'"
-                   onmouseout="this.style.borderColor='#334155'">
+                   transition:border-color 0.15s;">
               <input type="checkbox" value="${t.value}"
                      ${DEFAULT_TICKERS.includes(t.value) ? 'checked' : ''}
                      style="accent-color:#3b82f6; width:14px; height:14px;"/>

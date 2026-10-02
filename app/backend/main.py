@@ -139,18 +139,43 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 화면이 실제로 쓰는 출처만 허용한다: 자체 JS·API, ApexCharts(jsDelivr 고정 버전), 글꼴·아이콘 CSS(jsDelivr·Google·cdnjs).
+# 인라인 스크립트는 허용하지 않는다(XSS로 로그인 토큰을 빼 가는 것을 막는다). 인라인 style 속성은 화면 전반에 쓰여 허용한다.
+# 응답이 자체 CSP를 정하면(네이버 로그인 결과 페이지의 nonce) 그것을 그대로 둔다.
+CONTENT_SECURITY_POLICY = "; ".join([
+    "default-src 'self'",
+    "script-src 'self' https://cdn.jsdelivr.net/npm/apexcharts@3.54.0/",
+    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net/gh/orioncactus/pretendard/ https://fonts.googleapis.com "
+    "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/",
+    "font-src 'self' data: https://cdn.jsdelivr.net/gh/orioncactus/pretendard/ https://fonts.gstatic.com "
+    "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/",
+    "img-src 'self' data: blob:",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    "upgrade-insecure-requests",
+])
 SECURITY_HEADERS = {
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+    "Content-Security-Policy": CONTENT_SECURITY_POLICY,
 }
+# FastAPI 기본 API 문서 화면은 인라인 스크립트와 CDN을 써서 CSP에서 뺀다(로그인 토큰을 다루지 않는다).
+CSP_EXEMPT_PREFIXES = ("/docs", "/redoc")
 
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
+    exempt = request.url.path.startswith(CSP_EXEMPT_PREFIXES)
     for name, value in SECURITY_HEADERS.items():
+        if exempt and name == "Content-Security-Policy":
+            continue
         response.headers.setdefault(name, value)
     return response
 
