@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
-  <link rel="stylesheet" href="styles.css?v=43" />
+  <link rel="stylesheet" href="styles.css?v=44" />
 </head>
 <body>
 
@@ -118,11 +118,6 @@
     <span class="ticker-item" data-market-label="USD/KRW"><span class="ticker-label">USD/KRW</span><b>-</b><em></em></span>
   </div>
 
-  <section class="service-boundary" aria-label="서비스 안내">
-    <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
-    <div><strong>개인 포트폴리오 관리·시장 데이터 확인 서비스</strong><p>EFA는 공개 시장 데이터 확인과 개인 리서치·기록을 위한 서비스입니다. 증권계좌 연동, 주문 전송·체결, 투자일임·자산운용은 제공하지 않으며 투자 판단과 거래 책임은 사용자에게 있습니다.</p></div>
-    <a href="/privacy.html">서비스·개인정보 안내</a>
-  </section>
 
   <!-- ═══════════════════════════════════════════
        LAYOUT SHELL
@@ -131,6 +126,14 @@
 
     <!-- ── MAIN CONTENT ── -->
     <div class="content-wrap">
+      <!-- 서비스 성격 안내: 본문과 함께 스크롤된다. '확인'을 누르면 이 브라우저에서는 다시 보이지 않는다(app.js).
+           같은 내용은 하단 표기와 개인정보처리방침에 항상 남는다. 확인 여부를 읽기 전 깜박임이 없도록 처음엔 숨겨 둔다. -->
+      <section class="service-boundary" data-service-notice aria-label="서비스 안내" hidden>
+        <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+        <div class="service-boundary-text"><strong>개인 포트폴리오 관리·시장 데이터 확인 서비스</strong><p class="service-boundary-full">EFA는 공개 시장 데이터 확인과 개인 리서치·기록을 위한 서비스입니다. 증권계좌 연동, 주문 전송·체결, 투자일임·자산운용은 제공하지 않으며 투자 판단과 거래 책임은 사용자에게 있습니다.</p><p class="service-boundary-short">개인 투자 기록 서비스 · 주문·체결 없음</p></div>
+        <a href="/privacy.html"><span class="service-boundary-full">서비스·개인정보 안내</span><span class="service-boundary-short">자세히</span></a>
+        <button type="button" class="service-boundary-ok" data-action="dismiss-service-notice">확인</button>
+      </section>
       <main class="content-main">
         <section id="app" class="app-surface"></section>
       </main>

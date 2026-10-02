@@ -74,3 +74,15 @@ def test_logout_and_withdrawal_redraw_the_page():
     assert "window.location.reload()" in logout[:400]  # 이름·개인 데이터가 화면에 남지 않게
     withdraw = auth_js[auth_js.index("탈퇴가 완료됐습니다") - 200:auth_js.index("탈퇴가 완료됐습니다")]
     assert "window.location.reload()" in withdraw
+
+
+def test_service_notice_scrolls_with_content_and_can_be_dismissed():
+    """모바일에서 고정 안내가 화면을 가리던 문제(2026-10-03): 본문 안에서 함께 스크롤되고, 확인하면 숨긴다."""
+    index_html = (ROOT / "app/frontend/index.html").read_text()
+    wrap = index_html.index('<div class="content-wrap">')
+    notice = index_html.index("data-service-notice")
+    assert wrap < notice < index_html.index('<main class="content-main">')          # 스크롤 영역 안
+    assert 'data-action="dismiss-service-notice"' in index_html and "service-boundary-short" in index_html
+    assert "증권계좌 연동·주문 체결 미제공" in index_html                                # 하단 표기는 항상 남는다
+    app_js = (ROOT / "app/frontend/js/app.js").read_text()
+    assert "efa_service_notice_ack" in app_js and "dismiss-service-notice" in app_js

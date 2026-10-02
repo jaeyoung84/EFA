@@ -497,8 +497,18 @@ body.theme-terminal .content-wrap {
 }
 .footer-logo { font-size: .95rem; font-weight: 800; letter-spacing: .07em; color: #ffffff; }
 .footer-boundary { flex: 1 1 440px; line-height: 1.45; }
-.service-boundary { display: flex; align-items: flex-start; gap: 10px; max-width: 1460px; margin: calc(var(--topbar-h) + var(--mainnav-h) + 10px) auto 0; padding: 11px 20px; color: var(--text-muted); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; font-size: .76rem; line-height: 1.55; }
-.service-boundary + .layout { padding-top: 10px; }
+/* 서비스 성격 안내: 본문 스크롤 영역 맨 위(함께 스크롤됨), '확인'으로 닫음. 모바일은 한 줄 요약. */
+.service-boundary { display: flex; align-items: flex-start; gap: 10px; flex: none; width: calc(100% - 48px); max-width: 1632px; margin: 14px auto 0; padding: 11px 16px 11px 20px; color: var(--text-muted); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; font-size: .76rem; line-height: 1.55; }
+.service-boundary[hidden] { display: none; }
+.service-boundary-text { flex: 1; min-width: 0; }
+.service-boundary .service-boundary-short { display: none; }
+.service-boundary-ok { flex: 0 0 auto; margin-left: 4px; padding: 3px 12px; color: #111; font-size: .72rem; font-weight: 700; background: var(--primary); border-radius: 6px; }
+@media (max-width: 640px) {
+  .service-boundary { align-items: center; width: calc(100% - 24px); margin-top: 8px; padding: 7px 10px; gap: 8px; font-size: .74rem; }
+  .service-boundary strong, .service-boundary .service-boundary-full { display: none; }
+  .service-boundary .service-boundary-short { display: inline; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .service-boundary-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+}
 .service-boundary > i { margin-top: 2px; color: var(--primary); }.service-boundary strong { color: var(--text); }.service-boundary p { display: inline; margin: 0 0 0 4px; }.service-boundary a { flex: 0 0 auto; color: var(--primary-light); white-space: nowrap; text-decoration: underline; }
 .footer-line { font-size: .8rem; color: #94a3b8; }
 

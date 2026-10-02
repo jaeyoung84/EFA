@@ -124,7 +124,18 @@ document.addEventListener('click', (event) => {
   const action = event.target.closest('[data-action]')?.dataset.action;
   if (action === 'toggle-mainnav') window.toggleMainnav?.();
   if (action === 'close-mainnav') window.closeMainnav?.();
+  if (action === 'dismiss-service-notice') {
+    try { localStorage.setItem(SERVICE_NOTICE_KEY, SERVICE_NOTICE_VERSION); } catch { /* 저장 불가 브라우저: 이번 화면에서만 닫힘 */ }
+    document.querySelector('[data-service-notice]')?.setAttribute('hidden', '');
+  }
 });
+
+// 서비스 성격 안내는 처음 방문한 브라우저에서만 보인다. 안내 문구가 바뀌면 버전을 올려 다시 한 번 보여 준다.
+const SERVICE_NOTICE_KEY = 'efa_service_notice_ack';
+const SERVICE_NOTICE_VERSION = '2026-10-03';
+try {
+  if (localStorage.getItem(SERVICE_NOTICE_KEY) !== SERVICE_NOTICE_VERSION) document.querySelector('[data-service-notice]')?.removeAttribute('hidden');
+} catch { document.querySelector('[data-service-notice]')?.removeAttribute('hidden'); }
 
 // 개별 뷰마다 저장 코드를 반복하지 않고 모든 입력·선택 변경을 자동 보관한다.
 app.addEventListener('input', (event) => saveFormState(currentView, app));
