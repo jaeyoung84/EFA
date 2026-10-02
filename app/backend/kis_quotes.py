@@ -299,30 +299,6 @@ class KisQuotes:
                      "tr_id": tr_id, "custtype": "P"})
         return response.json() if response.content else {}
 
-    async def daily_bars(self, code: str, start: str, end: str) -> list[dict]:
-        """국내주식 기간별 시세(일봉, 수정주가) TR(FHKST03010100). 오래된 날짜부터 [{date, open, high, low, close}].
-
-        한 번에 최대 100거래일. start·end는 YYYYMMDD. 현재가와 같은 초당 호출 한도를 나눠 쓴다.
-        """
-        params = {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": code, "FID_INPUT_DATE_1": start,
-                  "FID_INPUT_DATE_2": end, "FID_PERIOD_DIV_CODE": "D", "FID_ORG_ADJ_PRC": "0"}
-        for attempt in range(RATE_LIMIT_RETRIES + 1):
-            payload = await self._rest_get("/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice",
-                                           "FHKST03010100", params)
-            if payload.get("msg_cd") != RATE_LIMIT_CODE or attempt == RATE_LIMIT_RETRIES:
-                break
-            self._slow_down()
-        if str(payload.get("rt_cd")) != "0":
-            raise KisError(f"{payload.get('msg_cd', '')} {payload.get('msg1', '일봉 응답 오류')}".strip())
-        bars = []
-        for row in payload.get("output2") or []:
-            day = str(row.get("stck_bsop_date") or "")
-            values = [_num(row.get(key)) for key in ("stck_oprc", "stck_hgpr", "stck_lwpr", "stck_clpr")]
-            if re.fullmatch(r"\d{8}", day) and all(v and v > 0 for v in values):
-                bars.append({"date": f"{day[:4]}-{day[4:6]}-{day[6:]}", "open": values[0], "high": values[1],
-                             "low": values[2], "close": values[3]})
-        return sorted(bars, key=lambda bar: bar["date"])
-
     async def news_titles(self, code: str) -> list[dict]:
         """종합 시황/공시(제목) TR(FHKST01011800): 이 종목이 관련 종목에 들어간 최신 뉴스 제목 40건.
 

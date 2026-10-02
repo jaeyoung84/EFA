@@ -8,7 +8,6 @@ import { fillSectorBadges, sectorSlot } from '../utils/sectorBadges.js';
 import { liveSlot, startLiveQuotes } from '../utils/liveQuotes.js';
 import { fillRiskBadges, riskSlot } from '../utils/riskBadges.js';
 import { exitPlanHtml } from '../utils/exitPlan.js';
-import { readRiskPct, saveRiskPct, sizingHtml } from '../utils/positionSizing.js';
 
 const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
@@ -199,7 +198,6 @@ export function queueHtml({ board, loggedIn, filter = 'all' }, now = Date.now())
     <p class="dash-queue-live">${liveSlot(pick.symbol, pick.market)}</p>
     <div class="dash-queue-risk">${riskSlot(pick.symbol, { full: true })}</div>
     ${exitPlanHtml(pick.exit_plan)}
-    <div class="dash-queue-sizing" data-sizing-id="${esc(pick.signal_id)}"></div>
     <div class="dash-chips"><span>추천 근거</span>${(pick.reason_labels || []).filter(Boolean).slice(0, 3).map((label) => `<i>${esc(label)}</i>`).join('')}</div>
     ${decisionForm(pick)}
   </article>`).join('');
@@ -268,7 +266,7 @@ const STATUS_TEXT = { ok: '정상', warn: '주의', error: '오류', unknown: '�
 export function dashboardView(container) {
   const loggedIn = isAuthenticated();
   const state = { loggedIn, board: null, outcomes: null, insight: null, error: null, quotes: {}, quotesAt: null,
-    refresh: null, flowPeriod: '1mo', chartMarket: 'kospi', chartFrame: 'day', briefTab: 'news', news: null, queueFilter: 'all', riskPct: readRiskPct(), sizing: null };
+    refresh: null, flowPeriod: '1mo', chartMarket: 'kospi', chartFrame: 'day', briefTab: 'news', news: null, queueFilter: 'all' };
   const charts = [];
   let alive = true;
   window._viewCleanup = () => { alive = false; charts.splice(0).forEach((chart) => { try { chart.destroy(); } catch { /* 이미 해제 */ } }); };
@@ -295,8 +293,6 @@ export function dashboardView(container) {
     <section class="dash-card dash-queue">
       <header class="dash-head"><h2>KQS 의사결정 큐 <b class="dash-count" data-queue-count>0</b></h2>
         <select class="dash-select" data-queue-filter aria-label="큐 필터"><option value="all">전체 신호</option><option value="waiting">판단 대기</option><option value="decided">기록 완료</option></select></header>
-      <label class="dash-risk-pct" title="한 번 매매에서 감수할 손실(총자산 대비). 권장 매수 수량 계산에 씁니다.">1회 손실 한도
-        <input type="number" min="0.25" max="3" step="0.25" data-risk-pct> %</label>
       <div class="dash-queue-list" data-dash-queue></div>
     </section>
     <section class="dash-card dash-flow">
@@ -359,7 +355,6 @@ export function dashboardView(container) {
     fillSectorBadges(el);
     fillRiskBadges(el);
     startLiveQuotes(el);
-    fillSizing();
     $('[data-queue-count]').textContent = String(picksOf(state.board).length);
   };
   const renderSystem = () => {
@@ -377,19 +372,6 @@ export function dashboardView(container) {
     try { state.board = await authRequest('/api/kqs/strategy-board'); } catch (error) { state.board = { available: false, detail: error.message, items: [] }; }
     if (!alive) return;
     renderGreeting(); renderBrief(); renderQueue(); renderSystem();
-  }
-  // EINT-027: 권장 매수 수량. 손실 한도별로 한 번 계산해 두고 카드에 채운다(주문 없음).
-  async function loadSizing() {
-    if (!state.loggedIn || !alive) return;
-    const pct = state.riskPct;
-    try { state.sizing = await authRequest(`/api/kqs/position-sizing?risk_pct=${encodeURIComponent(pct)}`); }
-    catch (error) { state.sizing = { available: false, reason: error.message }; }
-    if (alive && pct === state.riskPct) fillSizing();
-  }
-  function fillSizing() {
-    container.querySelectorAll('[data-sizing-id]').forEach((slot) => {
-      slot.innerHTML = sizingHtml(state.sizing?.items?.[slot.dataset.sizingId], state.sizing);
-    });
   }
   async function loadNews() {
     if (!state.loggedIn || !alive) return;
@@ -501,17 +483,10 @@ export function dashboardView(container) {
     if (state.briefTab === 'outcomes' && !state.outcomes) loadOutcomes();
   }));
   $('[data-queue-filter]').addEventListener('change', (event) => { state.queueFilter = event.target.value; renderQueue(); });
-  const riskInput = $('[data-risk-pct]');
-  riskInput.value = state.riskPct;
-  riskInput.addEventListener('change', () => {
-    const value = Math.min(3, Math.max(0.25, Number(riskInput.value) || 1));
-    riskInput.value = value; state.riskPct = value; saveRiskPct(value);
-    state.sizing = null; fillSizing(); loadSizing();
-  });
   container.querySelectorAll('[data-flow-period]').forEach((button) => button.addEventListener('click', () => { state.flowPeriod = button.dataset.flowPeriod; renderFlow(); loadFlow(); }));
   container.querySelectorAll('[data-chart-frame]').forEach((button) => button.addEventListener('click', () => { state.chartFrame = button.dataset.chartFrame; loadChart(); }));
   $('[data-chart-market]').addEventListener('change', (event) => { state.chartMarket = event.target.value; loadChart(); });
 
   renderGreeting(); renderBrief(); renderAssets(); renderQueue(); renderFlow(); renderSystem();
-  loadBoard(); loadNews(); loadSizing(); loadOutcomes(); loadAssets(); loadQuotes(); loadFlow(); loadChart(); loadRefresh();
+  loadBoard(); loadNews(); loadOutcomes(); loadAssets(); loadQuotes(); loadFlow(); loadChart(); loadRefresh();
 }

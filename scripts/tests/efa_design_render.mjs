@@ -10,7 +10,6 @@ const STUBS = {
   attachStockSearch: '() => {}', PENDING_STOCK_KEY: "'k'",
   sectorSlot: '(s) => `<span data-sector-symbol="${s}"></span>`', fillSectorBadges: '() => {}',
   liveSlot: '(s, m) => `<span data-live-ticker="${s}.${m}"></span>`', startLiveQuotes: '() => {}', fetchLiveQuotes: 'async () => ({})',
-  readRiskPct: '() => 1', saveRiskPct: '() => {}', sizingHtml: "() => ''",
   exitPlanHtml: "(plan) => (plan ? '<div class=\"exit-plan\"></div>' : '')",
   riskSlot: "(s, o) => `<span data-risk-symbol=\"${s}\"${o && o.full ? ' data-risk-full' : ''}></span>`", fillRiskBadges: '() => {}',
   TIME_FORMAT: "{ timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }",
@@ -190,21 +189,6 @@ assert.ok(swingPlan.includes('+4.5%') && swingPlan.includes('현재 27.3') && sw
 assert.equal(exitPlan.exitPlanHtml(null), '');
 assert.ok(dash.queueHtml({ board: { ...board, items: [{ item: 'swing', picks: [{ ...board.items[0].picks[0], exit_plan: { rules: [] } }] }] }, loggedIn: true }).includes('exit-plan'));
 
-// 권장 매수 수량(EINT-027): 수량·금액·손실·근거, 비중 제한·현금 부족, 계산 불가 사유, escape
-const size = await load('utils/positionSizing.js');
-const sizing = { available: true, equity_krw: 10_000_000, risk_pct: 1, max_position_pct: 35, equity_partial: false };
-const v4Size = size.sizingHtml({ available: true, quantity: 33, amount_krw: 2_640_000, weight_pct: 26.4, price: 80000, price_basis: '현재가',
-  risk_krw: 99_000, atr: 2000, basis: 'v4_stop', basis_label: XSS, capped_by: null, cash_short: false }, sizing);
-assert.ok(v4Size.includes('33주') && v4Size.includes('2,640,000원') && v4Size.includes('손절 시 손실 ≈ 99,000원') && v4Size.includes('자산의 0.99%'));
-assert.ok(!v4Size.includes('<img'));
-const capped = size.sizingHtml({ available: true, quantity: 12, amount_krw: 3_240_000, weight_pct: 32.4, price: 270000, price_basis: '현재가',
-  risk_krw: 480, atr: 20, basis: 'reversion_atr', basis_label: '2×ATR 하락 가정', capped_by: 'max_position', cash_short: true, cash_quantity: 3 }, sizing);
-assert.ok(capped.includes('2×ATR 하락 시') && capped.includes('최대 비중 35%로 줄임') && capped.includes('현금으로는 3주까지'));
-assert.ok(size.sizingHtml(null, null).includes('계산 중'));
-assert.ok(size.sizingHtml(null, { available: false, reason: '내 자산(현금 포함)을 등록하면' }).includes('내 자산'));
-assert.ok(size.sizingHtml({ available: false, reason: '일봉 조회 실패' }, sizing).includes('일봉 조회 실패'));
-assert.ok(queue.includes('data-sizing-id="s1"'));
-
 // 재무 차트: x축 라벨 간격(좁으면 건너뛰기)
 const finSource = (await readFile(new URL('../../app/frontend/js/utils/financialCharts.js', import.meta.url), 'utf8'));
 const fin = await import(`data:text/javascript;base64,${Buffer.from(`const window = {};\n${finSource}`).toString('base64')}`);
@@ -213,4 +197,4 @@ assert.equal(fin.labelStep(38, 45), 2);
 assert.equal(fin.labelStep(40, 10), 5);
 assert.equal(fin.labelStep(40, 0), 1);
 
-console.log('EFA design: greeting, briefing, queue, treemap, flow, system, bell, watchlist, notes, financial label spacing, market movers, holdings lists, live quotes, risk badges, holdings news, exit plan, position sizing passed');
+console.log('EFA design: greeting, briefing, queue, treemap, flow, system, bell, watchlist, notes, financial label spacing, market movers, holdings lists, live quotes, risk badges, holdings news, exit plan passed');

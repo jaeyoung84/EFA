@@ -3332,14 +3332,3 @@ a.dash-news-title:hover { color: var(--primary); text-decoration: underline; }
 .exit-plan li i { font-style: normal; font-size: .7rem; }
 .exit-plan-basis { margin: 4px 0 0; color: var(--text-subtle, var(--text-muted)); font-size: .66rem; }
 .sb-pick .exit-plan { margin: 8px 10px; }
-
-/* EINT-027: 권장 매수 수량(변동성 기반) */
-.dash-risk-pct { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: -4px 0 8px; color: var(--text-muted); font-size: .72rem; }
-.dash-risk-pct input { width: 64px; padding: 3px 6px; color: var(--text); background: var(--surface-soft); border: 1px solid var(--border); border-radius: 6px; font-size: .74rem; text-align: right; }
-.pos-size { margin: 6px 0; padding: 8px 10px; background: rgba(245, 184, 0, .06); border: 1px solid rgba(245, 184, 0, .3); border-radius: 8px; font-size: .74rem; }
-.pos-size p { margin: 0; color: var(--text-muted); line-height: 1.55; }
-.pos-size b { color: var(--text); }
-.pos-size strong { color: var(--primary); font-size: .9rem; font-variant-numeric: tabular-nums; }
-.pos-size small { color: var(--text-muted); font-size: .68rem; }
-.pos-size-basis { font-size: .66rem !important; }
-p.pos-size.is-muted { padding: 6px 10px; color: var(--text-muted); background: transparent; border-style: dashed; }
