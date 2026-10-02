@@ -53,3 +53,13 @@ scripts/mongo_restore_drill.sh backups/<생성된-파일>.archive.gz .env.deskto
 - 복구(승인 후에만): 아카이브 SHA-256 확인 → 임시 DB로 복원해 내용 확인 →
   `docker exec -i investment_mongo mongorestore --archive --gzip --nsInclude 'investment_db.*' --drop < <아카이브>`.
   `--drop`은 운영 DB를 덮어쓰므로 백엔드를 멈추고, 복구 직전 상태를 한 번 더 백업한 뒤에만 쓴다.
+- 설치(2026-10-02): 서버에 스크립트·타이머 설치, `/srv/kqs/secrets/ops.env`에
+  `APP_BACKUP_S3_URI=s3://kqs-state-125022369601/app-backups/mongo` 추가. 첫 실행: 컬렉션 58, 문서 5,778, 복구 확인 ok,
+  S3 업로드 확인. S3 수명주기 `expire-app-backups`(app-backups/, 30일) 추가 — 기존 규칙(backups/ 30일, 이전 버전 7일)은 유지.
+
+## 서버 디스크 스냅샷(EBS)
+
+- AWS DLM 정책 `policy-0bd72951562c6cf52`: 태그 `EfaBackup=daily`가 붙은 볼륨(서버 루트 `vol-0a3277601c845ab80`)을
+  매일 18:30 UTC(03:30 KST)에 스냅샷, 최근 7개 보관. 디스크 전체(엔진 시장 데이터·설정·Mongo 볼륨 포함)를 되살리는 2차 수단이다.
+- 복구: 스냅샷에서 새 볼륨을 만들어 임시 인스턴스에 붙여 확인하거나, 승인 후 루트 볼륨을 교체한다. 실행 중 스냅샷이라
+  Mongo는 충돌 직후 상태와 같으므로 DB는 위 일일 백업을 우선 쓴다.
