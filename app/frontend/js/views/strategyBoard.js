@@ -4,6 +4,7 @@
 import { authRequest, isAuthenticated, openAuthModal } from '../auth.js';
 import { manualRequest } from './kqsManualRecords.js';
 import { fillSectorBadges, sectorSlot } from '../utils/sectorBadges.js';
+import { liveSlot, startLiveQuotes } from '../utils/liveQuotes.js';
 
 const esc = (value) => String(value ?? '-').replace(/[&<>'"]/g, (char) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
@@ -64,7 +65,7 @@ function healthBanner(health) {
 function pickRow(pick, decisions) {
   return `<li class="sb-pick">
     <details>
-      <summary><span class="sb-rank">${esc(pick.rank)}</span><span class="sb-name"><strong>${esc(pick.name)}</strong><small>${esc(pick.symbol)} · ${esc(pick.market)}</small>${sectorSlot(pick.symbol)}</span><span class="sb-close">${price(pick.close)}</span></summary>
+      <summary><span class="sb-rank">${esc(pick.rank)}</span><span class="sb-name"><strong>${esc(pick.name)}</strong><small>${esc(pick.symbol)} · ${esc(pick.market)}</small>${sectorSlot(pick.symbol)}</span><span class="sb-close">${price(pick.close)}<small>기준일 종가</small>${liveSlot(pick.symbol, pick.market)}</span></summary>
       <ul class="sb-reasons">${(pick.reasons || []).map((reason) => `<li>${esc(reason)}</li>`).join('')}</ul>
       ${pick.exit_reference ? `<p class="sb-note"><b>청산 기준</b> ${esc(pick.exit_reference)}</p>` : ''}
       ${decisionBadges(decisions[pick.signal_id])}
@@ -188,6 +189,7 @@ export function strategyBoardView(container) {
     container.querySelector('[data-sb-record]')?.addEventListener('click', () => window.navigate('my-strategies'));
     container.querySelectorAll('[data-sb-decision]').forEach((form) => bindDecisionForm(form, load));
     fillSectorBadges(container);
+    startLiveQuotes(container);
   };
   load();
 }

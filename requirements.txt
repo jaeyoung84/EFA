@@ -13,3 +13,4 @@ yfinance
 matplotlib
 pandas_market_calendars
 apscheduler
+websockets

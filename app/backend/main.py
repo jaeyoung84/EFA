@@ -43,9 +43,13 @@ try:
     from .sector_rotation import read_sector_rotation
     from .stock_sector import sector_status
     from . import market_movers
+    from .kis_quotes import kis_service
+    from .live_quotes import provider_status as live_quote_provider_status, resolve_quotes as resolve_live_quotes
     from .instrument_catalog import SEARCH_ALIASES, get_krx_catalog, resolve_krx_name, search_krx_instruments
 except ImportError:
     from sector_rotation import read_sector_rotation  # type: ignore
+    from kis_quotes import kis_service  # type: ignore
+    from live_quotes import provider_status as live_quote_provider_status, resolve_quotes as resolve_live_quotes  # type: ignore
     from stock_sector import sector_status  # type: ignore
     import market_movers  # type: ignore
     from instrument_catalog import SEARCH_ALIASES, get_krx_catalog, resolve_krx_name, search_krx_instruments  # type: ignore
@@ -183,11 +187,13 @@ async def _start_background_scheduler() -> None:
         # 시세 DB가 잠시 준비되지 않아도 기존 화면과 스케줄러 기동은 유지한다.
         print(f"Market-data indexes not ready during startup: {exc}")
     start_scheduler()
+    kis_service().start()   # 한투 키가 없으면 아무것도 하지 않는다
 
 
 @app.on_event("shutdown")
 async def _stop_background_scheduler() -> None:
     stop_scheduler()
+    await kis_service().stop()
 
 @app.middleware("http")
 async def no_cache_static_assets(request, call_next):
@@ -730,6 +736,10 @@ class MacroRealtimeRequest(BaseModel):
 
 class MarketSnapshotRequest(BaseModel):
     tickers: list[str] = ["^KS11", "^IXIC", "KRW=X"]
+
+
+class LiveQuotesRequest(BaseModel):
+    tickers: list[str] = Field(min_length=1, max_length=40)
 
 
 class MarketDataRefreshRequest(BaseModel):
@@ -1280,6 +1290,24 @@ def _cached_ranking(key: str, limit: int, build) -> dict[str, object]:
     with _ranking_cache_lock:
         _ranking_cache[(key, limit)] = (monotonic(), result)
     return {**result, "cached": False}
+
+
+@app.post("/api/market/live-quotes")
+async def market_live_quotes(req: LiveQuotesRequest, user: dict = Depends(current_user)) -> JSONResponse:
+    """화면용 현재가(최대 40종목). 국내 개별 종목은 한투 체결가(설정 시), 그 밖과 한투 실패 시에는 Yahoo 지연 시세.
+
+    한투 호출 한도를 지키려고 로그인 사용자만 쓴다. 장중 화면은 3초마다 다시 부른다.
+    """
+    tickers = list(dict.fromkeys(t.strip().upper() for t in req.tickers if re.fullmatch(r"[A-Za-z0-9.^=-]{1,20}", t.strip())))
+    if not tickers:
+        raise HTTPException(status_code=422, detail="유효한 종목 코드가 없습니다.")
+    quotes = await resolve_live_quotes(tickers)
+    status = live_quote_provider_status()
+    return JSONResponse(content={
+        "items": [quotes[t] for t in tickers], "provider": status,
+        "refresh_seconds": 3 if status["enabled"] and status["stream_session_open"] else 30,
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+    }, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/market/top-gainers")

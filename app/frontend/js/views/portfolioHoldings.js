@@ -1,4 +1,5 @@
 import { authRequest, isAuthenticated, openAuthModal } from '../auth.js';
+import { TIME_FORMAT } from '../utils/liveQuotes.js';
 
 const emptyHolding = () => ({ ticker: '', name: '', quantity: '', average_price: '', currency: 'KRW', sector: '미분류' });
 const money = (value) => new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 }).format(Number(value) || 0);
@@ -48,6 +49,22 @@ export async function portfolioValuation(portfolio) {
 }
 
 /** 일부 종목 시세가 없을 때: 총평가는 '평가 불가'로 두되, 비중·집중도는 시세가 확인된 종목(+현금) 기준으로 계산한다. */
+const VALUATION_SOURCE = {
+  kis_live: '한투 체결가(장중 실시간)',
+  mixed_with_kis: '한투 체결가 + 지연 시세·검증 캐시',
+  market_data_cache_daily: '검증 캐시 · 일봉 종가',
+  mixed_delayed_quotes: '지연 시세·검증 캐시 혼합',
+};
+
+export function valuationSourceText(valuation) {
+  const source = VALUATION_SOURCE[valuation.source] || VALUATION_SOURCE.mixed_delayed_quotes;
+  const at = (valuation.positions || []).map((item) => item.quoted_at).filter(Boolean).sort().at(-1);
+  if (!at) return source;
+  const live = valuation.source === 'kis_live' || valuation.source === 'mixed_with_kis';
+  const stamp = live ? `${new Date(at).toLocaleTimeString('ko-KR', TIME_FORMAT)} 시세` : `기준일 ${at.slice(0, 10)}`;
+  return `${source} · ${stamp}${valuation.live_refresh_seconds ? ` · ${valuation.live_refresh_seconds}초마다 갱신` : ''}`;
+}
+
 export function weightBasis(portfolio, valuation) {
   if (valuation.available) return { valuation, partial: false, priced: valuation.priced_count, excluded: 0 };
   const priced = (valuation.positions || []).filter((item) => item.status === 'ok' && Number.isFinite(item.value_krw));
@@ -168,9 +185,20 @@ export function portfolioHoldingsView(container) {
     container.querySelector('#holdings-book-value').textContent = `₩${money(valuation.value_krw)}`;
     profit.textContent = `${valuation.profit_krw >= 0 ? '+' : '-'}₩${money(Math.abs(valuation.profit_krw))} (${valuation.return_pct >= 0 ? '+' : ''}${valuation.return_pct.toFixed(2)}%)`;
     profit.className = valuation.profit_krw >= 0 ? 'is-profit' : 'is-loss';
-    const source = valuation.source === 'market_data_cache_daily' ? '검증 캐시 · 일봉 종가' : '지연 시세·검증 캐시 혼합';
-    const asOf = (valuation.positions || []).map((item) => item.quoted_at).filter(Boolean).sort().at(-1);
-    note.textContent = `${source}${asOf ? ` · 기준일 ${asOf.slice(0, 10)}` : ''} · ${valuation.priced_count}개 종목 평가 완료 · USD 자산은 USD/KRW 환율로 원화 환산`;
+    note.textContent = `${valuationSourceText(valuation)} · ${valuation.priced_count}개 종목 평가 완료 · USD 자산은 USD/KRW 환율로 원화 환산`;
+  };
+  // 한투 체결가로 평가 중이고 장중이면 서버가 알려 준 주기(3초)로 평가만 다시 한다. 화면을 떠나면 멈춘다.
+  let valuationTimer = null;
+  const refreshValuation = async (data) => {
+    clearTimeout(valuationTimer);
+    if (!container.isConnected) return;
+    let wait = null;
+    if (document.hidden) wait = 5;
+    else {
+      try { const valuation = await portfolioValuation(data); renderValuation(valuation); renderInsights(data, valuation); wait = valuation.live_refresh_seconds; }
+      catch { container.querySelector('#holdings-valuation-note').textContent = '시세를 불러오지 못해 장부 기준 금액을 표시합니다.'; }
+    }
+    if (wait && container.isConnected) valuationTimer = setTimeout(() => refreshValuation(data), wait * 1000);
   };
   const renderInsights = (data, valuation) => {
     const basis = weightBasis(data, valuation);
@@ -199,7 +227,7 @@ export function portfolioHoldingsView(container) {
         status.textContent = `${classifiedCount}개 종목의 업종을 자동 분류해 저장했습니다.`;
         status.classList.add('is-success');
       }
-      try { const valuation = await portfolioValuation(data); renderValuation(valuation); renderInsights(data, valuation); } catch { container.querySelector('#holdings-valuation-note').textContent = '시세를 불러오지 못해 장부 기준 금액을 표시합니다.'; }
+      await refreshValuation(data);
       await loadFactorExposure();
     } catch (error) { status.textContent = error.message; status.classList.add('is-error'); append(); }
   };
@@ -297,7 +325,7 @@ export function portfolioHoldingsView(container) {
         throw new Error('각 종목의 종목명, 수량, 평균 단가를 올바르게 입력하세요.');
       }
       const data = await authRequest('/api/portfolio', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cash_krw: Number(container.querySelector('#holdings-cash').value) || 0, holdings }) });
-      renderSummary(data); try { const valuation = await portfolioValuation(data); renderValuation(valuation); renderInsights(data, valuation); } catch {} await loadFactorExposure(); status.textContent = '내 포트폴리오를 저장했습니다.'; status.classList.add('is-success');
+      renderSummary(data); await refreshValuation(data); await loadFactorExposure(); status.textContent = '내 포트폴리오를 저장했습니다.'; status.classList.add('is-success');
     } catch (error) { status.textContent = error.message; status.classList.add('is-error'); } finally { button.disabled = false; }
   });
   load();

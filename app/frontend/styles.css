@@ -3251,3 +3251,16 @@ body { background: var(--bg); }
   .dash-tabs { width: 100%; overflow-x: auto; margin-left: 0; }
   .dash-tabs button { white-space: nowrap; }
 }
+
+/* 국내 종목 현재가(한투 체결가 또는 지연 시세) */
+.live-quote { display: block; margin-top: 3px; color: var(--text-muted); font-size: .72rem; font-variant-numeric: tabular-nums; }
+.live-quote.is-loading { opacity: .6; }
+.live-quote .live-label { color: var(--text-muted); }
+.live-quote b { color: var(--text); font-weight: 750; }
+.live-quote i { font-style: normal; margin-left: 2px; }
+.live-quote small { display: inline; margin-left: 4px; color: var(--text-subtle, var(--text-muted)); font-size: .66rem; }
+.sb-close { text-align: right; }
+.sb-close > small { display: block; color: var(--text-muted); font-size: .66rem; }
+.dash-queue-live { margin: 2px 0 6px; }
+.dash-brief-price .live-quote small, .sb-close .live-quote small { display: block; margin-left: 0; }
+.dash-brief-price .live-quote, .sb-close .live-quote { white-space: nowrap; }

@@ -9,6 +9,8 @@ const STUBS = {
   decisionForm: `(pick) => '<form data-sb-decision data-signal-id="' + pick.signal_id + '"></form>'`, bindDecisionForm: '() => {}',
   attachStockSearch: '() => {}', PENDING_STOCK_KEY: "'k'",
   sectorSlot: '(s) => `<span data-sector-symbol="${s}"></span>`', fillSectorBadges: '() => {}',
+  liveSlot: '(s, m) => `<span data-live-ticker="${s}.${m}"></span>`', startLiveQuotes: '() => {}', fetchLiveQuotes: 'async () => ({})',
+  TIME_FORMAT: "{ timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }",
 };
 async function load(file) {
   const source = (await readFile(new URL(`../../app/frontend/js/${file}`, import.meta.url), 'utf8')).replace(/^import .*$/gm, '');
@@ -117,6 +119,26 @@ const partial = holdings.weightBasis({ cash_krw: 100 }, { available: false, posi
 assert.deepEqual([partial.partial, partial.priced, partial.excluded, partial.valuation.value_krw], [true, 1, 1, 400]);
 assert.equal(holdings.weightBasis({}, { available: true, priced_count: 3, value_krw: 9 }).partial, false);
 
+// 국내 종목 현재가(한투 체결가 / 지연 시세)
+const live = await load('utils/liveQuotes.js');
+assert.equal(live.liveTicker('005930', 'KOSPI'), '005930.KS');
+assert.equal(live.liveTicker('0091p0', 'KOSDAQ'), '0091P0.KQ');
+assert.equal(live.liveTicker('AAPL', 'NYSE'), '');
+assert.ok(live.liveSlot('247540', 'KOSDAQ').includes('data-live-ticker="247540.KQ"'));
+const liveHtml = live.liveQuoteHtml({ status: 'ok', price: 72000, change_pct: 1.234, source: 'kis_realtime', source_label: '한투 실시간 체결', quoted_at: '2026-10-02T10:15:00+09:00' });
+assert.ok(liveHtml.includes('72,000') && liveHtml.includes('is-up') && liveHtml.includes('+1.23%') && liveHtml.includes('한투 실시간 체결 10:15:00'));
+const fallbackHtml = live.liveQuoteHtml({ status: 'ok', price: 1, change_pct: -1, source: 'yahoo_delayed', source_label: 'Yahoo 지연 시세', fallback_reason: XSS });
+assert.ok(fallbackHtml.includes('is-down') && fallbackHtml.includes('Yahoo 지연 시세') && !fallbackHtml.includes('<img'));
+assert.ok(live.liveQuoteHtml({ status: 'error', reason: XSS }).includes('조회 실패') && !live.liveQuoteHtml({ status: 'error', reason: XSS }).includes('<img'));
+assert.ok(queue.includes('data-live-ticker="010170.'));
+const kisWatch = watch.watchlistHtml([{ ticker: '005930.KS', code: '005930', name: '삼성전자', market: 'KOSPI' }],
+  { '005930.KS': { status: 'ok', price: 72000, change_pct: 0.5, source_label: '한투 실시간 체결' } }, '2026-10-02T01:15:00Z');
+assert.ok(kisWatch.includes('72,000') && kisWatch.includes('현재가 출처: 한투 실시간 체결') && !kisWatch.includes('15분 지연'));
+assert.ok(watch.watchlistHtml([{ ticker: 'X.KS', code: 'X', name: 'x' }], {}).includes('…'));
+assert.equal(holdings.valuationSourceText({ source: 'market_data_cache_daily', positions: [{ quoted_at: '2026-10-01T00:00:00+00:00' }] }), '검증 캐시 · 일봉 종가 · 기준일 2026-10-01');
+const kisNote = holdings.valuationSourceText({ source: 'kis_live', live_refresh_seconds: 3, positions: [{ quoted_at: '2026-10-02T01:15:00Z' }] });
+assert.ok(kisNote.startsWith('한투 체결가(장중 실시간)') && kisNote.includes('10:15:00') && kisNote.endsWith('3초마다 갱신'));
+
 // 재무 차트: x축 라벨 간격(좁으면 건너뛰기)
 const finSource = (await readFile(new URL('../../app/frontend/js/utils/financialCharts.js', import.meta.url), 'utf8'));
 const fin = await import(`data:text/javascript;base64,${Buffer.from(`const window = {};\n${finSource}`).toString('base64')}`);
@@ -125,4 +147,4 @@ assert.equal(fin.labelStep(38, 45), 2);
 assert.equal(fin.labelStep(40, 10), 5);
 assert.equal(fin.labelStep(40, 0), 1);
 
-console.log('EFA design: greeting, briefing, queue, treemap, flow, system, bell, watchlist, notes, financial label spacing, market movers, holdings lists passed');
+console.log('EFA design: greeting, briefing, queue, treemap, flow, system, bell, watchlist, notes, financial label spacing, market movers, holdings lists, live quotes passed');

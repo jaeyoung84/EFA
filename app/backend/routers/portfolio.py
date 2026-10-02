@@ -16,12 +16,14 @@ from pydantic import BaseModel, Field
 try:
     from ..db import get_db
     from ..quote_cache import fetch_quote_cached
+    from ..live_quotes import domestic_kis_quotes, provider_status as live_quote_provider_status
     from ..market_data import MarketDataError, market_factor_snapshot, market_factor_universe_snapshot
     from ..risk_engine import DEFAULT_RISK_POLICY, evaluate_policy, volatility_target
     from .auth import current_user
 except ImportError:
     from db import get_db
     from quote_cache import fetch_quote_cached
+    from live_quotes import domestic_kis_quotes, provider_status as live_quote_provider_status  # type: ignore
     from market_data import MarketDataError, market_factor_snapshot, market_factor_universe_snapshot  # type: ignore
     from risk_engine import DEFAULT_RISK_POLICY, evaluate_policy, volatility_target  # type: ignore
     from routers.auth import current_user
@@ -133,7 +135,9 @@ async def _valuation_quotes(holdings: list[dict]) -> dict[str, dict]:
     tickers = [holding["ticker"] for holding in holdings]
     if any(holding["currency"] == "USD" for holding in holdings):
         tickers.append("KRW=X")
-    cached = await _cached_daily_quotes(tickers)
+    # 한투 키가 있으면 국내 종목은 한투 체결가가 우선이고, 실패한 종목만 기존 일봉 캐시·Yahoo로 간다.
+    live = {ticker: quote for ticker, quote in (await domestic_kis_quotes(tickers)).items() if quote["status"] == "ok"}
+    cached = {**(await _cached_daily_quotes([ticker for ticker in tickers if ticker not in live])), **live}
     missing = [ticker for ticker in dict.fromkeys(tickers) if ticker not in cached]
     network_tickers, skipped_tickers = missing[:MAX_NETWORK_QUOTE_FETCHES], missing[MAX_NETWORK_QUOTE_FETCHES:]
     gate = asyncio.Semaphore(MAX_CONCURRENT_QUOTE_FETCHES)
@@ -146,6 +150,15 @@ async def _valuation_quotes(holdings: list[dict]) -> dict[str, dict]:
     quotes = {**cached, **dict(zip(network_tickers, fetched))}
     quotes.update({ticker: {"status": "error", "reason": f"외부 시세 조회는 한 번에 {MAX_NETWORK_QUOTE_FETCHES}종목까지라 이번 평가에서 제외되었습니다."} for ticker in skipped_tickers})
     return quotes
+
+
+def _valuation_source(sources: list[str]) -> str:
+    kinds = set(sources)
+    if kinds and kinds <= {"kis_realtime", "kis_rest"}:
+        return "kis_live"
+    if kinds == {"market_data_cache_daily"}:
+        return "market_data_cache_daily"
+    return "mixed_with_kis" if kinds & {"kis_realtime", "kis_rest"} else "mixed_delayed_quotes"
 
 
 async def _compute_valuation(portfolio: dict) -> dict:
@@ -196,10 +209,14 @@ async def _compute_valuation(portfolio: dict) -> dict:
         })
 
     all_priced = priced_count == len(holdings)
+    provider = live_quote_provider_status()
+    has_kis = any(p.get("quote_source") in {"kis_realtime", "kis_rest"} for p in positions)
     profit_krw = value_krw - cost_krw
     return {
-        "source": "market_data_cache_daily" if all(p.get("quote_source") == "market_data_cache_daily" for p in positions if p.get("status") == "ok") else "mixed_delayed_quotes",
+        "source": _valuation_source([p.get("quote_source") for p in positions if p.get("status") == "ok"]),
         "fetched_at": _now().isoformat(),
+        # 한투 체결가로 평가 중이고 장중이면 화면이 3초마다 다시 평가한다.
+        "live_refresh_seconds": 3 if has_kis and provider["stream_session_open"] else None,
         "cash_krw": cash_krw,
         "fx_usd_krw": fx_rate,
         "available": all_priced,
