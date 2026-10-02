@@ -42,10 +42,12 @@ except ImportError:
 try:
     from .sector_rotation import read_sector_rotation
     from .stock_sector import sector_status
+    from . import market_movers
     from .instrument_catalog import SEARCH_ALIASES, get_krx_catalog, resolve_krx_name, search_krx_instruments
 except ImportError:
     from sector_rotation import read_sector_rotation  # type: ignore
     from stock_sector import sector_status  # type: ignore
+    import market_movers  # type: ignore
     from instrument_catalog import SEARCH_ALIASES, get_krx_catalog, resolve_krx_name, search_krx_instruments  # type: ignore
 
 try:
@@ -1281,10 +1283,15 @@ def _cached_ranking(key: str, limit: int, build) -> dict[str, object]:
 
 
 @app.get("/api/market/top-gainers")
-def market_top_gainers(limit: int = 20) -> dict[str, object]:
-    """KOSPI 대표 종목 표본 중 금일 등락률 상위 종목(전체 시장 스크리너 아님)."""
-    return _cached_ranking("kospi", limit, lambda: _market_top_ranked_components(
-        KOSPI_COMPONENTS, limit, "KOSPI 대표 종목"))
+def market_top_gainers(market: str = "KOSPI", limit: int = 20, min_trading_value_krw: float = 0) -> JSONResponse:
+    """코스피·코스닥 전 종목 중 금일 등락률 상위(주식만, 장중 지연 시세, 서버 30초 캐시)."""
+    try:
+        data = market_movers.top_gainers(market, limit, max(0.0, min_trading_value_krw))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except market_movers.MarketMoversError as exc:
+        raise HTTPException(status_code=503, detail=_no_market_data_detail("금일 상승종목", str(exc))) from exc
+    return JSONResponse(content=data, headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/api/market/top-sobujang")

@@ -158,8 +158,7 @@ def test_ranking_endpoints_reuse_results_for_a_minute(monkeypatch):
     monkeypatch.setattr(main, "_market_top_ranked_components",
                         lambda comps, limit, universe: calls.append(universe) or {"items": [], "universe": universe})
     main._ranking_cache.clear()
-    first, second = main.market_top_gainers(20), main.market_top_gainers(20)
+    # 금일 상승종목은 전 종목 순위(market_movers, 30초 캐시)로 바뀌었고 test_market_movers가 검사한다.
+    first, second = main.market_top_sobujang(20), main.market_top_sobujang(20)
     assert (first["cached"], second["cached"], len(calls)) == (False, True, 1)
-    main.market_top_sobujang(20)
-    assert len(calls) == 2
     main._ranking_cache.clear()

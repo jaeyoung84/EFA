@@ -224,14 +224,120 @@ export function marketRankingsView(container, {
   window._viewCleanup = () => { disposed = true; quoteModal.destroy(); };
 }
 
+const MARKETS = [['KOSPI', '코스피'], ['KOSDAQ', '코스닥']];
+const REFRESH_MS = 30_000;
+const escapeText = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
+}[char]));
+const eok = (krw) => (Number.isFinite(krw) ? `${Math.round(krw / 1e8).toLocaleString('ko-KR')}억` : '-');
+
+export function moverRowMarkup(item) {
+  const isUp = item.change_pct >= 0;
+  const rankClass = item.rank <= 3 ? ` is-top${item.rank}` : '';
+  return `
+    <button type="button" class="gainers-row${rankClass}" data-quote-ticker="${escapeText(item.ticker)}" aria-haspopup="dialog" aria-label="${escapeText(item.name)} 시세 보기">
+      <span class="gainers-rank">${item.rank}</span>
+      <div class="gainers-name">
+        <strong>${escapeText(item.name)}${item.limit_up ? ' <em class="gainers-limit">상한가</em>' : ''}</strong>
+        <span class="gainers-meta">${escapeText(item.code)} · 거래대금 ${eok(item.trading_value_krw)} · 시총 ${eok(item.market_cap_krw)}</span>
+      </div>
+      <span class="gainers-price">${formatPrice(item.price)}</span>
+      <span class="gainers-change ${isUp ? 'is-up' : 'is-down'}">${isUp ? '▲' : '▼'} ${Math.abs(item.change_pct).toFixed(2)}%</span>
+    </button>`;
+}
+
+export function moverStampText(data, now = new Date()) {
+  const asOf = data.as_of ? new Date(data.as_of) : null;
+  const time = asOf && !Number.isNaN(asOf.valueOf())
+    ? asOf.toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--';
+  const status = data.market_status === 'OPEN' ? '장중' : data.market_status === 'CLOSE' ? '장 마감' : '';
+  return [status, `${time} 체결 기준`, data.stale ? '최신 갱신 실패 · 이전 값' : ''].filter(Boolean).join(' · ');
+}
+
 export function todayGainersView(container) {
-  marketRankingsView(container, {
-    id: 'gainers',
-    title: '금일 상승종목 TOP 20',
-    icon: 'fa-arrow-trend-up',
-    description: 'KOSPI 대표 종목 표본(약 28종목) 안에서 오늘 등락률이 높은 순서입니다. 전체 시장 순위가 아니라 고정 표본 기준 참고 순위입니다.',
-    endpoint: '/api/market/top-gainers',
-    loadingText: '오늘의 등락률을 불러오는 중…',
-    note: 'Yahoo Finance 시세(약 15분 지연) 기준이며, 장중에는 순위가 실시간으로 계속 바뀝니다. 상승률 상위라는 것이 좋은 투자 대상이라는 뜻은 아니며, 급등 이유(실적·공시·수급)를 반드시 별도로 확인하세요.',
+  container.innerHTML = `
+    <section class="gainers-page is-wide">
+      <header class="gainers-head">
+        <div>
+          <h1><i class="fa-solid fa-arrow-trend-up"></i> 금일 상승종목 TOP 20</h1>
+          <p>코스피·코스닥 <b>전 종목</b>(ETF·ETN 제외) 중 오늘 등락률이 높은 순서입니다. 장중에는 ${REFRESH_MS / 1000}초마다 자동으로 갱신됩니다.</p>
+        </div>
+        <div class="gainers-actions">
+          <label class="gainers-filter"><input type="checkbox" id="gainers-liquid"> 거래대금 10억 이상만</label>
+          <span id="gainers-stamp">조회 전</span>
+          <button type="button" id="gainers-refresh"><i class="fa-solid fa-rotate-right"></i> 새로고침</button>
+        </div>
+      </header>
+      <div class="gainers-markets">
+        ${MARKETS.map(([market, label]) => `<section class="gainers-market" data-market="${market}">
+          <header><h2>${label}</h2><small data-market-stamp>조회 중…</small></header>
+          <div class="gainers-list" data-market-list><div class="gainers-loading"><i class="fa-solid fa-spinner fa-spin"></i> ${label} 상승 순위를 불러오는 중…</div></div>
+        </section>`).join('')}
+      </div>
+      <p class="gainers-note">출처: 네이버 증권(실시간 시세가 아닐 수 있으며 몇 분 지연될 수 있음). 서버에서 시장별 30초 단위로 갱신합니다. 상승률 상위라는 것이 좋은 투자 대상이라는 뜻은 아니며, 급등 이유(실적·공시·테마·거래 정지 해제 등)와 거래대금을 반드시 확인하세요.</p>
+    </section>`;
+
+  let disposed = false;
+  let timer = null;
+  const quoteModal = installQuoteModal(container);
+  const itemsByTicker = new Map();
+  const stamp = container.querySelector('#gainers-stamp');
+  const button = container.querySelector('#gainers-refresh');
+  const liquid = container.querySelector('#gainers-liquid');
+
+  async function loadMarket(market) {
+    const section = container.querySelector(`[data-market="${market}"]`);
+    const list = section.querySelector('[data-market-list]');
+    const marketStamp = section.querySelector('[data-market-stamp]');
+    const minValue = liquid.checked ? 1_000_000_000 : 0;
+    try {
+      const response = await fetch(`/api/market/top-gainers?market=${market}&limit=20&min_trading_value_krw=${minValue}`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+      if (disposed) return null;
+      (data.items || []).forEach((item) => itemsByTicker.set(item.ticker, item));
+      list.innerHTML = (data.items || []).length ? data.items.map(moverRowMarkup).join('')
+        : '<div class="gainers-loading">조건에 맞는 종목이 없습니다.</div>';
+      marketStamp.textContent = moverStampText(data);
+      return data;
+    } catch (error) {
+      if (disposed) return null;
+      list.innerHTML = `<div class="gainers-error"><i class="fa-solid fa-triangle-exclamation"></i> ${escapeText(error.message)}</div>`;
+      marketStamp.textContent = '조회 실패';
+      return null;
+    }
+  }
+
+  async function loadAll() {
+    if (disposed) return;
+    button.disabled = true;
+    stamp.textContent = '갱신 중…';
+    itemsByTicker.clear();
+    const results = await Promise.all(MARKETS.map(([market]) => loadMarket(market)));
+    if (disposed) return;
+    button.disabled = false;
+    const open = results.some((data) => data && data.market_status === 'OPEN');
+    stamp.textContent = `마지막 조회 ${new Date().toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}${open ? ` · ${REFRESH_MS / 1000}초마다 자동 갱신` : ' · 장 마감(자동 갱신 쉼)'}`;
+    window.clearTimeout(timer);
+    if (open) timer = window.setTimeout(() => { if (document.visibilityState === 'visible') loadAll(); else schedule(); }, REFRESH_MS);
+  }
+  const schedule = () => { window.clearTimeout(timer); timer = window.setTimeout(loadAll, REFRESH_MS); };
+  const onVisible = () => { if (document.visibilityState === 'visible' && !disposed) loadAll(); };
+
+  button.addEventListener('click', loadAll);
+  liquid.addEventListener('change', loadAll);
+  document.addEventListener('visibilitychange', onVisible);
+  container.querySelector('.gainers-markets').addEventListener('click', (event) => {
+    const trigger = event.target.closest('[data-quote-ticker]');
+    const item = trigger && itemsByTicker.get(trigger.dataset.quoteTicker);
+    if (item) quoteModal.open({ ...item, sector: item.market === 'KOSPI' ? '코스피' : '코스닥' }, trigger);
   });
+  loadAll();
+
+  window._viewCleanup = () => {
+    disposed = true;
+    window.clearTimeout(timer);
+    document.removeEventListener('visibilitychange', onVisible);
+    quoteModal.destroy();
+  };
 }

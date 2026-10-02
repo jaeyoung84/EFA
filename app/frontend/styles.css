@@ -3120,6 +3120,17 @@ body { background: var(--bg); }
   .dash-queue-list { flex: 1; min-height: 0; max-height: none; }
 }
 .dash-queue-price { color: #fff; }
+/* 금일 상승종목: 코스피·코스닥 전 종목 */
+.gainers-page.is-wide { max-width: none; width: 100%; }
+.gainers-markets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.gainers-market { min-width: 0; padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.gainers-market > header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.gainers-market h2 { margin: 0; color: #fff; font-size: 1.05rem; }
+.gainers-market small { color: var(--text-muted); font-size: .74rem; text-align: right; }
+.gainers-markets .gainers-list { max-width: none; }
+.gainers-limit { margin-left: 4px; padding: 1px 6px; color: #fff; background: var(--up); border-radius: 4px; font-size: .66rem; font-style: normal; font-weight: 800; vertical-align: 1px; }
+.gainers-filter { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: .78rem; cursor: pointer; }
+@media (max-width: 1100px) { .gainers-markets { grid-template-columns: 1fr; } }
 /* EINT-022 추천 종목의 섹터·섹터 순환 구역 */
 .sector-badge { display: inline-flex; align-items: center; gap: 5px; width: max-content; margin-top: 4px; padding: 2px 8px 2px 7px; color: #c3cbd8; background: #16233a; border: 1px solid var(--border-strong); border-radius: 6px; font-size: .72rem; font-weight: 600; white-space: nowrap; }
 .sector-badge b { color: #e6ebf3; font-weight: 700; }

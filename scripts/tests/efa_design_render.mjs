@@ -89,6 +89,15 @@ assert.ok(!badges.sectorBadgeHtml({ sector_name: '<img src=x>', quadrant: 'laggi
 assert.ok(badges.sectorSlot('010170').includes('data-sector-symbol="010170"'));
 assert.ok(queue.includes('data-sector-symbol="010170"'));
 
+// 금일 상승종목(코스피·코스닥 전 종목)
+const movers = await load('views/todayGainers.js');
+const moverRow = movers.moverRowMarkup({ rank: 1, ticker: '217590.KQ', code: '217590', name: XSS, price: 18440, change_pct: 29.95,
+  limit_up: true, trading_value_krw: 93_694_000_000, market_cap_krw: 444_300_000_000 });
+assert.ok(moverRow.includes('상한가') && moverRow.includes('거래대금 937억') && moverRow.includes('시총 4,443억') && !moverRow.includes('<img'));
+const moverStamp = movers.moverStampText({ market_status: 'OPEN', as_of: '2026-10-02T10:22:17+09:00', total_count: 1824, stale: false });
+assert.ok(moverStamp.startsWith('장중') && moverStamp.includes('10:22 체결 기준'));
+assert.ok(movers.moverStampText({ market_status: 'CLOSE', stale: true }).includes('이전 값'));
+
 // 재무 차트: x축 라벨 간격(좁으면 건너뛰기)
 const finSource = (await readFile(new URL('../../app/frontend/js/utils/financialCharts.js', import.meta.url), 'utf8'));
 const fin = await import(`data:text/javascript;base64,${Buffer.from(`const window = {};\n${finSource}`).toString('base64')}`);
@@ -97,4 +106,4 @@ assert.equal(fin.labelStep(38, 45), 2);
 assert.equal(fin.labelStep(40, 10), 5);
 assert.equal(fin.labelStep(40, 0), 1);
 
-console.log('EFA design: greeting, briefing, queue, treemap, flow, system, bell, watchlist, notes, financial label spacing passed');
+console.log('EFA design: greeting, briefing, queue, treemap, flow, system, bell, watchlist, notes, financial label spacing, market movers passed');
