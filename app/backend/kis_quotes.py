@@ -24,9 +24,17 @@ DOMAINS = {
     "real": ("https://openapi.koreainvestment.com:9443", "ws://ops.koreainvestment.com:21000"),
     "mock": ("https://openapivts.koreainvestment.com:29443", "ws://ops.koreainvestment.com:31000"),
 }
-# 실전 초당 20건·모의 초당 2건 제한보다 조금 낮게 쓴다.
-REST_PER_SECOND = {"real": 15, "mock": 2}
+# 문서상 실전 초당 20건·모의 2건이지만 신규 키 등은 더 낮게 제한된다(실측: 초당 약 7건부터 EGW00201).
+# 기본은 보수적으로 두고 KIS_REST_PER_SECOND로 바꿀 수 있다. '초과' 응답을 받으면 속도를 절반으로 낮추고
+# 30초 동안 문제가 없을 때마다 1건씩 다시 올린다.
+REST_PER_SECOND = {"real": 5.0, "mock": 1.5}
+RATE_LIMIT_CODE = "EGW00201"
+RATE_LIMIT_RETRIES = 2
+RATE_RECOVER_SECONDS = 30
 REST_CACHE_SECONDS = 5
+ERROR_CACHE_SECONDS = 2
+# 조회가 잠깐 실패해도 이 시간 안의 마지막 한투 시세를 계속 쓴다(전일 종가로 되돌아가지 않게).
+LAST_GOOD_SECONDS = 600
 REST_TIMEOUT_SECONDS = 4
 # 한투 WebSocket은 세션당 실시간 등록이 41건까지다. 여유를 두고 40개만 쓴다.
 STREAM_LIMIT = 40
@@ -112,7 +120,8 @@ def plan_subscriptions(current: set[str], interest: dict[str, float], now: float
 
 class KisQuotes:
     def __init__(self, app_key: str = "", app_secret: str = "", env: str = "real", *,
-                 http: httpx.AsyncClient | None = None, connect=None, clock=time.monotonic):
+                 http: httpx.AsyncClient | None = None, connect=None, clock=time.monotonic,
+                 rest_per_second: float | None = None):
         self.app_key, self.app_secret = app_key.strip(), app_secret.strip()
         self.env = env if env in DOMAINS else "real"
         self.rest_base, self.ws_url = DOMAINS[self.env]
@@ -124,7 +133,12 @@ class KisQuotes:
         self._token_lock = asyncio.Lock()
         self._rate_lock = asyncio.Lock()
         self._next_slot = 0.0
+        self.max_rate = float(rest_per_second or REST_PER_SECOND[self.env])
+        self.rate = self.max_rate
+        self._rate_changed_at = 0.0
         self._rest_cache: dict[str, tuple[float, dict]] = {}
+        self._last_good: dict[str, tuple[float, dict]] = {}
+        self._inflight: dict[str, asyncio.Future] = {}
         self.interest: dict[str, float] = {}
         self.ticks: dict[str, dict] = {}
         self.subscribed: set[str] = set()
@@ -162,15 +176,38 @@ class KisQuotes:
             return token
 
     async def _wait_rate_slot(self) -> None:
-        interval = 1 / REST_PER_SECOND[self.env]
         async with self._rate_lock:
+            interval = 1 / self.rate
             now = self._clock()
             wait = self._next_slot - now
             self._next_slot = max(now, self._next_slot) + interval
         if wait > 0:
             await asyncio.sleep(wait)
 
+    def _slow_down(self) -> None:
+        self.rate = max(1.0, self.rate / 2)
+        self._rate_changed_at = self._clock()
+
+    def _maybe_speed_up(self) -> None:
+        now = self._clock()
+        if self.rate < self.max_rate and now - self._rate_changed_at >= RATE_RECOVER_SECONDS:
+            self.rate = min(self.max_rate, self.rate + 1)
+            self._rate_changed_at = now
+
     async def _rest_price(self, code: str, retry: bool = True) -> dict:
+        for attempt in range(RATE_LIMIT_RETRIES + 1):
+            payload = await self._rest_call(code)
+            if payload.get("msg_cd") != RATE_LIMIT_CODE or attempt == RATE_LIMIT_RETRIES:
+                break
+            self._slow_down()   # 초당 건수 초과: 속도를 낮춰 다시 줄을 선다
+        if payload.get("msg_cd") == "EGW00123" and retry:   # 토큰 만료: 한 번만 새로 발급
+            self._token = None
+            return await self._rest_price(code, retry=False)
+        price = parse_rest_price(payload)
+        self._maybe_speed_up()
+        return price
+
+    async def _rest_call(self, code: str) -> dict:
         token = await self._access_token()
         await self._wait_rate_slot()
         response = await self._client().get(
@@ -178,11 +215,7 @@ class KisQuotes:
             params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": code},
             headers={"authorization": f"Bearer {token}", "appkey": self.app_key, "appsecret": self.app_secret,
                      "tr_id": "FHKST01010100", "custtype": "P"})
-        payload = response.json() if response.content else {}
-        if payload.get("msg_cd") == "EGW00123" and retry:   # 토큰 만료: 한 번만 새로 발급
-            self._token = None
-            return await self._rest_price(code, retry=False)
-        return parse_rest_price(payload)
+        return response.json() if response.content else {}
 
     # ── 조회 ──
     def note_interest(self, tickers: list[str]) -> None:
@@ -212,15 +245,44 @@ class KisQuotes:
                     "quoted_at": tick["traded_at"], "source": "kis_realtime"}
         now = self._clock()
         cached = self._rest_cache.get(code)
-        if cached and now - cached[0] < REST_CACHE_SECONDS:
-            return cached[1]
+        if cached and now - cached[0] < (REST_CACHE_SECONDS if cached[1]["status"] == "ok" else ERROR_CACHE_SECONDS):
+            return self._with_last_good(code, cached[1])
+        if code in self._inflight:   # 같은 종목을 동시에 여러 화면이 물으면 한 번만 조회한다
+            return self._with_last_good(code, await asyncio.shield(self._inflight[code]))
+        future = asyncio.get_running_loop().create_future()
+        self._inflight[code] = future
         try:
-            price = await asyncio.wait_for(self._rest_price(code), timeout=REST_TIMEOUT_SECONDS + 2)
+            price = await asyncio.wait_for(self._rest_price(code), timeout=REST_TIMEOUT_SECONDS + 4)
             result = {"status": "ok", **price, "quoted_at": datetime.now(timezone.utc).isoformat(), "source": "kis_rest"}
+            self._last_good[code] = (self._clock(), result)
         except (KisError, httpx.HTTPError, asyncio.TimeoutError, ValueError) as exc:
+            self.last_error = f"REST {code}: {exc or type(exc).__name__}"
             result = {"status": "error", "reason": f"한투 시세 조회 실패: {exc or type(exc).__name__}"}
+        finally:
+            self._inflight.pop(code, None)
         self._rest_cache[code] = (now, result)
-        return result
+        future.set_result(result)
+        return self._with_last_good(code, result)
+
+    def _with_last_good(self, code: str, result: dict) -> dict:
+        """실패했어도 10분 안의 마지막 한투 시세(실시간 체결 포함)가 있으면 그것을 '지연'으로 표시해 쓴다."""
+        if result["status"] == "ok":
+            return result
+        candidates = []
+        if code in self._last_good:
+            candidates.append(self._last_good[code])
+        tick = self.ticks.get(code)
+        if tick:
+            candidates.append((tick["received"], {"status": "ok", "price": tick["price"], "change": tick["change"],
+                                                  "change_pct": tick["change_pct"], "quoted_at": tick["traded_at"],
+                                                  "source": "kis_realtime"}))
+        if not candidates:
+            return result
+        at, good = max(candidates, key=lambda item: item[0])
+        age = self._clock() - at
+        if age > LAST_GOOD_SECONDS:
+            return result
+        return {**good, "stale_seconds": round(age), "stale_reason": result.get("reason")}
 
     async def quotes(self, tickers: list[str]) -> dict[str, dict]:
         unique = list(dict.fromkeys(tickers))
@@ -228,7 +290,7 @@ class KisQuotes:
         return dict(zip(unique, results))
 
     def status(self) -> dict:
-        return {"enabled": self.enabled, "env": self.env, "stream_connected": self.connected,
+        return {"enabled": self.enabled, "env": self.env, "rest_per_second": self.rate, "stream_connected": self.connected,
                 "stream_subscribed": len(self.subscribed), "stream_limit": STREAM_LIMIT, "last_error": self.last_error}
 
     # ── WebSocket ──
@@ -334,8 +396,12 @@ _service: KisQuotes | None = None
 def kis_service() -> KisQuotes:
     global _service
     if _service is None:
+        try:
+            rate = float(os.getenv("KIS_REST_PER_SECOND", "") or 0) or None
+        except ValueError:
+            rate = None
         _service = KisQuotes(os.getenv("KIS_APP_KEY", ""), os.getenv("KIS_APP_SECRET", ""),
-                             os.getenv("KIS_ENV", "real").strip().lower())
+                             os.getenv("KIS_ENV", "real").strip().lower(), rest_per_second=rate)
     return _service
 
 

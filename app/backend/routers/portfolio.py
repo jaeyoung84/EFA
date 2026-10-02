@@ -135,10 +135,13 @@ async def _valuation_quotes(holdings: list[dict]) -> dict[str, dict]:
     tickers = [holding["ticker"] for holding in holdings]
     if any(holding["currency"] == "USD" for holding in holdings):
         tickers.append("KRW=X")
-    # 한투 키가 있으면 국내 종목은 한투 체결가가 우선이고, 실패한 종목만 기존 일봉 캐시·Yahoo로 간다.
-    live = {ticker: quote for ticker, quote in (await domestic_kis_quotes(tickers)).items() if quote["status"] == "ok"}
-    cached = {**(await _cached_daily_quotes([ticker for ticker in tickers if ticker not in live])), **live}
-    missing = [ticker for ticker in dict.fromkeys(tickers) if ticker not in cached]
+    # 한투 키가 있으면 국내 종목은 한투 체결가가 우선이다. 한투가 실패한 종목은 전일 종가(일봉 캐시)로 바로 가지 않고
+    # Yahoo 장중 지연 시세를 먼저 시도한다 — 평가액이 실시간과 전일 종가 사이를 오가지 않게 한다.
+    kis = await domestic_kis_quotes(tickers)
+    live = {ticker: quote for ticker, quote in kis.items() if quote["status"] == "ok"}
+    kis_failed = {ticker for ticker, quote in kis.items() if quote["status"] != "ok"}
+    daily = await _cached_daily_quotes([ticker for ticker in tickers if ticker not in live])
+    missing = [ticker for ticker in dict.fromkeys(tickers) if ticker not in live and (ticker not in daily or ticker in kis_failed)]
     network_tickers, skipped_tickers = missing[:MAX_NETWORK_QUOTE_FETCHES], missing[MAX_NETWORK_QUOTE_FETCHES:]
     gate = asyncio.Semaphore(MAX_CONCURRENT_QUOTE_FETCHES)
 
@@ -147,8 +150,12 @@ async def _valuation_quotes(holdings: list[dict]) -> dict[str, dict]:
             return await _bounded_quote(ticker)
 
     fetched = await asyncio.gather(*(limited(ticker) for ticker in network_tickers))
-    quotes = {**cached, **dict(zip(network_tickers, fetched))}
-    quotes.update({ticker: {"status": "error", "reason": f"외부 시세 조회는 한 번에 {MAX_NETWORK_QUOTE_FETCHES}종목까지라 이번 평가에서 제외되었습니다."} for ticker in skipped_tickers})
+    quotes = {**daily, **live}
+    for ticker, quote in zip(network_tickers, fetched):
+        if quote["status"] == "ok" or ticker not in daily:   # Yahoo도 실패하면 일봉 캐시를 그대로 쓴다
+            quotes[ticker] = quote
+    quotes.update({ticker: {"status": "error", "reason": f"외부 시세 조회는 한 번에 {MAX_NETWORK_QUOTE_FETCHES}종목까지라 이번 평가에서 제외되었습니다."}
+                   for ticker in skipped_tickers if ticker not in quotes})
     return quotes
 
 

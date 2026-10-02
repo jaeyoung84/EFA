@@ -112,10 +112,50 @@ async def test_expired_token_is_reissued_once_and_errors_are_reported():
     assert quote["price"] == 1000.0 and [c.url.path for c in calls].count("/oauth2/tokenP") == 2
 
     calls2 = []
-    limited = {"rt_cd": "1", "msg_cd": "EGW00201", "msg1": "초당 거래건수를 초과하였습니다."}
-    failing = KisQuotes("key", "secret", http=kis_http(calls2, [limited]), clock=Clock())
+    failing = KisQuotes("key", "secret", http=kis_http(calls2, [LIMITED] * 3), clock=Clock())
     error = await failing.quote("000660.KS")
     assert error["status"] == "error" and "EGW00201" in error["reason"]
+    assert sum(c.url.path.endswith("inquire-price") for c in calls2) == 3      # 처음 + 재시도 2번
+
+
+LIMITED = {"rt_cd": "1", "msg_cd": "EGW00201", "msg1": "초당 거래건수를 초과하였습니다."}
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_reply_slows_down_retries_and_recovers():
+    calls, clock = [], Clock()
+    service = KisQuotes("key", "secret", http=kis_http(calls, [LIMITED, price_payload("1234")]), clock=clock, rest_per_second=4)
+    quote = await service.quote("005930.KS")
+    assert quote["status"] == "ok" and quote["price"] == 1234.0
+    assert service.rate == 2.0 and sum(c.url.path.endswith("inquire-price") for c in calls) == 2
+    clock.now += kis_quotes.RATE_RECOVER_SECONDS + 1
+    clock.now += kis_quotes.REST_CACHE_SECONDS
+    await service.quote("005930.KS")
+    assert service.rate == 3.0                     # 30초 동안 문제가 없으면 1건씩 회복
+    assert KisQuotes("k", "s").rate == kis_quotes.REST_PER_SECOND["real"]
+
+
+@pytest.mark.asyncio
+async def test_failure_keeps_last_kis_price_instead_of_previous_close():
+    calls, clock = [], Clock()
+    service = KisQuotes("key", "secret", http=kis_http(calls, [price_payload("5000"), *([LIMITED] * 6)]), clock=clock)
+    assert (await service.quote("005930.KS"))["price"] == 5000.0
+    clock.now += 60
+    held = await service.quote("005930.KS")
+    assert held["status"] == "ok" and held["price"] == 5000.0 and held["source"] == "kis_rest"
+    assert held["stale_seconds"] == 60 and "EGW00201" in held["stale_reason"]
+    clock.now += kis_quotes.LAST_GOOD_SECONDS          # 10분이 넘은 값은 더 쓰지 않는다
+    expired = await service.quote("005930.KS")
+    assert expired["status"] == "error" and "EGW00201" in expired["reason"]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_requests_for_one_stock_share_a_single_call():
+    calls = []
+    service = KisQuotes("key", "secret", http=kis_http(calls), clock=Clock())
+    first, second = await asyncio.gather(service.quote("005930.KS"), service.quote("005930.KS"))
+    assert first["price"] == second["price"] == 71900.0
+    assert sum(c.url.path.endswith("inquire-price") for c in calls) == 1
 
 
 @pytest.mark.asyncio
@@ -256,3 +296,32 @@ async def test_without_keys_portfolio_keeps_previous_path(monkeypatch):
     monkeypatch.setattr(portfolio, "_cached_daily_quotes", cached)
     quotes = await portfolio._valuation_quotes([{"ticker": "005930.KS", "currency": "KRW"}])
     assert quotes["005930.KS"]["source"] == "market_data_cache_daily"
+
+
+@pytest.mark.asyncio
+async def test_kis_failure_tries_yahoo_intraday_before_previous_close(monkeypatch):
+    from app.backend.routers import portfolio
+
+    class FakeKis(KisQuotes):
+        async def quote(self, ticker):
+            if ticker == "005930.KS":
+                return {"status": "ok", "price": 500.0, "change": 0.0, "change_pct": 0.0, "quoted_at": "t", "source": "kis_realtime"}
+            return {"status": "error", "reason": "한투 시세 조회 실패: EGW00201"}
+
+    kis_quotes._set_service_for_tests(FakeKis("key", "secret"))
+
+    async def cached(tickers):
+        return {t: {"status": "ok", "price": 1.0, "change_pct": 0.0, "quoted_at": "2026-10-01T00:00:00+00:00",
+                    "source": "market_data_cache_daily"} for t in tickers}
+
+    async def yahoo(ticker):
+        if ticker == "000660.KS":
+            return {"status": "ok", "price": 300.0, "change_pct": 1.0, "quoted_at": "y", "source": "yahoo_delayed"}
+        return {"status": "error", "reason": "yahoo down"}
+
+    monkeypatch.setattr(portfolio, "_cached_daily_quotes", cached)
+    monkeypatch.setattr(portfolio, "_bounded_quote", yahoo)
+    quotes = await portfolio._valuation_quotes([{"ticker": t, "currency": "KRW"} for t in ("005930.KS", "000660.KS", "247540.KQ")])
+    assert quotes["005930.KS"]["source"] == "kis_realtime"
+    assert quotes["000660.KS"]["price"] == 300.0                                   # 한투 실패 → Yahoo 장중
+    assert quotes["247540.KQ"]["source"] == "market_data_cache_daily"              # 둘 다 실패해야 전일 종가
