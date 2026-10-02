@@ -9,6 +9,25 @@ const QUADRANT = {
   leading: ['주도', '#22c55e'], improving: ['개선', '#3b8bff'], weakening: ['약화', '#f5b800'], lagging: ['부진', '#ff4d5e'],
 };
 
+// 같은 종목을 여러 영역(브리핑·의사결정 큐 등)이 동시에 그려도 서버에는 한 번만 묻고 5분간 결과를 함께 쓴다.
+const CACHE_MS = 5 * 60 * 1000;
+const cache = new Map();
+function lookup(symbols) {
+  const now = Date.now();
+  const missing = symbols.filter((symbol) => !(cache.has(symbol) && now - cache.get(symbol).at < CACHE_MS)).slice(0, 30);
+  if (missing.length) {
+    const batch = authRequest(`/api/market/stock-sectors?symbols=${encodeURIComponent(missing.join(','))}`)
+      .then(({ items }) => Object.fromEntries((items || []).map((item) => [item.symbol, item])))
+      .catch(() => ({}));
+    missing.forEach((symbol) => cache.set(symbol, { at: now, promise: batch.then((bySymbol) => {
+      if (!bySymbol[symbol]) cache.delete(symbol);   // 실패한 종목은 다음에 다시 묻는다
+      return bySymbol[symbol];
+    }) }));
+  }
+  return Promise.all(symbols.map((symbol) => cache.get(symbol)?.promise))
+    .then((items) => Object.fromEntries(symbols.map((symbol, index) => [symbol, items[index]])));
+}
+
 export function sectorSlot(symbol) {
   return `<span class="sector-badge is-loading" data-sector-symbol="${esc(symbol)}">섹터 확인 중</span>`;
 }
@@ -29,11 +48,6 @@ export async function fillSectorBadges(root) {
   const slots = [...root.querySelectorAll('[data-sector-symbol]')];
   const symbols = [...new Set(slots.map((slot) => slot.dataset.sectorSymbol).filter(Boolean))];
   if (!symbols.length) return;
-  try {
-    const { items } = await authRequest(`/api/market/stock-sectors?symbols=${encodeURIComponent(symbols.join(','))}`);
-    const bySymbol = Object.fromEntries((items || []).map((item) => [item.symbol, item]));
-    slots.forEach((slot) => { if (slot.isConnected) slot.outerHTML = sectorBadgeHtml(bySymbol[slot.dataset.sectorSymbol]); });
-  } catch {
-    slots.forEach((slot) => { if (slot.isConnected) slot.outerHTML = sectorBadgeHtml(null); });
-  }
+  const bySymbol = await lookup(symbols);
+  slots.forEach((slot) => { if (slot.isConnected) slot.outerHTML = sectorBadgeHtml(bySymbol[slot.dataset.sectorSymbol]); });
 }

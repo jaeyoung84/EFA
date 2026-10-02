@@ -61,3 +61,9 @@ def test_nginx_drops_unknown_host_names():
     assert re.search(r"listen 80 default_server;\s*server_name _;\s*return 444;", conf)
     assert re.search(r"listen 443 ssl default_server;\s*server_name _;\s*ssl_reject_handshake on;", conf)
     assert conf.count("default_server") == 2 and "server_tokens off;" in conf
+
+
+def test_backend_container_has_a_memory_cap():
+    compose = (ROOT / "docker-compose.prod.yml").read_text()
+    backend = compose[compose.index("  backend:"):compose.index("  mongo:")]
+    assert re.search(r"^\s*mem_limit: 1g$", backend, re.M) and "restart: unless-stopped" in backend

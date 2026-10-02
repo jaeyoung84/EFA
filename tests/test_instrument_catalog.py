@@ -162,3 +162,32 @@ def test_ranking_endpoints_reuse_results_for_a_minute(monkeypatch):
     first, second = main.market_top_sobujang(20), main.market_top_sobujang(20)
     assert (first["cached"], second["cached"], len(calls)) == (False, True, 1)
     main._ranking_cache.clear()
+
+
+def test_dart_corp_codes_download_once_under_concurrent_first_use(monkeypatch):
+    """2026-10-02 장애 회귀: 첫 사용 때 동시 요청이 와도 대용량 회사코드 목록은 한 번만 받고 해석한다."""
+    import threading, time, zipfile
+    main._load_dart_corp_codes.cache_clear()
+    monkeypatch.setenv("DART_API_KEY", "x" * 40)
+    xml = ('<?xml version="1.0" encoding="UTF-8"?><result>'
+           + "".join(f"<list><corp_code>{i:08d}</corp_code><corp_name>회사{i}</corp_name><stock_code>{i:06d}</stock_code>"
+                     f"<modify_date>20260101</modify_date></list>" for i in range(200)) + "</result>").encode()
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zf:
+        zf.writestr("CORPCODE.xml", xml)
+    calls = []
+
+    def fake_urlopen(*_a, **_k):
+        calls.append(1)
+        time.sleep(0.2)   # 다운로드가 걸리는 동안 다른 스레드가 들어온다
+        return io.BytesIO(buffer.getvalue())
+
+    monkeypatch.setattr(main.urllib.request, "urlopen", fake_urlopen)
+    results = []
+    threads = [threading.Thread(target=lambda: results.append(main._load_dart_corp_codes())) for _ in range(8)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    main._load_dart_corp_codes.cache_clear()
+    assert len(calls) == 1 and len(results) == 8
+    assert all(len(r) == 200 for r in results) and results[0][5] == {"corp_code": "00000005", "corp_name": "회사5",
+                                                                      "stock_code": "000005", "modify_date": "20260101"}

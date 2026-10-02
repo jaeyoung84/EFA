@@ -3,6 +3,9 @@ services:
     image: ${BACKEND_IMAGE:-ghcr.io/edumgt/investment-analysis-backend:latest}
     container_name: investment_backend
     restart: unless-stopped
+    # 메모리가 비정상적으로 늘면 서버 전체가 멈추지 않고 이 컨테이너만 재시작되게 한다(2026-10-02 장애 대응).
+    # 평소 사용량은 150~400MB이며, 서버 전체 메모리는 약 1.9GB다.
+    mem_limit: 1g
     ports:
       # 서버 내부에서만 받는다. 외부 접속은 Cloudflare → nginx(443) → 127.0.0.1:8801.
       - "127.0.0.1:8801:8000"

@@ -8,6 +8,25 @@ const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({
 const SOURCE = { dart: 'DART 공시', krx: '거래소 지정' };
 
 // full: 신호가 있으면 펼칠 수 있는 목록. hideClean: 신호가 없으면 아무것도 그리지 않는다(요약 배지가 따로 있을 때).
+// 같은 종목을 여러 영역(브리핑·의사결정 큐 등)이 동시에 그려도 서버에는 한 번만 묻고 5분간 결과를 함께 쓴다.
+const CACHE_MS = 5 * 60 * 1000;
+const cache = new Map();
+function lookup(symbols) {
+  const now = Date.now();
+  const missing = symbols.filter((symbol) => !(cache.has(symbol) && now - cache.get(symbol).at < CACHE_MS)).slice(0, 30);
+  if (missing.length) {
+    const batch = authRequest(`/api/market/stock-risk?symbols=${encodeURIComponent(missing.join(','))}`)
+      .then(({ items }) => Object.fromEntries((items || []).map((item) => [item.symbol, item])))
+      .catch(() => ({}));
+    missing.forEach((symbol) => cache.set(symbol, { at: now, promise: batch.then((bySymbol) => {
+      if (!bySymbol[symbol]) cache.delete(symbol);   // 실패한 종목은 다음에 다시 묻는다
+      return bySymbol[symbol];
+    }) }));
+  }
+  return Promise.all(symbols.map((symbol) => cache.get(symbol)?.promise))
+    .then((items) => Object.fromEntries(symbols.map((symbol, index) => [symbol, items[index]])));
+}
+
 export function riskSlot(symbol, { full = false, hideClean = false } = {}) {
   return `<span class="risk-badge is-loading" data-risk-symbol="${esc(symbol)}"${full ? ' data-risk-full' : ''}${hideClean ? ' data-risk-hide-clean' : ''}>위험 공시 확인 중</span>`;
 }
@@ -46,11 +65,7 @@ export async function fillRiskBadges(root) {
   const slots = [...root.querySelectorAll('[data-risk-symbol]')];
   const symbols = [...new Set(slots.map((slot) => slot.dataset.riskSymbol).filter(Boolean))];
   if (!symbols.length) return;
-  let bySymbol = {};
-  try {
-    const { items } = await authRequest(`/api/market/stock-risk?symbols=${encodeURIComponent(symbols.slice(0, 30).join(','))}`);
-    bySymbol = Object.fromEntries((items || []).map((item) => [item.symbol, item]));
-  } catch { /* 아래에서 '확인 실패'로 표시 */ }
+  const bySymbol = await lookup(symbols);   // 실패한 종목은 '확인 실패'로 표시
   slots.forEach((slot) => {
     if (slot.isConnected) slot.outerHTML = riskBadgeHtml(bySymbol[slot.dataset.riskSymbol], {
       full: slot.hasAttribute('data-risk-full'), hideClean: slot.hasAttribute('data-risk-hide-clean') });

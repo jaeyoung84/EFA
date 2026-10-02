@@ -326,8 +326,21 @@ def _dart_api_key() -> str:
     return key
 
 
-@lru_cache(maxsize=1)
+_DART_CORP_LOCK = Lock()
+
+
 def _load_dart_corp_codes() -> list[dict[str, str]]:
+    """DART 회사코드 목록(약 10만 개). 프로세스당 한 번만 받는다.
+
+    처음 쓰일 때 여러 요청이 동시에 오면(추천 종목 섹터·위험 공시를 병렬 조회) 스레드마다 같은 대용량 XML을
+    따로 내려받고 해석해 메모리가 바닥났다(2026-10-02 장애). 잠금으로 한 스레드만 만들고 나머지는 그 결과를 기다린다.
+    """
+    with _DART_CORP_LOCK:
+        return _load_dart_corp_codes_once()
+
+
+@lru_cache(maxsize=1)
+def _load_dart_corp_codes_once() -> list[dict[str, str]]:
     key = _dart_api_key()
     url = "https://opendart.fss.or.kr/api/corpCode.xml?" + urllib.parse.urlencode({"crtfc_key": key})
     try:
@@ -340,6 +353,7 @@ def _load_dart_corp_codes() -> list[dict[str, str]]:
         with zipfile.ZipFile(io.BytesIO(payload)) as zf:
             xml_name = zf.namelist()[0]
             xml_bytes = zf.read(xml_name)
+        del payload
     except zipfile.BadZipFile as exc:
         message = payload[:400].decode("utf-8", errors="ignore")
         status = re.search(r"<status>(\d+)</status>", message)
@@ -353,13 +367,16 @@ def _load_dart_corp_codes() -> list[dict[str, str]]:
                                                         f"{text.group(1) if text else ''})") from exc
         raise HTTPException(status_code=502, detail="DART 회사코드 목록을 해석하지 못했습니다.") from exc
 
-    root = ET.fromstring(xml_bytes)
+    # 전체 트리를 메모리에 올리지 않고 회사 하나씩 읽고 버린다(최대 메모리 사용량을 줄인다).
     rows: list[dict[str, str]] = []
-    for item in root.findall("list"):
+    for _, item in ET.iterparse(io.BytesIO(xml_bytes), events=("end",)):
+        if item.tag != "list":
+            continue
         corp_code = (item.findtext("corp_code") or "").strip()
         corp_name = (item.findtext("corp_name") or "").strip()
         stock_code = (item.findtext("stock_code") or "").strip()
         modify_date = (item.findtext("modify_date") or "").strip()
+        item.clear()
         if corp_code and corp_name:
             rows.append({
                 "corp_code": corp_code,
@@ -368,6 +385,9 @@ def _load_dart_corp_codes() -> list[dict[str, str]]:
                 "modify_date": modify_date,
             })
     return rows
+
+
+_load_dart_corp_codes.cache_clear = _load_dart_corp_codes_once.cache_clear  # type: ignore[attr-defined]
 
 
 @lru_cache(maxsize=4096)
@@ -507,6 +527,11 @@ async def market_stock_risk(symbols: str = "", user: dict = Depends(current_user
     codes = list(dict.fromkeys(code.strip() for code in symbols.split(",") if re.fullmatch(r"[0-9A-Z]{6}", code.strip())))[:30]
     today = datetime.now(timezone(timedelta(hours=9))).date()
     service = kis_service()
+    dart_gate = asyncio.Semaphore(4)   # DART 동시 조회 수 제한(스레드·메모리 보호)
+
+    async def dart(code: str) -> list[dict]:
+        async with dart_gate:
+            return await asyncio.to_thread(_dart_recent_disclosures, code, today)
 
     async def one(code: str) -> dict:
         hit = _RISK_CACHE.get(code)
@@ -514,7 +539,7 @@ async def market_stock_risk(symbols: str = "", user: dict = Depends(current_user
             return hit[1]
         errors: dict[str, str] = {}
         try:
-            disclosures = await asyncio.to_thread(_dart_recent_disclosures, code, today)
+            disclosures = await dart(code)
         except HTTPException as exc:
             disclosures, errors["dart"] = None, f"DART 공시 조회 실패: {exc.detail}"
         except Exception as exc:
