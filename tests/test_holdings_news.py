@@ -192,3 +192,15 @@ def test_name_mentions_first_aliases_and_ads_filtered():
         "삼성전자, 2나노 수율 개선", "'3성 장군' 옆 익숙한 얼굴...통역장교"]       # 종목명 기사가 먼저, 광고 제외
     naver = hn.relevant_news([kis_row("네이버 vs 카카오 멤버십 비교", ["035420", "035720"])], "035420", "NAVER")
     assert naver and naver[0]["mentions_name"] is True
+
+
+def test_naver_search_prefers_dedicated_search_keys(monkeypatch):
+    monkeypatch.setenv("NAVER_CLIENT_ID", "login-id")
+    monkeypatch.setenv("NAVER_CLIENT_SECRET", "login-secret")
+    monkeypatch.delenv("NAVER_SEARCH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("NAVER_SEARCH_CLIENT_SECRET", raising=False)
+    assert hn.NaverNewsSearch().client_id == "login-id"
+    monkeypatch.setenv("NAVER_SEARCH_CLIENT_ID", "search-id")
+    monkeypatch.setenv("NAVER_SEARCH_CLIENT_SECRET", "search-secret")
+    search = hn.NaverNewsSearch()
+    assert (search.client_id, search.client_secret, search.disabled_reason) == ("search-id", "search-secret", None)

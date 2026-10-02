@@ -184,8 +184,11 @@ def best_link(title: str, published_at: str | None, candidates: list[dict]) -> s
 
 class NaverNewsSearch:
     def __init__(self, client_id: str = "", client_secret: str = "", http: httpx.AsyncClient | None = None):
-        self.client_id = client_id or os.getenv("NAVER_CLIENT_ID", "").strip()
-        self.client_secret = client_secret or os.getenv("NAVER_CLIENT_SECRET", "").strip()
+        # 검색 전용 애플리케이션 키(NAVER_SEARCH_*)를 쓴다. 로그인 앱에 검색 API를 추가할 수 없어 따로 발급했다.
+        # 없으면 로그인 키로 시도한다(그 앱에 검색 권한이 있으면 동작).
+        self.client_id = client_id or (os.getenv("NAVER_SEARCH_CLIENT_ID", "").strip() or os.getenv("NAVER_CLIENT_ID", "").strip())
+        self.client_secret = client_secret or (os.getenv("NAVER_SEARCH_CLIENT_SECRET", "").strip()
+                                               or os.getenv("NAVER_CLIENT_SECRET", "").strip())
         self._http = http
         self.disabled_reason: str | None = None if self.client_id and self.client_secret else "네이버 키 없음"
 
