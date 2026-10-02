@@ -325,3 +325,51 @@ async def test_kis_failure_tries_yahoo_intraday_before_previous_close(monkeypatc
     assert quotes["005930.KS"]["source"] == "kis_realtime"
     assert quotes["000660.KS"]["price"] == 300.0                                   # 한투 실패 → Yahoo 장중
     assert quotes["247540.KQ"]["source"] == "market_data_cache_daily"              # 둘 다 실패해야 전일 종가
+
+
+class MemoryTokenStore:
+    def __init__(self, row=None):
+        self.row, self.saved = row, []
+
+    async def load(self):
+        return self.row
+
+    async def save(self, token, expires_at):
+        self.saved.append((token, expires_at))
+        self.row = (token, expires_at)
+
+
+@pytest.mark.asyncio
+async def test_access_token_is_shared_through_the_store_across_restarts():
+    from datetime import timedelta
+    store = MemoryTokenStore()
+    calls = []
+    first = KisQuotes("key", "secret", http=kis_http(calls), clock=Clock(), token_store=store)
+    await first.quote("005930.KS")
+    assert [c.url.path for c in calls].count("/oauth2/tokenP") == 1 and len(store.saved) == 1
+    calls2 = []
+    restarted = KisQuotes("key", "secret", http=kis_http(calls2), clock=Clock(), token_store=store)
+    await restarted.quote("005930.KS")
+    assert [c.url.path for c in calls2].count("/oauth2/tokenP") == 0           # 저장된 토큰 재사용
+    price_call = next(c for c in calls2 if c.url.path.endswith("inquire-price"))
+    assert price_call.headers["authorization"] == f"Bearer {store.saved[0][0]}"
+    nearly_expired = MemoryTokenStore(("old", datetime.now(timezone.utc) + timedelta(minutes=5)))
+    calls3 = []
+    await KisQuotes("key", "secret", http=kis_http(calls3), clock=Clock(), token_store=nearly_expired).quote("005930.KS")
+    assert [c.url.path for c in calls3].count("/oauth2/tokenP") == 1             # 곧 만료될 토큰은 새로 발급
+
+
+@pytest.mark.asyncio
+async def test_mongo_token_store_round_trip():
+    from datetime import timedelta
+    from app.backend.db import get_db
+    store = kis_quotes.MongoTokenStore("app-key-not-stored", "real")
+    expires = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(hours=20)
+    try:
+        await store.save("tok-1", expires)
+        token, loaded = await store.load()
+        assert token == "tok-1" and loaded == expires
+        row = await get_db().kis_access_tokens.find_one({})
+        assert "app-key-not-stored" not in json.dumps(row, default=str)
+    finally:
+        await get_db().kis_access_tokens.delete_many({})

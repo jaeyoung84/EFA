@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -118,10 +119,39 @@ def plan_subscriptions(current: set[str], interest: dict[str, float], now: float
     return add, remove
 
 
+class MongoTokenStore:
+    """접근토큰(24시간 유효)을 DB에 두어 재시작·배포·다른 프로세스가 다시 발급하지 않고 함께 쓴다.
+
+    한투는 토큰 발급을 1분에 1회로 제한하고 잦은 발급을 막는다. 앱키 자체는 저장하지 않고 해시만 키로 쓴다.
+    """
+
+    def __init__(self, app_key: str, env: str):
+        self._id = f"{env}:{hashlib.sha256(app_key.encode()).hexdigest()[:16]}"
+
+    @staticmethod
+    def _collection():
+        try:
+            from .db import get_db
+        except ImportError:
+            from db import get_db  # type: ignore
+        return get_db().kis_access_tokens
+
+    async def load(self) -> tuple[str, datetime] | None:
+        row = await self._collection().find_one({"_id": self._id})
+        if not row or not row.get("token") or not row.get("expires_at"):
+            return None
+        expires = row["expires_at"]
+        return row["token"], expires if expires.tzinfo else expires.replace(tzinfo=timezone.utc)
+
+    async def save(self, token: str, expires_at: datetime) -> None:
+        await self._collection().update_one({"_id": self._id}, {"$set": {
+            "token": token, "expires_at": expires_at, "issued_at": datetime.now(timezone.utc)}}, upsert=True)
+
+
 class KisQuotes:
     def __init__(self, app_key: str = "", app_secret: str = "", env: str = "real", *,
                  http: httpx.AsyncClient | None = None, connect=None, clock=time.monotonic,
-                 rest_per_second: float | None = None):
+                 rest_per_second: float | None = None, token_store=None):
         self.app_key, self.app_secret = app_key.strip(), app_secret.strip()
         self.env = env if env in DOMAINS else "real"
         self.rest_base, self.ws_url = DOMAINS[self.env]
@@ -130,6 +160,7 @@ class KisQuotes:
         self._clock = clock
         self._token: tuple[str, float] | None = None
         self._token_failed_at: float | None = None
+        self._token_store = token_store
         self._token_lock = asyncio.Lock()
         self._rate_lock = asyncio.Lock()
         self._next_slot = 0.0
@@ -162,6 +193,9 @@ class KisQuotes:
             now = self._clock()
             if self._token and now < self._token[1]:
                 return self._token[0]
+            stored = await self._load_stored_token()
+            if stored:
+                return stored
             if self._token_failed_at is not None and now - self._token_failed_at < TOKEN_RETRY_SECONDS:
                 raise KisError("접근토큰 발급 실패 후 재시도 대기 중입니다.")
             response = await self._client().post(f"{self.rest_base}/oauth2/tokenP", json={
@@ -173,7 +207,28 @@ class KisQuotes:
                 raise KisError(f"접근토큰 발급 실패: {data.get('error_description') or data.get('msg1') or response.status_code}")
             expires_in = float(data.get("expires_in") or 86_400)
             self._token, self._token_failed_at = (token, now + max(60.0, expires_in - 600)), None
+            if self._token_store:
+                try:
+                    await self._token_store.save(token, datetime.now(timezone.utc) + timedelta(seconds=expires_in))
+                except Exception:   # 저장 실패는 이번 프로세스의 조회를 막지 않는다
+                    pass
             return token
+
+    async def _load_stored_token(self) -> str | None:
+        if not self._token_store:
+            return None
+        try:
+            stored = await self._token_store.load()
+        except Exception:
+            return None
+        if not stored:
+            return None
+        token, expires_at = stored
+        remaining = (expires_at - datetime.now(timezone.utc)).total_seconds() - 600
+        if remaining <= 60:
+            return None
+        self._token = (token, self._clock() + remaining)
+        return token
 
     async def _wait_rate_slot(self) -> None:
         async with self._rate_lock:
@@ -400,8 +455,9 @@ def kis_service() -> KisQuotes:
             rate = float(os.getenv("KIS_REST_PER_SECOND", "") or 0) or None
         except ValueError:
             rate = None
-        _service = KisQuotes(os.getenv("KIS_APP_KEY", ""), os.getenv("KIS_APP_SECRET", ""),
-                             os.getenv("KIS_ENV", "real").strip().lower(), rest_per_second=rate)
+        app_key, env = os.getenv("KIS_APP_KEY", ""), os.getenv("KIS_ENV", "real").strip().lower()
+        _service = KisQuotes(app_key, os.getenv("KIS_APP_SECRET", ""), env, rest_per_second=rate,
+                             token_store=MongoTokenStore(app_key.strip(), env if env in DOMAINS else "real"))
     return _service
 
 
