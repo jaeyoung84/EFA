@@ -20,6 +20,7 @@ import { industryAnalysisView } from './views/industryAnalysis.js';
 import { dartCompanySearchView } from './views/dartCompanySearch.js';
 import { companyFinancialView } from './views/companyFinancial.js';
 import { dartFinancialAnalysisView } from './views/dartFinancialAnalysis.js';
+import { dartMarketActivityView } from './views/dartMarketActivity.js';
 import { api }                 from './api.js';
 import { restoreFormState, saveFormState } from './utils/localState.js';
 import { initAuth, recordUsage } from './auth.js';
@@ -58,11 +59,12 @@ const routes = {
   'dart-company-search':     { label: 'DART 기업 검색',             render: () => dartCompanySearchView(app) },
   'dart-financial-analysis': { label: 'DART 재무 분석',             render: () => dartFinancialAnalysisView(app) },
   'industry-analysis':       { label: '산업 비교',                  render: () => industryAnalysisView(app) },
+  'dart-market-activity':  { label: '자사주·내부자 공시',          render: () => dartMarketActivityView(app) },
   'server-resources':        { label: '시스템 상태',                render: () => serverResourcesView(app) },
 };
 
 const NAV_SECTIONS = {
-  analysis: ['company-financial', 'dart-company-search', 'dart-financial-analysis', 'industry-analysis'],
+  analysis: ['company-financial', 'dart-company-search', 'dart-financial-analysis', 'dart-market-activity', 'industry-analysis'],
   portfolio: ['portfolio-holdings', 'portfolio-risk', 'portfolio-combination'],
   kqs: ['strategy-board', 'my-strategies', 'strategy-backtest', 'leverage-dca'],
   market: ['world-markets', 'sector-rotation', 'asset-classes', 'today-gainers', 'today-sobujang', 'macro-realtime'],

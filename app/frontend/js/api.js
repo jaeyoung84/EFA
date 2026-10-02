@@ -20,6 +20,7 @@ export const api = {
   marketSnapshot:   (body)  => apiFetch('/api/market/snapshot',             { method: 'POST', body: JSON.stringify(body) }),
   macroRealtime:    (body)  => apiFetch('/api/macro/realtime',              { method: 'POST', body: JSON.stringify(body) }),
   dartCompanySearch:(body)  => apiFetch('/api/dart/company-search',         { method: 'POST', body: JSON.stringify(body) }),
+  dartMarketActivity: ()  => apiFetch('/api/dart/market-activity'),
   industrySector:   (body)  => apiFetch('/api/industry/sector',             { method: 'POST', body: JSON.stringify(body) }),
   industryPeer:     (body)  => apiFetch('/api/industry/peer',               { method: 'POST', body: JSON.stringify(body) }),
   companyFinancials:(body)  => apiFetch('/api/finance/company-financials',  { method: 'POST', body: JSON.stringify(body) }),
