@@ -39,6 +39,11 @@ try:
 except ImportError:
     from db import get_db
 
+
+try:
+    from .dart_market_activity import ensure_market_activity_indexes, latest_market_activity
+except ImportError:
+    from dart_market_activity import ensure_market_activity_indexes, latest_market_activity  # type: ignore
 try:
     from .sector_rotation import read_sector_rotation
     from .stock_sector import sector_status
@@ -215,6 +220,10 @@ async def _start_background_scheduler() -> None:
         # 시세 DB가 잠시 준비되지 않아도 기존 화면과 스케줄러 기동은 유지한다.
         print(f"Market-data indexes not ready during startup: {exc}")
     start_scheduler()
+    try:
+        await ensure_market_activity_indexes()
+    except Exception as exc:
+        print(f"DART market-activity indexes not ready during startup: {exc}")
     kis_service().start()   # 한투 키가 없으면 아무것도 하지 않는다
 
 
@@ -487,6 +496,12 @@ def dart_company_search(req: DartCompanySearchRequest) -> dict[str, object]:
 
 
 @app.get("/api/market/sector-rotation")
+
+@app.get("/api/dart/market-activity")
+async def dart_market_activity() -> dict:
+    """Latest scheduled, read-only DART treasury-stock and ownership snapshot."""
+    return await latest_market_activity()
+
 def market_sector_rotation() -> JSONResponse:
     """섹터 순환(RRG) 참고 자료: 엔진이 매 거래일 계산한 섹터 ETF의 상대강도·모멘텀과 최근 이동 궤적."""
     return JSONResponse(content=read_sector_rotation(), headers={"Cache-Control": "no-cache"})
@@ -1937,11 +1952,18 @@ def _score_financial_health(ratios: dict) -> tuple[float, dict]:
         breakdown[label] = {"score": round(s, 1), "max": max_score, "value": value}
         return s
 
-    # 부채비율 (20점) — 낮을수록 좋음 (역방향)
+    # 부채비율 (20점) — 낮을수록 좋음. 화면에는 실제 부채비율을 보여 준다.
+    # 자본총계가 음수(완전자본잠식)면 부채비율도 음수가 되는데, 이는 '부채가 적다'가 아니라 가장 위험한 상태라 0점이다.
     dr = ratios.get("debt_equity_ratio")
-    dr_inv = -dr if dr is not None else None  # invert so higher=better
-    total += score_item("debt_equity_ratio", "부채비율", 20,
-                        [(-50, 20), (-100, 16), (-200, 10), (-300, 5), (-1e9, 0)], dr_inv)
+    if dr is None:
+        dr_score = 20 * 0.5
+    elif dr < 0:
+        dr_score = 0.0
+    else:
+        dr_score = next(pts for limit, pts in [(50, 20), (100, 16), (200, 10), (300, 5), (float("inf"), 0)] if dr <= limit)
+    breakdown["부채비율"] = {"score": round(dr_score, 1), "max": 20, "value": dr,
+                          **({"note": "자본잠식"} if dr is not None and dr < 0 else {})}
+    total += dr_score
 
     # 영업이익률 (20점)
     total += score_item("op_margin", "영업이익률", 20,
@@ -2011,7 +2033,12 @@ def _generate_dart_analysis(
     # Debt structure
     dr = ratios.get("debt_equity_ratio")
     if dr is not None:
-        if dr < 50:
+        if dr < 0:
+            paragraphs.append(
+                "자본총계가 음수(완전자본잠식)라 부채비율을 정상적으로 해석할 수 없습니다. "
+                "관리종목 지정·상장 유지 요건과 증자 등 재무 위험을 반드시 확인하세요."
+            )
+        elif dr < 50:
             paragraphs.append(
                 f"부채비율 {dr:.1f}%는 매우 낮은 수준으로, 무차입 또는 보수적 재무 구조를 유지하고 있습니다. "
                 "금리 상승기에도 재무적 부담이 경미합니다."

@@ -90,14 +90,25 @@ function ratioCard(label, value, unit = '%', invert = false, hint = '') {
     </div>`;
 }
 
+// 자본총계가 음수(완전자본잠식)면 부채비율이 음수로 계산된다. '낮아서 안전'으로 보이지 않게 상태로 표시한다.
+function impairedCard(label) {
+  return `
+    <div style="background:#0f172a; border:1px solid #ef4444; border-radius:10px; padding:14px 16px; min-width:120px; flex:1;">
+      <div style="font-size:0.7rem; color:#64748b; margin-bottom:5px; letter-spacing:.03em;">${label}</div>
+      <div style="font-size:1.1rem; font-weight:700; color:#ef4444;">자본잠식</div>
+      <div style="font-size:0.68rem; color:#475569; margin-top:3px;">자본총계가 음수 · 해석 불가</div>
+    </div>`;
+}
+
 // ── Score breakdown bar ───────────────────────────────────────────────────────
 
 function breakdownHTML(breakdown) {
   const entries = Object.entries(breakdown);
-  return entries.map(([label, { score, max, value }]) => {
+  return entries.map(([label, { score, max, value, note }]) => {
     const pct_ = max > 0 ? (score / max * 100) : 0;
     const color = pct_ >= 75 ? '#22c55e' : pct_ >= 50 ? '#3b82f6' : pct_ >= 25 ? '#f59e0b' : '#ef4444';
-    const valStr = value !== null && value !== undefined
+    // note(예: 자본잠식)가 있으면 숫자 대신 그 상태를 보여 준다.
+    const valStr = note ? note : value !== null && value !== undefined
       ? (Number(value).toFixed(1) + (label.includes('비율') || label.includes('률') || label.includes('ROE') || label.includes('ROA') ? '%' : ''))
       : '-';
     return `
@@ -233,7 +244,9 @@ function renderAnalysis(data, container) {
 
         <!-- Key ratios -->
         <div style="display:flex; flex-wrap:wrap; gap:10px;">
-          ${ratioCard('부채비율', ratios.debt_equity_ratio, '%', true, '낮을수록 안전')}
+          ${ratios.debt_equity_ratio !== null && ratios.debt_equity_ratio !== undefined && Number(ratios.debt_equity_ratio) < 0
+            ? impairedCard('부채비율')
+            : ratioCard('부채비율', ratios.debt_equity_ratio, '%', true, '낮을수록 안전')}
           ${ratioCard('영업이익률', ratios.op_margin, '%', false, '높을수록 수익성↑')}
           ${ratioCard('ROE', ratios.roe, '%', false, report.annualized ? '자기자본이익률 · 연환산' : '자기자본이익률')}
           ${ratioCard('유동비율', ratios.current_ratio, '%', false, '100%↑ 권장')}

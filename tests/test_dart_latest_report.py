@@ -91,3 +91,20 @@ async def test_explicit_annual_report_is_not_annualized(client, dart):
 async def test_missing_report_explains_what_was_checked(client, dart):
     response = await client.post("/api/dart/financial-analysis", json={"corp_code": "00126380", "bsns_year": "2024", "reprt_code": "11012"})
     assert response.status_code == 404 and "2024년 반기" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("ratio,points", [(30.0, 20), (50.0, 20), (80.0, 16), (150.0, 10), (250.0, 5), (450.0, 0), (None, 10)])
+def test_debt_ratio_score_shows_the_real_ratio(ratio, points):
+    """'항목별 평가'에 부호를 뒤집은 값(-30%)이 아니라 실제 부채비율이 보여야 한다. 점수 구간은 그대로다."""
+    _, breakdown = main._score_financial_health({"debt_equity_ratio": ratio})
+    assert breakdown["부채비율"]["score"] == points and breakdown["부채비율"]["value"] == ratio
+    assert "note" not in breakdown["부채비율"]
+
+
+def test_capital_impairment_gets_zero_points_and_a_plain_warning():
+    """자본총계가 음수면 부채비율이 음수가 된다. 이전에는 이게 '매우 낮은 부채'로 만점(20)을 받았다."""
+    _, breakdown = main._score_financial_health({"debt_equity_ratio": -350.0})
+    assert breakdown["부채비율"] == {"score": 0.0, "max": 20, "value": -350.0, "note": "자본잠식"}
+    analysis = main._generate_dart_analysis({"corp_name": "테스트"}, "KOSDAQ", {"debt_equity_ratio": -350.0}, 30.0, "D", "2026")
+    text = json.dumps(analysis, ensure_ascii=False)
+    assert "완전자본잠식" in text and "매우 낮은 수준" not in text
