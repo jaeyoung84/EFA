@@ -54,3 +54,10 @@ def test_nginx_takes_client_ip_only_from_cloudflare_and_proxies_locally():
     assert "return 301 https://efa-quant.com$request_uri;" in conf  # http·www는 기본 주소로
     www_block = conf[conf.index("server_name www.efa-quant.com;"):]
     assert www_block.index("return 301 https://efa-quant.com$request_uri;") < www_block.index("}")
+
+
+def test_nginx_drops_unknown_host_names():
+    conf = (ROOT / "infra/nginx/efa-quant.conf").read_text()
+    assert re.search(r"listen 80 default_server;\s*server_name _;\s*return 444;", conf)
+    assert re.search(r"listen 443 ssl default_server;\s*server_name _;\s*ssl_reject_handshake on;", conf)
+    assert conf.count("default_server") == 2 and "server_tokens off;" in conf
