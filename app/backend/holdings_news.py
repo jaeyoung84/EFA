@@ -41,6 +41,14 @@ MAX_STOCKS = 20
 # 관련 종목이 이보다 많이 붙은 기사는 순위표·시황 정리 같은 자동 생성 목록으로 보고 뺀다(실응답 확인).
 MAX_RELATED_FOR_LIST = 5
 LIST_TITLE_PATTERN = re.compile(r"상위종목|하위종목|특징종목|마감시황|장마감|시황\)|체결강도|대차거래|공매도 잔고")
+# 기사로 들어오는 광고(스탁론·리딩방 등). 실응답에서 확인한 '-씽크풀스탁론-' 형태 포함.
+AD_TITLE_PATTERN = re.compile(r"스탁론|주식담보대출|기존대출|무료\s*(체험|상담|추천)|리딩방|급등주\s*추천|수익률\s*보장")
+# 제목에서 종목을 다르게 부르는 흔한 이름. 제목에 종목명(또는 별칭)이 있는 기사를 먼저 보여 준다.
+NAME_ALIASES = {
+    "NAVER": ("네이버",), "SK하이닉스": ("하이닉스",), "삼성전자": ("삼전",), "LG디스플레이": ("LGD", "LG디플"),
+    "현대자동차": ("현대차",), "LG에너지솔루션": ("LG엔솔", "엔솔"), "삼성바이오로직스": ("삼바",),
+    "두산에너빌리티": ("두산에빌",), "한화에어로스페이스": ("한화에어로",), "POSCO홀딩스": ("포스코홀딩스",),
+}
 NAVER_SEARCH_URL = "https://openapi.naver.com/v1/search/news.json"
 NAVER_STOCK_NEWS_URL = "https://m.stock.naver.com/domestic/stock/{code}/news"
 TITLE_MATCH_MIN = 0.72
@@ -118,16 +126,18 @@ def _published_at(row: dict) -> str | None:
 
 
 def relevant_news(rows: list[dict], code: str, name: str) -> list[dict]:
-    """이 종목에 관한 기사만 남긴다: 제목에 종목명이 있거나, 첫 번째 관련 종목이 이 종목이면서 순위표류가 아닌 기사."""
+    """이 종목에 관한 기사만 남긴다: 제목에 종목명(별칭 포함)이 있거나, 첫 번째 관련 종목이 이 종목이면서
+    순위표류가 아닌 기사. 광고는 뺀다. 종목명이 제목에 있는 기사가 앞에 온다."""
     items, seen_titles = [], set()
-    plain_name = re.sub(r"\s+", "", name)
+    names = [re.sub(r"\s+", "", n).lower() for n in (name, *NAME_ALIASES.get(name, ())) if n]
     for row in rows:
         title = html.unescape(str(row.get("hts_pbnt_titl_cntt") or "")).strip()
         related = [str(row.get(f"iscd{i}") or "").strip() for i in range(1, 11)]
         related = [c for c in related if c]
-        if not title or code not in related:
+        if not title or code not in related or AD_TITLE_PATTERN.search(title):
             continue
-        in_title = plain_name and plain_name in re.sub(r"\s+", "", title)
+        plain_title = re.sub(r"\s+", "", title).lower()
+        in_title = any(n in plain_title for n in names)
         is_list = len(related) > MAX_RELATED_FOR_LIST or bool(LIST_TITLE_PATTERN.search(title))
         if not in_title and (related[0] != code or is_list):
             continue
@@ -138,7 +148,8 @@ def relevant_news(rows: list[dict], code: str, name: str) -> list[dict]:
         items.append({"id": str(row.get("cntt_usiq_srno") or key), "code": code, "title": title,
                       "source": str(row.get("dorg") or "").strip() or None, "published_at": _published_at(row),
                       "mentions_name": bool(in_title)})
-    items.sort(key=lambda item: item["published_at"] or "", reverse=True)
+    # 제목에 종목명이 있는 기사를 먼저(대형주는 관련성이 약한 기사도 많이 붙는다), 그 안에서는 최신순.
+    items.sort(key=lambda item: (item["mentions_name"], item["published_at"] or ""), reverse=True)
     return items[:ITEMS_PER_STOCK_CACHED]
 
 

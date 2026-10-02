@@ -179,3 +179,16 @@ def test_scheduler_registers_the_news_job_within_5_to_10_minutes():
     assert 5 <= scheduler.HOLDINGS_NEWS_INTERVAL_MINUTES <= 10
     source = (scheduler.__file__ and open(scheduler.__file__).read())
     assert 'id="collect_holdings_news"' in source and "max_instances=1" in source
+
+
+def test_name_mentions_first_aliases_and_ads_filtered():
+    """서버 실데이터(2026-10-02)에서 본 사례: 대형주에 붙은 약한 관련 기사, 별칭(네이버), 스탁론 광고."""
+    rows = [
+        kis_row("'3성 장군' 옆 익숙한 얼굴...통역장교", ["005930"], tm="202614"),
+        kis_row("삼성전자, 2나노 수율 개선", ["005930"], tm="100000"),
+        kis_row("기존대출 상관없이 계좌당 최대 3억원까지 -씽크풀스탁론-", ["005930"], tm="210000"),
+    ]
+    assert [i["title"] for i in hn.relevant_news(rows, "005930", "삼성전자")] == [
+        "삼성전자, 2나노 수율 개선", "'3성 장군' 옆 익숙한 얼굴...통역장교"]       # 종목명 기사가 먼저, 광고 제외
+    naver = hn.relevant_news([kis_row("네이버 vs 카카오 멤버십 비교", ["035420", "035720"])], "035420", "NAVER")
+    assert naver and naver[0]["mentions_name"] is True
