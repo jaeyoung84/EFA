@@ -40,3 +40,16 @@ scripts/mongo_restore_drill.sh backups/<생성된-파일>.archive.gz .env.deskto
 3. 최신 백업의 SHA-256을 검증하고, 먼저 위 복구 훈련으로 아카이브를 확인한다.
 4. 실제 운영 DB 복구는 별도 승인·보관된 절차에서만 수행한다. 이 런북과 스크립트는 운영 DB 복구를 자동화하지 않는다.
 5. 데이터 정합성·감사 원장·전략 승인 상태를 확인한 후에만 킬스위치를 해제한다.
+
+## 운영 서버(EC2) 사이트 DB 일일 백업
+
+- 대상: `investment_mongo` 컨테이너의 `investment_db`(회원·판단 기록·포트폴리오·관심종목·노트). KQS 엔진 상태는
+  별도 `kqs-backup.timer`가 백업한다.
+- 실행: `app-mongo-backup.timer`가 매일 04:10 KST에 `infra/ops/app-mongo-backup.sh`를 돌린다. mongodump 압축본과
+  SHA-256을 만들고, 같은 Mongo의 임시 DB(`restore_check_*`)에 복원해 컬렉션 수·회원 수가 같은지 확인한 뒤 임시 DB를
+  지운다. 실패하면 `kqs-alert@`로 알린다.
+- 보관: 서버 `/srv/app-backups/<시각>/`에 최근 14개, S3 `APP_BACKUP_S3_URI`(비공개·SSE)에 업로드.
+- 수동 실행: `sudo systemctl start app-mongo-backup.service && journalctl -u app-mongo-backup.service -n 20`
+- 복구(승인 후에만): 아카이브 SHA-256 확인 → 임시 DB로 복원해 내용 확인 →
+  `docker exec -i investment_mongo mongorestore --archive --gzip --nsInclude 'investment_db.*' --drop < <아카이브>`.
+  `--drop`은 운영 DB를 덮어쓰므로 백엔드를 멈추고, 복구 직전 상태를 한 번 더 백업한 뒤에만 쓴다.

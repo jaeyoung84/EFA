@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily site MongoDB backup (members, decisions, portfolios)
+
+[Timer]
+OnCalendar=*-*-* 04:10:00 Asia/Seoul
+Persistent=true
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

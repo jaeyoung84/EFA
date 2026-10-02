@@ -1,0 +1,10 @@
+[Unit]
+Description=Site MongoDB backup with restore check, then private S3 upload
+Wants=docker.service
+After=docker.service
+OnFailure=kqs-alert@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/investing-app/infra/ops/app-mongo-backup.sh
+TimeoutStartSec=30min
