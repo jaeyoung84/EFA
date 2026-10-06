@@ -94,7 +94,7 @@ jobs:
           YEAR: ${{ steps.prep.outputs.year }}
           ACTION: ${{ steps.prep.outputs.action }}
         run: |
-          branch="calendar/krx-${YEAR}-$(date -u +%Y%m%d)"
+          branch="calendar/krx-${YEAR}-$(date -u +%Y%m%d)-${GITHUB_RUN_ID}"   # 같은 날 다시 실행해도 겹치지 않게
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$branch"
