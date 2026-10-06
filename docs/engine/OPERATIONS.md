@@ -103,6 +103,10 @@ AWS에 코드를 올리거나 서비스를 재시작하지 않았다.
   (`/swapfile`, swappiness 10). swap 없이 첫 실행이 OOM(exit 137)으로 종료됐다 — 제거하지 않는다.
 - S3 `s3://kqs-state-125022369601/`: `initial/`(초기 DB 사본), `backups/<UTC 시각>/`. ops.env에 업로드 URI.
 - 인증키: SSM `/kqs/krx-auth-key` → `/srv/kqs/secrets/krx.env`. 키 교체 시 파라미터 갱신 후 파일 재생성.
+- KRX Open API는 키 하나에 서비스(API)별 이용 승인이 따로 있다. 2026-10-03부터 '유가증권 일별매매정보'
+  (`sto/stk_bydd_trd`)만 `401 Unauthorized API Call`을 돌려 매일 수집이 `collect_failed`로 멈췄다(코스닥·ETF는 같은 키로 정상).
+  이 경우 KRX Open API 사이트에서 해당 서비스 이용 신청·승인을 다시 받는다. 진단: 서버에서 세 엔드포인트를 같은 키로
+  호출해 응답 코드를 비교한다(키 값은 출력하지 않는다).
 - 타이머: `systemctl list-timers 'kqs-*'`. 로그: `journalctl -u kqs-daily-pipeline.service`.
 - SNS 경보 미설정: `ops.env`에 `KQS_ALERT_SNS_TOPIC_ARN`을 넣고 역할에 `sns:Publish`를 추가하면 외부 알림.
 
