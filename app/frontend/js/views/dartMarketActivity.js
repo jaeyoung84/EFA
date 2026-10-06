@@ -45,6 +45,7 @@ function row(item) {
 }
 
 export function dartMarketActivityView(container) {
+// Codex 수정: DART-001 (2026-10-06), 최근 7일 공시 안내와 기존 표시본 보존.
   container.innerHTML = `
     <section class="dart-activity-page">
       <header class="dart-activity-head">
@@ -57,7 +58,7 @@ export function dartMarketActivityView(container) {
       </header>
       <section class="dart-activity-guide">
         <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
-        <p><strong>평일 20:00 KST 수집</strong> · 보유수량 증가는 장내 매수를 뜻한다고 단정할 수 없습니다. 스톡옵션 행사·증여·전환 등은 DART 원문을 확인하세요.</p>
+        <p><strong>최근 7일 공시 · 평일 20:00 KST 수집</strong> · 보유수량 증가는 장내 매수를 뜻한다고 단정할 수 없습니다. 스톡옵션 행사·증여·전환 등은 DART 원문을 확인하세요.</p>
       </section>
       <div class="dart-activity-summary" id="dart-activity-summary"></div>
       <div class="dart-activity-toolbar" aria-label="공시 유형 필터">
@@ -112,17 +113,22 @@ export function dartMarketActivityView(container) {
       items = data.items || [];
       renderSummary(data.counts || {});
       stamp.textContent = data.snapshot_date
-        ? `${data.snapshot_date} 수집 완료`
-        : '첫 수집 대기 중';
+        ? `최근 7일 · 최종 수집 ${data.snapshot_date}`
+        : '최근 7일 수집 기록 없음';
       note.textContent = data.note || 'OpenDART 공시정보 · 읽기 전용';
       if (data.status === 'pending') {
-        list.innerHTML = '<tr><td colspan="7" class="dart-activity-empty"><i class="fa-regular fa-clock"></i> 첫 수집은 다음 평일 20:00 KST 이후 표시됩니다.</td></tr>';
+        list.innerHTML = '<tr><td colspan="7" class="dart-activity-empty"><i class="fa-regular fa-clock"></i> 최근 7일 수집된 공시가 없습니다.</td></tr>';
       } else {
         render();
       }
     } catch (error) {
-      list.innerHTML = `<tr><td colspan="7" class="dart-activity-empty is-error">수집 기록을 불러오지 못했습니다: ${esc(error.message)}</td></tr>`;
-      note.textContent = 'OpenDART 수집 기록 조회 실패';
+      // Codex 수정: DART-001 (2026-10-06), 조회 실패 시 이미 표시한 수집본 유지.
+      if (items.length) {
+        note.textContent = `새로고침 실패 · 이전에 표시한 공시를 유지합니다: ${error.message}`;
+      } else {
+        list.innerHTML = `<tr><td colspan="7" class="dart-activity-empty is-error">수집 기록을 불러오지 못했습니다: ${esc(error.message)}</td></tr>`;
+        note.textContent = 'OpenDART 수집 기록 조회 실패';
+      }
     } finally {
       refresh.disabled = false;
     }

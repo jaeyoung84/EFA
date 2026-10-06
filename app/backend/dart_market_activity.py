@@ -12,7 +12,7 @@ import os
 import re
 import urllib.parse
 import urllib.request
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from .db import get_db
@@ -23,6 +23,7 @@ DART_API_URL = "https://opendart.fss.or.kr/api"
 DART_VIEW_URL = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"
 SNAPSHOT_COLLECTION = "dart_market_activity_snapshots"
 _MAX_DART_PAGES = 30
+RECENT_DAYS = 7  # Codex 수정: DART-001 (2026-10-06), 최근 7일 수집본 표시.
 
 
 def _dart_api_key() -> str:
@@ -158,18 +159,37 @@ async def ensure_market_activity_indexes() -> None:
     await db[SNAPSHOT_COLLECTION].create_index([("collected_at", -1)])
 
 
-async def collect_market_activity(now: datetime | None = None) -> dict:
-    """Collect one KST calendar day's public filings and preserve one snapshot."""
+# Codex 수정: DART-001 (2026-10-06), 당일 재수집과 최근 7일 공시 보존.
+async def collect_market_activity(now: datetime | None = None, *, refresh: bool = False) -> dict:
+    """Collect one KST day's filings; a failed or empty refresh cannot erase a populated snapshot."""
     current = (now or datetime.now(timezone.utc)).astimezone(KST)
     snapshot_date = current.date().isoformat()
-    db = get_db()
-    existing = await db[SNAPSHOT_COLLECTION].find_one({"snapshot_date": snapshot_date}, {"_id": 0})
-    if existing and existing.get("status") == "success":
+    collection = get_db()[SNAPSHOT_COLLECTION]
+    existing = await collection.find_one({"snapshot_date": snapshot_date}, {"_id": 0})
+    previous_success = bool(existing and existing.get("status") == "success")
+    # Codex 수정: DART-001, 장 마감 전 수동 수집은 20:00 정기 수집을 막지 않는다.
+    collected_at = existing.get("collected_at") if existing else None
+    # MongoDB 기본 디코딩은 UTC 날짜를 naive datetime으로 반환한다.
+    if isinstance(collected_at, datetime) and collected_at.tzinfo is None:
+        collected_at = collected_at.replace(tzinfo=timezone.utc)
+    collected_kst = collected_at.astimezone(KST) if isinstance(collected_at, datetime) else None
+    scheduled_recheck = (
+        previous_success
+        and collected_kst is not None
+        and collected_kst.date() == current.date()
+        and collected_kst.time() < time(20, 0)
+        and current.time() >= time(20, 0)
+    )
+    if previous_success and existing.get("items") and not (refresh or scheduled_recheck):
         return existing
 
     started_at = datetime.now(timezone.utc)
-    base = {"snapshot_date": snapshot_date, "started_at": started_at, "status": "running"}
-    await db[SNAPSHOT_COLLECTION].update_one({"snapshot_date": snapshot_date}, {"$set": base}, upsert=True)
+    if not previous_success:
+        await collection.update_one(
+            {"snapshot_date": snapshot_date},
+            {"$set": {"snapshot_date": snapshot_date, "started_at": started_at, "status": "running"}},
+            upsert=True,
+        )
     try:
         rows = await asyncio.to_thread(_list_disclosures, current.date(), "B")
         rows += await asyncio.to_thread(_list_disclosures, current.date(), "D")
@@ -192,7 +212,7 @@ async def collect_market_activity(now: datetime | None = None) -> dict:
             "items": items,
             "counts": _counts(items),
             "source": "OpenDART 공시정보",
-            "note": "매일 20:00 KST에 수집한 읽기 전용 공시입니다. 보유수량 증감은 매수·매도를 단정하지 않습니다.",
+            "note": "평일 20:00 KST에 수집한 읽기 전용 공시입니다. 보유수량 증감은 매수·매도를 단정하지 않습니다.",
         }
     except Exception as exc:
         logger.warning("DART 시장활동 수집 실패", exc_info=True)
@@ -207,20 +227,56 @@ async def collect_market_activity(now: datetime | None = None) -> dict:
             "error": str(exc),
             "note": "DART 수집에 실패했습니다. 다음 예정 수집에서 다시 확인합니다.",
         }
-    await db[SNAPSHOT_COLLECTION].update_one({"snapshot_date": snapshot_date}, {"$set": result}, upsert=True)
+        if not previous_success:
+            await collection.update_one({"snapshot_date": snapshot_date}, {"$set": result}, upsert=True)
+        return result
+
+    if previous_success and existing.get("items") and not items:
+        return {**existing, "refresh_status": "no_new_items", "refresh_attempted_at": result["collected_at"]}
+    await collection.update_one({"snapshot_date": snapshot_date}, {"$set": result}, upsert=True)
     return result
 
 
-async def latest_market_activity() -> dict:
-    """Return the latest completed snapshot without querying DART on page load."""
-    document = await get_db()[SNAPSHOT_COLLECTION].find_one({"status": "success"}, {"_id": 0}, sort=[("snapshot_date", -1)])
-    if document:
-        return document
+async def latest_market_activity(now: datetime | None = None) -> dict:
+    """Combine successful snapshots in the last seven KST calendar days, without querying DART."""
+    today = (now or datetime.now(timezone.utc)).astimezone(KST).date()
+    window_start = (today - timedelta(days=RECENT_DAYS - 1)).isoformat()
+    documents = await get_db()[SNAPSHOT_COLLECTION].find(
+        {"status": "success", "snapshot_date": {"$gte": window_start, "$lte": today.isoformat()}},
+        {"_id": 0},
+    ).sort("snapshot_date", -1).to_list(length=RECENT_DAYS)
+    if documents:
+        items: list[dict] = []
+        seen: set[str] = set()
+        for document in documents:
+            for item in document.get("items") or []:
+                receipt = str(item.get("rcept_no") or "")
+                if receipt and receipt in seen:
+                    continue
+                if receipt:
+                    seen.add(receipt)
+                items.append(item)
+        items.sort(key=lambda item: (item.get("rcept_date") or "", item.get("rcept_no") or ""), reverse=True)
+        latest_with_items = next((document["snapshot_date"] for document in documents if document.get("items")), None)
+        return {
+            "status": "success",
+            "snapshot_date": documents[0]["snapshot_date"],
+            "latest_disclosure_date": latest_with_items,
+            "window_start": window_start,
+            "window_end": today.isoformat(),
+            "collected_at": documents[0].get("collected_at"),
+            "items": items,
+            "counts": _counts(items),
+            "source": "OpenDART 공시정보",
+            "note": "최근 7일 수집 공시입니다. 새 수집이 0건이거나 실패해도 기간 안의 기존 공시를 유지합니다. 보유수량 증감은 매수·매도를 단정하지 않습니다.",
+        }
     return {
         "status": "pending",
         "snapshot_date": None,
+        "window_start": window_start,
+        "window_end": today.isoformat(),
         "items": [],
         "counts": _counts([]),
         "source": "OpenDART 공시정보",
-        "note": "첫 수집은 평일 20:00 KST 이후 표시됩니다. 페이지를 열어도 즉시 DART를 호출하지 않습니다.",
+        "note": "최근 7일 수집된 공시가 없습니다. 페이지를 열어도 즉시 DART를 호출하지 않습니다.",
     }

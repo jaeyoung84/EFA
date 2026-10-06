@@ -14,8 +14,8 @@ services:
     image: jy-investing-backend:desktop
     container_name: jy_investing_backend
     restart: unless-stopped
-    ports:
-      - "${APP_PORT:-8000}:8000"
+    # Codex 수정: PORT-001 (2026-10-06), AWS 홈페이지와 혼동되지 않도록 호스트 포트를 공개하지 않는다.
+    # 컨테이너 내부 8000 포트의 healthcheck와 Docker 네트워크 통신만 유지한다.
     env_file:
       - path: .env.desktop
         required: false
