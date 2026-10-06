@@ -82,6 +82,8 @@ jobs:
           with open("docs/engine/CHANGES.md", "a", encoding="utf-8") as handle:
               handle.write("\n".join(lines) + "\n")
           PY
+          # 엔진 테스트 중 '저장소 밖에서 설치된 패키지 import' 검사가 있어, 새 캘린더가 들어간 상태로 패키지를 설치한다.
+          python -m pip install --no-deps ./engine/kqs
           PYTHONPATH=engine/kqs/src:engine/kqs/tests python -m unittest discover -s engine/kqs/tests
           python engine/kqs/tools/check_revision.py
 
