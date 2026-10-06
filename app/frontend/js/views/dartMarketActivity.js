@@ -24,10 +24,9 @@ const GROUPS = {
   major: (kind) => kind.startsWith('major'),
 };
 
-// 시장 구분·날짜별 구분(2026-10-06, 사용자 승인).
-const MARKET_LABELS = { KOSPI: '코스피', KOSDAQ: '코스닥', KONEX: '코넥스', 기타: '기타' };
-const MARKET_FILTERS = [['all', '전체 시장'], ['KOSPI', '코스피'], ['KOSDAQ', '코스닥'], ['기타', '코넥스·기타']];
-const marketOf = (item) => (item.market === 'KONEX' ? '기타' : item.market || '기타');
+// 시장 구분·날짜별 구분(2026-10-06, 사용자 승인): PC는 코스피·코스닥 두 칸, 모바일은 시장 탭.
+const BOARD_MARKETS = [['KOSPI', '코스피'], ['KOSDAQ', '코스닥'], ['기타', '코넥스·기타']];
+export const marketOf = (item) => (item.market === 'KOSPI' || item.market === 'KOSDAQ' ? item.market : '기타');
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
 export function formatDisclosureDate(raw) {
@@ -54,21 +53,29 @@ export function groupByDate(items) {
 const number = (value) => Number.isFinite(Number(value)) ? Number(value).toLocaleString() : '-';
 const signed = (value, suffix = '') => Number.isFinite(Number(value))
   ? `${Number(value) > 0 ? '+' : ''}${Number(value).toLocaleString()}${suffix}` : '-';
+const present = (value) => value !== null && value !== undefined && value !== '';
 
-function row(item) {
+/** 게시판 한 줄: 유형·회사·원문 / 보고자 / 보유 변동(지분 공시) 또는 공시명(자사주). */
+export function itemHtml(item) {
   const kind = item.kind || '';
-  const reporter = item.reporter || '-';
-  const position = item.position ? ` · ${esc(item.position)}` : '';
-  const reason = item.report_reason ? `<small>${esc(item.report_reason)}</small>` : '';
-  return `<tr data-kind="${esc(kind)}">
-    <td><span class="dart-activity-kind ${esc(kind)}">${esc(LABELS[kind] || '지분 변동')}</span></td>
-    <td><strong>${esc(item.corp_name)}</strong><small><span class="dart-activity-market is-${esc((item.market || '기타').toLowerCase())}">${esc(MARKET_LABELS[item.market] || '기타')}</span> ${esc(item.stock_code || '종목코드 미표기')}</small></td>
-    <td><strong>${esc(reporter)}</strong><small>${esc(item.relationship || '')}${position}</small>${reason}</td>
-    <td class="dart-activity-number">${number(item.holding_count)}<small>증감 ${signed(item.change_count)}</small></td>
-    <td class="dart-activity-number">${signed(item.holding_rate, '%')}<small>증감 ${signed(item.change_rate, '%')}</small></td>
-    <td>${esc(item.rcept_date || '-')}<small>${esc(item.report_name || '')}</small></td>
-    <td>${item.dart_url ? `<a class="dart-activity-link" href="${esc(item.dart_url)}" target="_blank" rel="noopener noreferrer">원문 <i class="fa-solid fa-arrow-up-right-from-square"></i></a>` : '-'}</td>
-  </tr>`;
+  const who = [item.reporter, item.relationship, item.position].filter((v) => v && String(v).trim() !== '-').map(esc).join(' · ');
+  const holding = present(item.holding_count) || present(item.holding_rate)
+    ? `<p class="dart-item-nums">보유 <b>${number(item.holding_count)}주</b> (${signed(item.change_count)}) · 비율 <b>${Number.isFinite(Number(item.holding_rate)) ? `${Number(item.holding_rate).toLocaleString()}%` : '-'}</b> (${signed(item.change_rate, '%p')})</p>`
+    : `<p class="dart-item-nums">${esc(item.report_name || '')}</p>`;
+  const link = item.dart_url
+    ? `<a class="dart-activity-link" href="${esc(item.dart_url)}" target="_blank" rel="noopener noreferrer" aria-label="${esc(item.corp_name)} DART 원문">원문 <i class="fa-solid fa-arrow-up-right-from-square"></i></a>` : '';
+  return `<article class="dart-item" data-kind="${esc(kind)}">
+    <div class="dart-item-top"><span class="dart-activity-kind ${esc(kind)}">${esc(LABELS[kind] || '지분 변동')}</span>
+      <strong>${esc(item.corp_name)}</strong><small>${esc(item.stock_code || '')}</small>${link}</div>
+    ${who ? `<p class="dart-item-who">${who}</p>` : ''}
+    ${holding}
+    ${item.report_reason ? `<p class="dart-item-reason">${esc(item.report_reason)}</p>` : ''}
+  </article>`;
+}
+
+export function columnHtml(items) {
+  if (!items.length) return '<p class="dart-activity-empty">조건에 맞는 공시가 없습니다.</p>';
+  return groupByDate(items).map((group) => `<h4 class="dart-board-date"><i class="fa-regular fa-calendar"></i> ${esc(group.label)} <span>${group.items.length.toLocaleString()}건</span></h4>${group.items.map(itemHtml).join('')}`).join('');
 }
 
 export function dartMarketActivityView(container) {
@@ -96,38 +103,52 @@ export function dartMarketActivityView(container) {
           <button data-dart-filter="insider_decrease">내부자 감소</button>
           <button data-dart-filter="major">5% 이상</button>
         </div>
-        <div class="dart-activity-filters dart-activity-markets" aria-label="시장 필터"></div>
         <button class="dart-activity-refresh" type="button" id="dart-activity-refresh"><i class="fa-solid fa-rotate-right"></i> 저장된 결과 새로고침</button>
       </div>
-      <div class="dart-activity-table-wrap">
-        <table class="dart-activity-table">
-          <thead><tr><th>유형</th><th>회사</th><th>보고자</th><th>보유수량</th><th>보유비율</th><th>접수일 · 공시</th><th>원문</th></tr></thead>
-          <tbody id="dart-activity-list"><tr><td colspan="7" class="dart-activity-empty"><i class="fa-solid fa-spinner fa-spin"></i> 저장된 수집 기록을 불러오는 중입니다.</td></tr></tbody>
-        </table>
+      <div class="dart-board" id="dart-board" data-mobile-market="KOSPI">
+        <div class="dart-board-tabs" role="tablist" aria-label="시장 선택"></div>
+        <p class="dart-activity-empty" id="dart-board-message"><i class="fa-solid fa-spinner fa-spin"></i> 저장된 수집 기록을 불러오는 중입니다.</p>
+        <div class="dart-board-cols" hidden>
+          ${BOARD_MARKETS.map(([key, label]) => `<section class="dart-board-col" data-board-market="${key}">
+            <header class="dart-board-head is-${key === '기타' ? 'other' : key.toLowerCase()}"><h3>${label}</h3><b data-board-count="${key}">0건</b></header>
+            <div class="dart-board-list" data-board-list="${key}"></div>
+          </section>`).join('')}
+        </div>
       </div>
       <p class="dart-activity-note" id="dart-activity-note"></p>
     </section>`;
 
-  const list = container.querySelector('#dart-activity-list');
+  const board = container.querySelector('#dart-board');
+  const tabs = container.querySelector('.dart-board-tabs');
+  const cols = container.querySelector('.dart-board-cols');
+  const message = container.querySelector('#dart-board-message');
   const summary = container.querySelector('#dart-activity-summary');
   const stamp = container.querySelector('#dart-activity-stamp');
   const note = container.querySelector('#dart-activity-note');
   const refresh = container.querySelector('#dart-activity-refresh');
-  const markets = container.querySelector('.dart-activity-markets');
   let items = [];
   let selectedFilter = 'all';
-  let selectedMarket = 'all';
 
-  const renderMarkets = () => {
-    const count = (key) => items.filter((item) => key === 'all' || marketOf(item) === key).length;
-    markets.innerHTML = MARKET_FILTERS.map(([key, label]) => `<button class="${key === selectedMarket ? 'active' : ''}" data-dart-market="${esc(key)}">${label} <b>${count(key).toLocaleString()}</b></button>`).join('');
+  const showMessage = (html) => {
+    message.innerHTML = html;
+    message.hidden = false;
+    cols.hidden = true;
   };
 
   const render = () => {
-    const visible = items.filter((item) => (GROUPS[selectedFilter] || GROUPS.all)(item.kind || '')
-      && (selectedMarket === 'all' || marketOf(item) === selectedMarket));
-    list.innerHTML = visible.length ? groupByDate(visible).map((group) => `<tr class="dart-activity-date"><td colspan="7"><span><i class="fa-regular fa-calendar"></i> ${esc(group.label)} · ${group.items.length.toLocaleString()}건</span></td></tr>${group.items.map(row).join('')}`).join('') :
-      '<tr><td colspan="7" class="dart-activity-empty">조건에 맞는 공시가 없습니다.</td></tr>';
+    const visible = items.filter((item) => (GROUPS[selectedFilter] || GROUPS.all)(item.kind || ''));
+    const byMarket = Object.fromEntries(BOARD_MARKETS.map(([key]) => [key, visible.filter((item) => marketOf(item) === key)]));
+    for (const [key] of BOARD_MARKETS) {
+      container.querySelector(`[data-board-list="${key}"]`).innerHTML = columnHtml(byMarket[key]);
+      container.querySelector(`[data-board-count="${key}"]`).textContent = `${byMarket[key].length.toLocaleString()}건`;
+    }
+    // 코넥스·기타는 공시가 있을 때만 보인다(PC는 아래 전체 폭, 모바일은 세 번째 탭).
+    const hasOther = byMarket['기타'].length > 0;
+    container.querySelector('[data-board-market="기타"]').hidden = !hasOther;
+    if (!hasOther && board.dataset.mobileMarket === '기타') board.dataset.mobileMarket = 'KOSPI';
+    tabs.innerHTML = BOARD_MARKETS.filter(([key]) => key !== '기타' || hasOther).map(([key, label]) => `<button type="button" role="tab" data-board-tab="${key}" aria-selected="${board.dataset.mobileMarket === key}" class="${board.dataset.mobileMarket === key ? 'active' : ''}">${label} <b>${byMarket[key].length.toLocaleString()}</b></button>`).join('');
+    message.hidden = true;
+    cols.hidden = false;
   };
 
   const renderSummary = (counts) => {
@@ -148,7 +169,6 @@ export function dartMarketActivityView(container) {
       const data = await api.dartMarketActivity();
       items = data.items || [];
       renderSummary(data.counts || {});
-      renderMarkets();
       const period = data.window_start && data.window_end
         ? `${formatDisclosureDate(data.window_start)} ~ ${formatDisclosureDate(data.window_end)}` : '최근 7일';
       stamp.textContent = data.snapshot_date
@@ -156,7 +176,7 @@ export function dartMarketActivityView(container) {
         : `${period} · 수집 기록 없음`;
       note.textContent = data.note || 'OpenDART 공시정보 · 읽기 전용';
       if (data.status === 'pending') {
-        list.innerHTML = '<tr><td colspan="7" class="dart-activity-empty"><i class="fa-regular fa-clock"></i> 최근 7일 수집된 공시가 없습니다.</td></tr>';
+        showMessage('<i class="fa-regular fa-clock"></i> 최근 7일 수집된 공시가 없습니다.');
       } else {
         render();
       }
@@ -165,7 +185,7 @@ export function dartMarketActivityView(container) {
       if (items.length) {
         note.textContent = `새로고침 실패 · 이전에 표시한 공시를 유지합니다: ${error.message}`;
       } else {
-        list.innerHTML = `<tr><td colspan="7" class="dart-activity-empty is-error">수집 기록을 불러오지 못했습니다: ${esc(error.message)}</td></tr>`;
+        showMessage(`<span class="is-error">수집 기록을 불러오지 못했습니다: ${esc(error.message)}</span>`);
         note.textContent = 'OpenDART 수집 기록 조회 실패';
       }
     } finally {
@@ -180,11 +200,10 @@ export function dartMarketActivityView(container) {
     container.querySelectorAll('[data-dart-filter]').forEach((item) => item.classList.toggle('active', item === button));
     render();
   });
-  markets.addEventListener('click', (event) => {
-    const button = event.target.closest('[data-dart-market]');
+  tabs.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-board-tab]');
     if (!button) return;
-    selectedMarket = button.dataset.dartMarket;
-    renderMarkets();
+    board.dataset.mobileMarket = button.dataset.boardTab;
     render();
   });
   refresh.addEventListener('click', load);

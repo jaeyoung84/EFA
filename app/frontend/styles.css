@@ -3332,8 +3332,39 @@ a.dash-news-title:hover { color: var(--primary); text-decoration: underline; }
 .exit-plan li i { font-style: normal; font-size: .7rem; }
 .exit-plan-basis { margin: 4px 0 0; color: var(--text-subtle, var(--text-muted)); font-size: .66rem; }
 .sb-pick .exit-plan { margin: 8px 10px; }
-/* 자사주·내부자 공시: 시장 구분과 날짜별 구분 줄(2026-10-06) */
-.dart-activity-toolbar { flex-wrap:wrap; }.dart-activity-markets button b { margin-left:3px; font-weight:800; opacity:.8; }
-.dart-activity-market { display:inline-block; margin-right:4px; padding:1px 6px; border-radius:99px; font-size:.62rem; font-weight:800; color:var(--text-muted); border:1px solid var(--border); background:var(--surface-soft); }.dart-activity-market.is-kospi { color:#38bdf8; border-color:rgba(56,189,248,.45); background:rgba(56,189,248,.1); }.dart-activity-market.is-kosdaq { color:#a78bfa; border-color:rgba(167,139,250,.45); background:rgba(167,139,250,.1); }
-.dart-activity-table tr.dart-activity-date td { padding:8px 10px; color:var(--text); background:var(--surface-soft); font-size:.74rem; font-weight:800; }.dart-activity-table tr.dart-activity-date span { position:sticky; left:10px; }.dart-activity-table tr.dart-activity-date i { margin-right:4px; color:var(--primary); }
-@media (max-width:760px) { .dart-activity-markets { margin-top:8px; } }
+/* 자사주·내부자 공시 게시판(2026-10-06): PC는 코스피·코스닥 두 칸을 한 화면에, 모바일은 시장 탭 */
+.dart-board [hidden] { display:none !important; }
+.dart-board-tabs { display:none; }
+.dart-board > .dart-activity-empty { margin:0; border:1px solid var(--border); border-radius:10px; background:var(--surface); }
+.dart-board-cols { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.dart-board-col { display:flex; flex-direction:column; min-width:0; border:1px solid var(--border); border-radius:10px; background:var(--surface); overflow:hidden; }
+.dart-board-col[data-board-market="기타"] { grid-column:1 / -1; }
+.dart-board-head { display:flex; align-items:center; justify-content:space-between; padding:11px 14px; border-bottom:1px solid var(--border); border-top:3px solid var(--border); }
+.dart-board-head.is-kospi { border-top-color:#38bdf8; }.dart-board-head.is-kosdaq { border-top-color:#a78bfa; }
+.dart-board-head h3 { margin:0; color:var(--text); font-size:.95rem; }.dart-board-head b { color:var(--text-muted); font-size:.78rem; }
+.dart-board-list { height:calc(100vh - 330px); min-height:380px; overflow-y:auto; overscroll-behavior:contain; }
+.dart-board-col[data-board-market="기타"] .dart-board-list { height:auto; max-height:260px; min-height:0; }
+.dart-board-date { position:sticky; top:0; z-index:1; display:flex; align-items:center; gap:6px; margin:0; padding:7px 14px; color:var(--text); border-bottom:1px solid var(--border); background:var(--surface-soft); font-size:.74rem; font-weight:800; }
+.dart-board-date i { color:var(--primary); }.dart-board-date span { margin-left:auto; color:var(--text-muted); font-weight:700; }
+.dart-item { padding:10px 14px; border-bottom:1px solid var(--border); }
+.dart-item:last-child { border-bottom:0; }
+.dart-item-top { display:flex; flex-wrap:wrap; align-items:center; gap:4px 7px; }
+.dart-item-top strong { color:var(--text); font-size:.84rem; }.dart-item-top small { color:var(--text-subtle); font-size:.68rem; }
+.dart-item-top .dart-activity-link { margin-left:auto; }
+.dart-item-who,.dart-item-nums,.dart-item-reason { margin:4px 0 0; color:var(--text-muted); font-size:.72rem; line-height:1.45; }
+.dart-item-nums { font-variant-numeric:tabular-nums; }.dart-item-nums b { color:var(--text); }
+.dart-item-reason { color:var(--text-subtle); }
+@media (max-width:760px) {
+  .dart-board-tabs { display:grid; grid-auto-flow:column; grid-auto-columns:1fr; gap:6px; margin-bottom:8px; }
+  .dart-board-tabs button { padding:9px 6px; color:var(--text-muted); border:1px solid var(--border); border-radius:8px; background:var(--surface); font-size:.8rem; font-weight:800; }
+  .dart-board-tabs button.active { color:#151a10; border-color:var(--primary); background:var(--primary); }
+  .dart-board-tabs button b { margin-left:3px; }
+  .dart-board-cols { display:block; }
+  .dart-board-col { display:none; }
+  .dart-board[data-mobile-market="KOSPI"] [data-board-market="KOSPI"],
+  .dart-board[data-mobile-market="KOSDAQ"] [data-board-market="KOSDAQ"],
+  .dart-board[data-mobile-market="기타"] [data-board-market="기타"] { display:flex; }
+  .dart-board-head { display:none; }
+  .dart-board-list,.dart-board-col[data-board-market="기타"] .dart-board-list { height:auto; max-height:72vh; min-height:0; }
+  .dart-item-top .dart-activity-link { padding:4px 0; }
+}
