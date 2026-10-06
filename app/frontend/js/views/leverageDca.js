@@ -9,11 +9,12 @@ const STATUS_LABEL = {
   bought: '오늘 매수 실행', sold: '매도 트리거 발동', no_action: '조건상 매수 없음',
   disabled: '자동매매 꺼짐', blocked: '주문 차단됨', signals_unavailable: '신호 데이터 없음',
   pricing_unavailable: '시세 조회 실패', error: '실행 오류', already_run_today: '오늘 실행 완료(중복 방지)',
+  signals_stale: '시세 지연으로 판정 보류',
 };
 const ACTION_STATUS_LABEL = { filled: '체결', blocked: '한도 차단', skipped: '건너뜀' };
 
 function statusBadge(status) {
-  const tone = status === 'bought' || status === 'sold' ? 'is-success' : (status === 'blocked' || status === 'error' || status === 'pricing_unavailable') ? 'is-error' : 'is-muted';
+  const tone = status === 'bought' || status === 'sold' ? 'is-success' : (status === 'blocked' || status === 'error' || status === 'pricing_unavailable' || status === 'signals_stale') ? 'is-error' : 'is-muted';
   return `<span class="lvdca-badge ${tone}">${escapeHtml(STATUS_LABEL[status] || status || '-')}</span>`;
 }
 
@@ -29,8 +30,9 @@ function signalsHtml(signals) {
       <div><span>SOXL 52주 고점 대비</span><strong>${pct(signals.soxl_drawdown_pct)}</strong></div>
       <div><span>UPRO 52주 고점 대비</span><strong>${pct(signals.upro_drawdown_pct)}</strong></div>
       <div><span>S&amp;P 50일선 위 연속일</span><strong>${signals.spx_above_ma_consecutive_days ?? '-'}일</strong></div>
-      <div><span>기준일</span><strong>${escapeHtml(signals.as_of || '-')}</strong></div>
+      <div><span>시세 기준일</span><strong class="${signals.stale ? 'is-danger' : ''}">${escapeHtml(signals.as_of || '-')}</strong></div>
     </div>
+    ${signals.data_dates ? `<p class="lvdca-note${signals.stale ? ' is-warn' : ''}">${signals.stale ? '시세가 오래되어 오늘 판정을 보류합니다 · ' : ''}마지막 일봉: ${Object.entries(signals.data_dates).map(([ticker, day]) => `${escapeHtml(ticker)} ${escapeHtml(day)}`).join(' · ')}</p>` : ''}
     ${signals.errors?.length ? `<p class="lvdca-note is-warn">일부 신호 조회 오류: ${escapeHtml(signals.errors.join('; '))}</p>` : ''}`;
 }
 

@@ -3266,6 +3266,10 @@ async def run_leverage_dca_cycle_for_user(user: dict, signals: dict, reserve_sig
         return {"status": "blocked", "reason": reason}
     if not signals.get("available"):
         return {"status": "signals_unavailable", "errors": signals.get("errors", [])}
+    if signals.get("stale"):
+        # 오래된 시세로는 매수·매도·예비비 판정을 하지 않는다. 오늘 실행을 선점하지 않으므로 다음 확인 때 다시 시도한다.
+        return {"status": "signals_stale", "stale_tickers": signals.get("stale_tickers", []),
+                "data_dates": signals.get("data_dates", {}), "errors": signals.get("errors", [])}
     today = today_kst_iso()
     if config.get("last_run_date") == today:
         return {"status": "already_run_today", "last_run_date": today}
@@ -3336,6 +3340,13 @@ async def capture_leverage_dca_daily_log(user_id, result: dict, signals: dict, r
     snapshot_date = now.astimezone(PAPER_SNAPSHOT_TIMEZONE).date().isoformat()
     log = {"user_id": user_id, "snapshot_date": snapshot_date, "captured_at": now, "signals": signals,
            "reserve_signals": reserve_signals, "result": result}
+    if result.get("status") == "already_run_today":
+        # 장마감 전 구간의 5분 간격 재확인이 그날 실제 판정 기록(매수·중지 이유)을 덮어쓰지 않게 한다.
+        await get_db().leverage_dca_daily_logs.update_one(
+            {"user_id": user_id, "snapshot_date": snapshot_date},
+            {"$setOnInsert": log, "$set": {"last_checked_at": now}}, upsert=True,
+        )
+        return log
     await get_db().leverage_dca_daily_logs.update_one(
         {"user_id": user_id, "snapshot_date": snapshot_date}, {"$set": log}, upsert=True,
     )
