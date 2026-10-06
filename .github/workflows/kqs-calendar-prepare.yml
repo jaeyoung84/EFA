@@ -16,6 +16,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  issues: write
 
 concurrency:
   group: kqs-calendar-prepare
@@ -115,7 +116,13 @@ jobs:
           print("- 엔진 테스트·개정 무결성 검사는 이 자동 작업 안에서 통과했다.")
           print("- 병합 후: 백엔드는 자동 배포, 서버 엔진 worker 이미지는 다시 빌드해야 한다.")
           PY
-          gh pr create --base main --head "$branch" --title "KRX ${YEAR} 휴장일 캘린더 준비 (${ACTION})" --body-file "$RUNNER_TEMP/pr-body.md"
+          title="KRX ${YEAR} 휴장일 캘린더 준비 (${ACTION})"
+          if ! gh pr create --base main --head "$branch" --title "$title" --body-file "$RUNNER_TEMP/pr-body.md"; then
+            # 저장소 설정에서 Actions의 PR 생성이 꺼져 있으면, 브랜치 링크를 담은 이슈로 대신 알린다(놓치지 않게).
+            { echo "> GitHub Actions의 PR 생성이 허용되지 않아 이슈로 알립니다. 아래 링크에서 PR을 만들어 검토하세요."; echo;
+              echo "https://github.com/${GITHUB_REPOSITORY}/compare/main...${branch}?expand=1"; echo; cat "$RUNNER_TEMP/pr-body.md"; } > "$RUNNER_TEMP/issue-body.md"
+            gh issue create --title "$title — PR 생성 필요" --body-file "$RUNNER_TEMP/issue-body.md"
+          fi
 
       - name: Summary
         if: always()
