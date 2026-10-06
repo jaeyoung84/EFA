@@ -174,3 +174,39 @@ async def test_evening_collection_rechecks_morning_snapshot(monkeypatch):
     assert calls == ["B", "D"]
     assert [item["rcept_no"] for item in after_close["items"]] == ["20261006000002"]
     stored = await collection.find_one({"snapshot_date": "2026-10-06"})
+
+
+# 시장 구분(2026-10-06, 사용자 승인): 새 수집은 DART corp_cls, 예전 수집본은 KRX 상장 목록으로 채운다.
+def test_market_comes_from_dart_corp_cls():
+    base = {"corp_name": "테스트", "stock_code": "123456", "rcept_dt": "20261006", "rcept_no": "1",
+            "report_nm": "주요사항보고서(자기주식 취득 결정)"}
+    assert activity._activity_item({**base, "corp_cls": "Y"}, "treasury_decision")["market"] == "KOSPI"
+    assert activity._activity_item({**base, "corp_cls": "K"}, "treasury_decision")["market"] == "KOSDAQ"
+    assert activity._activity_item({**base, "corp_cls": "E", "stock_code": ""}, "treasury_decision")["market"] == "기타"
+
+
+@pytest.mark.asyncio
+async def test_recent_report_fills_missing_market_and_keeps_newest_first(monkeypatch):
+    from app.backend import instrument_catalog
+    monkeypatch.setattr(instrument_catalog, "get_kqs_catalog", lambda: [
+        {"code": "111111", "exchange": "KOSPI"}, {"code": "222222", "exchange": "KOSDAQ"},
+    ])
+    collection = get_db()[activity.SNAPSHOT_COLLECTION]
+    stored = {
+        "2026-10-02": [{"rcept_no": "20261002000001", "rcept_date": "20261002", "stock_code": "222222", "kind": "treasury_decision"}],
+        "2026-10-06": [
+            {"rcept_no": "20261006000001", "rcept_date": "20261006", "stock_code": "111111", "kind": "treasury_decision"},
+            {"rcept_no": "20261006000002", "rcept_date": "20261006", "stock_code": "333333", "kind": "major_increase",
+             "market": "KONEX"},
+        ],
+    }
+    for day, items in stored.items():
+        await collection.update_one({"snapshot_date": day}, {"$set": {
+            "snapshot_date": day, "status": "success", "items": items,
+            "collected_at": datetime(2026, 10, int(day[-2:]), 11, tzinfo=timezone.utc)}}, upsert=True)
+
+    report = await activity.latest_market_activity(datetime(2026, 10, 6, 12, tzinfo=timezone.utc))
+    assert [item["rcept_no"] for item in report["items"]] == ["20261006000002", "20261006000001", "20261002000001"]
+    assert [item["market"] for item in report["items"]] == ["KONEX", "KOSPI", "KOSDAQ"]
+    assert report["market_counts"] == {"KOSPI": 1, "KOSDAQ": 1, "KONEX": 1, "기타": 0}
+    assert report["counts"]["treasury"] == 2   # 기존 counts 형식은 그대로

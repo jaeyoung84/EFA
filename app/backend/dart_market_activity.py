@@ -24,6 +24,9 @@ DART_VIEW_URL = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"
 SNAPSHOT_COLLECTION = "dart_market_activity_snapshots"
 _MAX_DART_PAGES = 30
 RECENT_DAYS = 7  # Codex 수정: DART-001 (2026-10-06), 최근 7일 수집본 표시.
+# 시장 구분(2026-10-06, 사용자 승인): DART 목록의 corp_cls → 화면 표기용 시장.
+MARKET_BY_CORP_CLS = {"Y": "KOSPI", "K": "KOSDAQ", "N": "KONEX", "E": "기타"}
+MARKETS = ("KOSPI", "KOSDAQ", "KONEX", "기타")
 
 
 def _dart_api_key() -> str:
@@ -117,6 +120,7 @@ def _activity_item(row: dict, kind: str, detail: dict | None = None) -> dict:
         "kind": kind,
         "corp_name": row.get("corp_name") or detail.get("corp_name") or "-",
         "stock_code": row.get("stock_code") or "",
+        "market": MARKET_BY_CORP_CLS.get(str(row.get("corp_cls") or "").upper(), ""),
         "rcept_date": row.get("rcept_dt") or detail.get("rcept_dt") or "",
         "rcept_no": receipt,
         "report_name": row.get("report_nm") or "",
@@ -151,6 +155,26 @@ def _counts(items: list[dict]) -> dict[str, int]:
         "insider_decrease": sum(item["kind"] == "insider_decrease" for item in items),
         "major": sum(item["kind"].startswith("major") for item in items),
     }
+
+
+def _with_market(items: list[dict]) -> list[dict]:
+    """시장이 없는 예전 수집본은 엔진이 게시한 KRX 상장 목록(로컬 파일, 외부 호출 없음)으로 채운다."""
+    missing = [item for item in items if not item.get("market")]
+    if not missing:
+        return items
+    try:
+        from .instrument_catalog import get_kqs_catalog
+        by_code = {entry["code"]: entry["exchange"] for entry in get_kqs_catalog()}
+    except Exception:
+        by_code = {}
+    for item in missing:
+        code = str(item.get("stock_code") or "").strip().upper()
+        item["market"] = by_code.get(code) or "기타"   # 종목코드가 없으면 비상장, 목록에 없으면 코넥스 등
+    return items
+
+
+def _market_counts(items: list[dict]) -> dict[str, int]:
+    return {market: sum(item.get("market") == market for item in items) for market in MARKETS}
 
 
 async def ensure_market_activity_indexes() -> None:
@@ -257,6 +281,7 @@ async def latest_market_activity(now: datetime | None = None) -> dict:
                     seen.add(receipt)
                 items.append(item)
         items.sort(key=lambda item: (item.get("rcept_date") or "", item.get("rcept_no") or ""), reverse=True)
+        _with_market(items)
         latest_with_items = next((document["snapshot_date"] for document in documents if document.get("items")), None)
         return {
             "status": "success",
@@ -267,6 +292,7 @@ async def latest_market_activity(now: datetime | None = None) -> dict:
             "collected_at": documents[0].get("collected_at"),
             "items": items,
             "counts": _counts(items),
+            "market_counts": _market_counts(items),
             "source": "OpenDART 공시정보",
             "note": "최근 7일 수집 공시입니다. 새 수집이 0건이거나 실패해도 기간 안의 기존 공시를 유지합니다. 보유수량 증감은 매수·매도를 단정하지 않습니다.",
         }
@@ -277,6 +303,7 @@ async def latest_market_activity(now: datetime | None = None) -> dict:
         "window_end": today.isoformat(),
         "items": [],
         "counts": _counts([]),
+        "market_counts": _market_counts([]),
         "source": "OpenDART 공시정보",
         "note": "최근 7일 수집된 공시가 없습니다. 페이지를 열어도 즉시 DART를 호출하지 않습니다.",
     }

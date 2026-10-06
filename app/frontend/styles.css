@@ -3332,3 +3332,8 @@ a.dash-news-title:hover { color: var(--primary); text-decoration: underline; }
 .exit-plan li i { font-style: normal; font-size: .7rem; }
 .exit-plan-basis { margin: 4px 0 0; color: var(--text-subtle, var(--text-muted)); font-size: .66rem; }
 .sb-pick .exit-plan { margin: 8px 10px; }
+/* 자사주·내부자 공시: 시장 구분과 날짜별 구분 줄(2026-10-06) */
+.dart-activity-toolbar { flex-wrap:wrap; }.dart-activity-markets button b { margin-left:3px; font-weight:800; opacity:.8; }
+.dart-activity-market { display:inline-block; margin-right:4px; padding:1px 6px; border-radius:99px; font-size:.62rem; font-weight:800; color:var(--text-muted); border:1px solid var(--border); background:var(--surface-soft); }.dart-activity-market.is-kospi { color:#38bdf8; border-color:rgba(56,189,248,.45); background:rgba(56,189,248,.1); }.dart-activity-market.is-kosdaq { color:#a78bfa; border-color:rgba(167,139,250,.45); background:rgba(167,139,250,.1); }
+.dart-activity-table tr.dart-activity-date td { padding:8px 10px; color:var(--text); background:var(--surface-soft); font-size:.74rem; font-weight:800; }.dart-activity-table tr.dart-activity-date span { position:sticky; left:10px; }.dart-activity-table tr.dart-activity-date i { margin-right:4px; color:var(--primary); }
+@media (max-width:760px) { .dart-activity-markets { margin-top:8px; } }
