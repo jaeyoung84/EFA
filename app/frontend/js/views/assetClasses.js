@@ -1,3 +1,5 @@
+import { chartSourceLabel } from '../utils/chartSourceLabel.js';
+
 const ASSET_CATEGORIES = [
   {
     label: '원자재',
@@ -82,7 +84,7 @@ function assetChartCard(asset) {
 function categoryPanel(category) {
   return `
     <section class="world-market-panel world-market-index-panel">
-      <div class="world-market-panel-head"><div><h2><i class="${category.icon}"></i> ${category.label}</h2><p>Yahoo Finance 기준 일봉 캔들·20일 이동평균·거래량입니다.</p></div><span>15분 지연</span></div>
+      <div class="world-market-panel-head"><div><h2><i class="${category.icon}"></i> ${category.label}</h2><p>Yahoo Finance 기준 일봉 캔들·20일 이동평균·거래량입니다.</p></div><span>일봉 · 최대 15분 지연</span></div>
       <div class="world-market-index-grid asset-class-grid">${category.assets.map(assetChartCard).join('')}</div>
     </section>`;
 }
@@ -134,8 +136,9 @@ export function assetClassesView(container) {
       price.textContent = last.c.toLocaleString(undefined, { maximumFractionDigits: 2 });
       change.textContent = `${isUp ? '▲' : '▼'} ${Math.abs(changePercent).toFixed(2)}%`;
       change.className = isUp ? 'is-up' : 'is-down';
-      source.textContent = data.is_simulated ? '시뮬레이션 데이터' : 'Yahoo Finance · 15분 지연';
-      source.classList.toggle('is-simulated', Boolean(data.is_simulated));
+      const label = chartSourceLabel(data);
+      source.textContent = label.text;
+      source.classList.toggle('is-simulated', Boolean(data.is_simulated) || label.stale);
 
       // 백엔드가 MA20 계산용으로 표시 기간보다 앞선 봉을 함께 내려주므로, 이동평균은
       // 전체 구간으로 계산한 뒤 실제 표시 구간(display_from 이후)만 잘라서 보여준다.

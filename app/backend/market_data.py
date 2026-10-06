@@ -96,8 +96,19 @@ def assess_ingestion_quality(received_count: int, rejected: list[dict]) -> dict:
     }
 
 
-def validate_daily_bars(bars: list[dict]) -> tuple[list[dict], list[dict]]:
-    """일봉의 필수값·OHLC 관계·중복 시각을 검증한다."""
+# Yahoo 환율(=X) 일봉은 종가·시가가 고가·저가 범위를 조금 벗어난 채 오는 경우가 잦다(2026-10-06 KRW=X 1년치
+# 260봉 중 39봉, 최대 0.5%). 이 정도는 범위를 시가·종가까지 넓혀 받아들이고, 그보다 크면 그대로 기각한다.
+FX_RANGE_REPAIR_MAX_PCT = 1.0
+
+
+def _repairable_range(values: dict) -> bool:
+    body_high, body_low = max(values["open"], values["close"]), min(values["open"], values["close"])
+    overshoot = max(body_high - values["high"], values["low"] - body_low, 0.0)
+    return overshoot <= body_low * FX_RANGE_REPAIR_MAX_PCT / 100
+
+
+def validate_daily_bars(bars: list[dict], *, repair_fx_range: bool = False) -> tuple[list[dict], list[dict]]:
+    """일봉의 필수값·OHLC 관계·중복 시각을 검증한다. repair_fx_range면 환율의 작은 범위 어긋남을 고친다."""
     accepted: list[dict] = []
     rejected: list[dict] = []
     seen: set[str] = set()
@@ -114,12 +125,15 @@ def validate_daily_bars(bars: list[dict]) -> tuple[list[dict], list[dict]]:
             rejected.append({"reason": "duplicate_timestamp", "bar": raw})
         elif any(value is None or value <= 0 for value in values.values()):
             rejected.append({"reason": "missing_or_nonpositive_ohlc", "bar": raw})
-        elif values["low"] > min(values["open"], values["close"]) or values["high"] < max(values["open"], values["close"]):
+        elif (values["low"] > min(values["open"], values["close"]) or values["high"] < max(values["open"], values["close"])) \
+                and not (repair_fx_range and _repairable_range(values)):
             rejected.append({"reason": "invalid_ohlc_range", "bar": raw})
         elif volume is not None and volume < 0:
             rejected.append({"reason": "negative_volume", "bar": raw})
         else:
             seen.add(timestamp)
+            values["high"] = max(values["high"], values["open"], values["close"])
+            values["low"] = min(values["low"], values["open"], values["close"])
             accepted.append({
                 "timestamp": timestamp,
                 "open": round(values["open"], 8), "high": round(values["high"], 8),
@@ -637,6 +651,68 @@ async def _persist(ticker: str, result: ProviderResult, bars: list[dict], reject
     return run
 
 
+# 화면용 캐시 읽기(2026-10-06): 저장본을 무조건 쓰면 자동 수집 대상이 아닌 차트(금·유가·달러지수·10년물·
+# 비트코인·다우)가 9월 10일 값에 멈췄다. 저장본은 15분 안에 새로 받은 적이 있을 때만 그대로 쓰고,
+# 그보다 오래되면 화면은 저장본을 먼저 보여 주며 뒤에서 새로 받는다(오늘 봉 최대 15분 지연).
+# 마지막 봉이 CACHE_STALE_DAYS일보다 오래된 저장본은 보여 주지 않고 그 자리에서 새로 받는다.
+CACHE_REFRESH_SECONDS = 15 * 60
+CACHE_STALE_DAYS = 4
+_cache_refreshed_at: dict[str, float] = {}
+_cache_refresh_locks: dict[str, asyncio.Lock] = {}
+_background_refreshes: dict[str, asyncio.Task] = {}
+
+
+def _cached_response(bars: list[dict]) -> dict:
+    return {
+        "bars": bars, "source": "cached", "source_version": "mongo",
+        "dataset_version": bars[-1].get("dataset_version"), "cached": True,
+        "quality": {"status": "last_verified_cache", "rejected": 0, "rejection_rate_pct": 0.0,
+                    "secondary_verification_required": False},
+    }
+
+
+def _recently_refreshed(ticker: str) -> bool:
+    started = _cache_refreshed_at.get(ticker)
+    return started is not None and monotonic() - started < CACHE_REFRESH_SECONDS
+
+
+def _bars_are_stale(bars: list[dict], today: date | None = None) -> bool:
+    last = date.fromisoformat(str(bars[-1]["timestamp"])[:10])
+    return ((today or date.today()) - last).days > CACHE_STALE_DAYS
+
+
+def _refresh_in_background(ticker: str, start: date, end: date, adjusted: bool) -> None:
+    running = _background_refreshes.get(ticker)
+    if running and not running.done():
+        return
+
+    async def _run() -> None:
+        try:
+            await get_daily_ohlcv(ticker, start, end, adjusted=adjusted)
+        except Exception:
+            pass   # 다음 화면 요청이 저장본으로 계속 표시되고, 15분 뒤 다시 시도한다.
+
+    _background_refreshes[ticker] = asyncio.get_running_loop().create_task(_run())
+
+
+async def _cached_for_display(ticker: str, start: date, end: date, adjusted: bool) -> dict | None:
+    """화면용 일봉. None이면 저장본이 없어 호출자가 공급자를 조회한다."""
+    cached = await _read_cached(ticker, start, end)
+    if not cached:
+        return None
+    if _recently_refreshed(ticker):
+        return _cached_response(cached)
+    if not _bars_are_stale(cached):
+        _refresh_in_background(ticker, start, end, adjusted)
+        return _cached_response(cached)
+    lock = _cache_refresh_locks.setdefault(ticker, asyncio.Lock())
+    async with lock:   # 같은 종목을 동시에 열어도 공급자는 한 번만 부른다
+        if _recently_refreshed(ticker):
+            refreshed = await _read_cached(ticker, start, end)
+            return _cached_response(refreshed or cached)
+        return await get_daily_ohlcv(ticker, start, end, adjusted=adjusted)   # 실패하면 저장본으로 대신한다
+
+
 async def get_daily_ohlcv(ticker: str, start: date, end: date, *, adjusted: bool = True, prefer_cached: bool = False) -> dict:
     """공급자에서 일봉을 수집·검증·저장한 뒤, 실패 시 저장된 마지막 데이터를 반환한다.
 
@@ -648,14 +724,10 @@ async def get_daily_ohlcv(ticker: str, start: date, end: date, *, adjusted: bool
     ticker = ticker.strip().upper()
     started_at = _utcnow()
     if prefer_cached:
-        cached = await _read_cached(ticker, start, end)
+        cached = await _cached_for_display(ticker, start, end, adjusted)
         if cached:
-            return {
-                "bars": cached, "source": "cached", "source_version": "mongo",
-                "dataset_version": cached[-1].get("dataset_version"), "cached": True,
-                "quality": {"status": "last_verified_cache", "rejected": 0, "rejection_rate_pct": 0.0,
-                            "secondary_verification_required": False},
-            }
+            return cached
+    _cache_refreshed_at[ticker] = monotonic()
     providers, provider_routing = await provider_routing_plan(ticker)
     errors: list[str] = [f"{event['provider']}: 재시도 대기 중" for event in provider_routing if event["action"] == "cooldown_skip"]
     provider_attempts: list[dict] = []
@@ -665,7 +737,7 @@ async def get_daily_ohlcv(ticker: str, start: date, end: date, *, adjusted: bool
         try:
             result = await asyncio.to_thread(provider.fetch_daily, ticker, start, end, adjusted)
             latency_ms = round((monotonic() - request_started) * 1000, 2)
-            bars, rejected = validate_daily_bars(result.bars)
+            bars, rejected = validate_daily_bars(result.bars, repair_fx_range=ticker.endswith("=X"))
             if not bars:
                 raise MarketDataError("품질 검사를 통과한 OHLCV가 없습니다.")
             quality = assess_ingestion_quality(len(result.bars), rejected)

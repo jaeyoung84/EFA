@@ -72,7 +72,8 @@ async def test_fx_fixing_cross_check_preserves_primary_ohlcv_when_verified(monke
 
         def fetch_daily(self, ticker, start, end, adjusted):
             return market_data.ProviderResult("yahoo", "test", clean_bars + [
-                {"timestamp": "2026-01-30", "open": 1400, "high": 1399, "low": 1398, "close": 1401, "volume": 1},
+                # 1% 넘게 범위를 벗어난 봉은 환율 범위 보정 대상이 아니라 기각되고 교차검증으로 간다.
+                {"timestamp": "2026-01-30", "open": 1400, "high": 1399, "low": 1398, "close": 1450, "volume": 1},
             ])
 
     class FixingProvider:
@@ -415,8 +416,17 @@ async def test_home_daily_candle_exposes_dataset_provenance(monkeypatch, client)
     assert [bar["c"] for bar in payload["ohlcv"]] == [102.0, 104.0]
 
 
+@pytest.fixture(autouse=True)
+def _reset_display_cache_state():
+    market_data._cache_refreshed_at.clear()
+    market_data._background_refreshes.clear()
+    yield
+    market_data._cache_refreshed_at.clear()
+
+
 @pytest.mark.asyncio
 async def test_preferred_cache_returns_before_provider_call(monkeypatch):
+    market_data._cache_refreshed_at["^KS11"] = market_data.monotonic()   # 15분 안에 새로 받은 저장본
     await get_db().market_ohlcv.insert_one({
         "ticker": "^KS11", "interval": "1d", "timestamp": "2026-01-02",
         "open": 100.0, "high": 105.0, "low": 99.0, "close": 102.0, "volume": 1,
@@ -470,3 +480,85 @@ async def test_corporate_actions_are_versioned_with_daily_data(monkeypatch):
     action = await get_db().market_corporate_actions.find_one({"ticker": "005930.KS"})
     assert action["action_type"] == "dividend"
     assert action["dataset_version"] == result["dataset_version"]
+
+
+# 화면용 캐시(2026-10-06): 오래된 저장본은 새로 받고, 최근 저장본은 먼저 보여 주며 뒤에서 갱신한다.
+def _bar(day: date, close: float = 100.0) -> dict:
+    return {"timestamp": day.isoformat(), "open": close, "high": close + 1, "low": close - 1, "close": close, "volume": 1}
+
+
+class _CountingProvider:
+    name = "counting"
+
+    def __init__(self, bars):
+        self.bars, self.calls = bars, 0
+
+    def fetch_daily(self, ticker, start, end, adjusted):
+        self.calls += 1
+        return market_data.ProviderResult("counting", "test", self.bars)
+
+
+@pytest.mark.asyncio
+async def test_stale_display_cache_is_refreshed_before_showing(monkeypatch):
+    today = date.today()
+    await get_db().market_ohlcv.insert_one({"ticker": "GC=F", "interval": "1d", **_bar(today - timedelta(days=26), 90.0)})
+    provider = _CountingProvider([_bar(today - timedelta(days=1), 101.0), _bar(today, 102.0)])
+    monkeypatch.setattr(market_data, "_provider_chain", lambda: [provider])
+    result = await market_data.get_daily_ohlcv("GC=F", today - timedelta(days=60), today + timedelta(days=1), prefer_cached=True)
+    assert result["cached"] is False and result["bars"][-1]["timestamp"] == today.isoformat()
+    again = await market_data.get_daily_ohlcv("GC=F", today - timedelta(days=60), today + timedelta(days=1), prefer_cached=True)
+    assert again["cached"] is True and again["bars"][-1]["close"] == 102.0   # 15분 안에는 저장본
+    assert provider.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_recent_display_cache_is_shown_then_refreshed_in_background(monkeypatch):
+    today = date.today()
+    await get_db().market_ohlcv.insert_one({"ticker": "^DJI", "interval": "1d", **_bar(today - timedelta(days=1), 90.0)})
+    provider = _CountingProvider([_bar(today - timedelta(days=1), 90.0), _bar(today, 95.0)])
+    monkeypatch.setattr(market_data, "_provider_chain", lambda: [provider])
+    result = await market_data.get_daily_ohlcv("^DJI", today - timedelta(days=60), today + timedelta(days=1), prefer_cached=True)
+    assert result["cached"] is True and result["bars"][-1]["close"] == 90.0     # 화면은 기다리지 않음
+    await market_data._background_refreshes["^DJI"]
+    assert provider.calls == 1
+    stored = await get_db().market_ohlcv.find_one({"ticker": "^DJI", "timestamp": today.isoformat()})
+    assert stored["close"] == 95.0                                               # 다음 요청부터 새 봉
+
+
+@pytest.mark.asyncio
+async def test_stale_display_cache_survives_provider_failure(monkeypatch):
+    class Failing:
+        name = "failing"
+
+        def fetch_daily(self, ticker, start, end, adjusted):
+            raise market_data.MarketDataError("down")
+
+    old_day = date.today() - timedelta(days=26)
+    await get_db().market_ohlcv.insert_one({"ticker": "BTC-USD", "interval": "1d", **_bar(old_day)})
+    monkeypatch.setattr(market_data, "_provider_chain", lambda: [Failing()])
+    result = await market_data.get_daily_ohlcv("BTC-USD", old_day - timedelta(days=5), date.today() + timedelta(days=1), prefer_cached=True)
+    assert result["cached"] is True and result["bars"][-1]["timestamp"] == old_day.isoformat()
+
+
+def test_fx_bars_with_small_range_errors_are_repaired_not_rejected():
+    slightly_off = {"timestamp": "2025-11-17", "open": 1454.15, "high": 1462.45, "low": 1453.5, "close": 1446.53, "volume": 0}
+    far_off = {"timestamp": "2025-11-18", "open": 1450.0, "high": 1451.0, "low": 1449.0, "close": 1400.0, "volume": 0}
+    accepted, rejected = market_data.validate_daily_bars([slightly_off, far_off], repair_fx_range=True)
+    assert [bar["timestamp"] for bar in accepted] == ["2025-11-17"]
+    assert accepted[0]["low"] == 1446.53 and accepted[0]["high"] == 1462.45
+    assert [item["bar"]["timestamp"] for item in rejected] == ["2025-11-18"]
+    _accepted, strict = market_data.validate_daily_bars([slightly_off])      # 환율이 아니면 그대로 기각
+    assert strict[0]["reason"] == "invalid_ohlc_range"
+
+
+@pytest.mark.asyncio
+async def test_home_candle_reports_last_bar_date_and_stale_flag(monkeypatch, client):
+    old_day = (date.today() - timedelta(days=26)).isoformat()
+
+    async def fake_get_daily(ticker, start, end, *, adjusted=True, prefer_cached=False):
+        return {"bars": [{"timestamp": old_day, "open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 0}],
+                "source": "cached", "dataset_version": "v", "quality": {"status": "last_verified_cache"}}
+
+    monkeypatch.setattr(main, "get_daily_ohlcv", fake_get_daily)
+    payload = (await client.get("/api/home/market-candle?market=gold&period=3mo")).json()
+    assert payload["last_bar_date"] == old_day and payload["stale"] is True

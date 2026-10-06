@@ -1,4 +1,5 @@
 import { api } from '../api.js';
+import { chartSourceLabel } from '../utils/chartSourceLabel.js';
 
 const MARKETS = [
   { id: 'us', country: '미국', exchange: 'NYSE · Nasdaq', cap: 62.2, share: 42.7, index: 'S&P 500', ticker: '^GSPC', x: 24, y: 39, color: '#2563eb' },
@@ -131,7 +132,7 @@ export function worldMarketsView(container) {
         <div class="world-market-list">${QUOTED_MARKETS.map((market) => `<article class="world-market-row" id="world-market-row-${market.id}"><span class="world-market-dot" style="--market-color:${market.color}"></span><div><strong>${market.country}</strong><small>${market.exchange} · ${market.index}</small></div><b>${marketCap(market.cap)}</b><div id="world-market-quote-${market.id}">${quoteMarkup(market)}</div></article>`).join('')}</div>
       </section>
       <section class="world-market-panel world-market-index-panel">
-        <div class="world-market-panel-head"><div><h2>미국 3대 지수 차트</h2><p>나스닥 종합지수·S&amp;P 500·다우존스 산업평균의 일봉 캔들·20일 이동평균·거래량입니다.</p></div><span>Yahoo Finance · 15분 지연</span></div>
+        <div class="world-market-panel-head"><div><h2>미국 3대 지수 차트</h2><p>나스닥 종합지수·S&amp;P 500·다우존스 산업평균의 일봉 캔들·20일 이동평균·거래량입니다.</p></div><span>Yahoo Finance · 일봉 · 최대 15분 지연</span></div>
         <div class="world-market-index-grid">${US_INDEX_CHARTS.map(indexChartCard).join('')}</div>
       </section>
       <p class="world-markets-note">시장 규모는 비교 편의를 위해 USD로 환산한 최근 연간 공개 통계의 반올림 참고값입니다. 서로 다른 거래소의 중복상장·환율 변동에 따라 실제 합계와 차이가 날 수 있으며, 투자 권유 목적의 정보가 아닙니다.</p>
@@ -179,8 +180,9 @@ export function worldMarketsView(container) {
       price.textContent = last.c.toLocaleString(undefined, { maximumFractionDigits: 2 });
       change.textContent = `${isUp ? '▲' : '▼'} ${Math.abs(changePercent).toFixed(2)}%`;
       change.className = isUp ? 'is-up' : 'is-down';
-      source.textContent = data.is_simulated ? '시뮬레이션 데이터' : 'Yahoo Finance · 15분 지연';
-      source.classList.toggle('is-simulated', Boolean(data.is_simulated));
+      const label = chartSourceLabel(data);
+      source.textContent = label.text;
+      source.classList.toggle('is-simulated', Boolean(data.is_simulated) || label.stale);
 
       // 백엔드가 MA20 계산용으로 표시 기간보다 앞선 봉을 함께 내려주므로, 이동평균은
       // 전체 구간으로 계산한 뒤 실제 표시 구간(display_from 이후)만 잘라서 보여준다.

@@ -62,11 +62,11 @@ except ImportError:
     from instrument_catalog import SEARCH_ALIASES, get_krx_catalog, resolve_krx_name, search_krx_instruments  # type: ignore
 
 try:
-    from .market_data import (MarketDataError, core_market_freshness, ensure_market_data_indexes,
+    from .market_data import (CACHE_STALE_DAYS, MarketDataError, core_market_freshness, ensure_market_data_indexes,
                               get_daily_ohlcv, market_data_operations_report, market_data_status, market_factor_snapshot,
                               market_factor_universe_snapshot)
 except ImportError:
-    from market_data import (MarketDataError, core_market_freshness, ensure_market_data_indexes,
+    from market_data import (CACHE_STALE_DAYS, MarketDataError, core_market_freshness, ensure_market_data_indexes,
                              get_daily_ohlcv, market_data_operations_report, market_data_status, market_factor_snapshot,
                              market_factor_universe_snapshot)  # type: ignore
 
@@ -1781,10 +1781,13 @@ async def home_market_candle(market: str = "kospi", period: str = "3mo", interva
             ohlcv = [{"date": str(idx)[:10], "o": round(float(row["open"]), 2), "h": round(float(row["high"]), 2),
                       "l": round(float(row["low"]), 2), "c": round(float(row["close"]), 2), "v": int(row["volume"] or 0)}
                      for idx, row in frame.iterrows()]
+            last_bar_date = str(stored["bars"][-1]["timestamp"])[:10]
             return {"market": market, "name": config["name"], "ticker": config["ticker"], "ohlcv": ohlcv,
                     "is_simulated": False, "display_from": display_from, "interval": response_interval,
                     "data_source": stored["source"], "dataset_version": stored["dataset_version"],
-                    "data_quality": stored["quality"]}
+                    "data_quality": stored["quality"], "last_bar_date": last_bar_date,
+                    # 저장본 갱신 실패로 오래된 봉을 보여 줄 때 화면이 경고하도록 알린다.
+                    "stale": (_dt.date.today() - _dt.date.fromisoformat(last_bar_date)).days > CACHE_STALE_DAYS}
         if df.empty:
             raise ValueError("empty")
         ohlcv = []

@@ -41,12 +41,19 @@ function formatTimestamp(ts) {
   }).format(date);
 }
 
+/** 종목별 마지막 데이터 날짜 범위(조회 시각과 달리 실제 값의 날짜). */
+function latestDataDate(summary) {
+  const days = Object.values(summary || {}).map((item) => String(item?.latest_data_at || '').slice(0, 10)).filter(Boolean).sort();
+  if (!days.length) return '';
+  return days[0] === days.at(-1) ? days[0] : `${days[0]} ~ ${days.at(-1)}`;
+}
+
 export function macroRealtimeView(container) {
   container.innerHTML = `
     <div style="margin-bottom:24px;">
-      <h1 style="font-size:1.25rem; font-weight:700; color:var(--text); margin-bottom:6px;"><i class="fa-solid fa-globe"></i> 거시경제현황 1 — 실시간 데이터</h1>
+      <h1 style="font-size:1.25rem; font-weight:700; color:var(--text); margin-bottom:6px;"><i class="fa-solid fa-globe"></i> 거시경제현황 1 — 일별 지표</h1>
       <p style="font-size:0.875rem; color:#6b7280; line-height:1.6;">
-        Yahoo Finance에서 금리·유가·환율·주가지수 등 거시경제 지표를 실시간으로 가져와 추세, 상관관계, 수익률을 분석합니다.
+        Yahoo Finance에서 금리·유가·환율·주가지수 등 거시경제 지표의 일별 종가를 조회할 때마다 새로 받아 추세, 상관관계, 수익률을 분석합니다. 장중에는 오늘 값이 최대 15분 지연됩니다.
       </p>
     </div>
     ${dataSourceNote('real')}
@@ -119,6 +126,7 @@ export function macroRealtimeView(container) {
       html += `
         <div style="margin-bottom:12px; font-size:0.78rem; color:#94a3b8;">
           조회 시각: <strong style="color:#e2e8f0;">${formatTimestamp(data.fetched_at)}</strong>
+          ${latestDataDate(data.summary) ? ` · 데이터 기준일: <strong style="color:#e2e8f0;">${latestDataDate(data.summary)}</strong> (일별 종가, 종목마다 다를 수 있음)` : ''}
         </div>`;
       if (data.image) {
         html += `<img src="${data.image}" style="width:100%; border-radius:8px; margin-bottom:20px;"/>`;
