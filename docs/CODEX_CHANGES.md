@@ -13,3 +13,4 @@ Claude Code가 수정하기 전에 사용자의 명시적 승인이 필요하다
 | DART-001 | 2026-10-06 | app/backend/dart_market_activity.py의 7일 집계·당일 재수집·20시 재확인; app/frontend/js/views/dartMarketActivity.js의 7일 안내·조회 실패 시 화면 유지; tests/test_dart_market_activity.py의 보존·실패·재수집 회귀 테스트 | 최근 7 KST 날짜의 공시를 새 수집이 비거나 실패해도 유지. 로컬 jy_investing DB에 2026-09-30~10-06 보충 수집; 12개 테스트 통과. 운영 배포는 미실시 |
 | PORT-001 | 2026-10-06 | docker-compose.desktop.yml의 backend 호스트 포트 매핑 제거; AGENTS.md의 “AWS 홈페이지와 로컬 Docker 경계” 절 | AWS 홈페이지를 로컬 테스트 환경과 혼동하지 않도록 로컬 포트 공개와 무단 로컬 Docker 작업 차단 |
 | AUTH-001 | 2026-10-06 | AGENTS.md의 “AWS 홈페이지와 로컬 Docker 경계” 절 내 Chrome IAM·GitHub Actions OIDC 규칙 | 사용자가 쓰는 Chrome IAM 콘솔을 대화형 확인의 우선 경로로 지정하고 WSL 원격 로그인을 기본 경로에서 제외 |
+| DART-002 | 2026-10-06 | .github/workflows/dart-refresh.yml 전체 | GitHub OIDC와 고정 SSM 명령으로 운영 백엔드의 당일 DART 수집만 수동 실행; 로컬 Docker·AWS CLI 로그인 불필요 |

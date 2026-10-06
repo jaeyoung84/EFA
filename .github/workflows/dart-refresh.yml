@@ -1,0 +1,61 @@
+name: Refresh DART disclosures
+# Codex 수정: DART-002 (2026-10-06), 운영 지분공시 수동 수집 전용.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: investment-analysis-main
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::125022369601:role/github-actions-investing-deploy
+          aws-region: ap-northeast-2
+      - name: Collect today's DART disclosures on the production backend
+        run: |
+          python3 - "$RUNNER_TEMP/dart-ssm.json" <<'PY'
+          import json
+          import shlex
+          import sys
+
+          collector = (
+              'import asyncio; '
+              'from app.backend.dart_market_activity import collect_market_activity; '
+              'result = asyncio.run(collect_market_activity(refresh=True)); '
+              'print(result["snapshot_date"], result["status"], result.get("counts")); '
+              'assert result["status"] == "success"'
+          )
+          command = "docker exec investment_backend python -c " + shlex.quote(collector)
+          with open(sys.argv[1], "w", encoding="utf-8") as output:
+              json.dump({"commands": ["set -eu", command], "executionTimeout": ["900"]}, output)
+          PY
+          command_id=$(aws ssm send-command \
+            --instance-ids i-0dc146c28dca4089b \
+            --document-name AWS-RunShellScript \
+            --comment "refresh DART market activity" \
+            --timeout-seconds 600 \
+            --parameters "file://$RUNNER_TEMP/dart-ssm.json" \
+            --query Command.CommandId --output text)
+          status=Pending
+          for _ in $(seq 1 120); do
+            status=$(aws ssm get-command-invocation \
+              --command-id "$command_id" --instance-id i-0dc146c28dca4089b \
+              --query Status --output text 2>/dev/null || echo Pending)
+            case "$status" in Success|Failed|Cancelled|TimedOut|Cancelling) break ;; esac
+            sleep 5
+          done
+          aws ssm get-command-invocation \
+            --command-id "$command_id" --instance-id i-0dc146c28dca4089b \
+            --query '[Status,StandardOutputContent,StandardErrorContent]' --output text
+          test "$status" = Success
