@@ -27,7 +27,6 @@ from kqs_runtime.outcomes import OutcomeError, build_outcome_report, write_outco
 from kqs_runtime.worker import require_separate_paths, run_publication
 
 HISTORY_DAYS = 730
-MAX_EXPIRY = timedelta(hours=24)
 PUBLICATION_STATUS = {"published": "published", "already_published": "already_published",
                       "blocked_quality": "blocked_quality", "writer_busy": "writer_busy", "failed": "publish_failed"}
 
@@ -102,7 +101,8 @@ def run_daily_pipeline(*, state_dir: Path, market_db: Path, client: KrxOpenApiCl
     except (SectorRotationError, OSError) as exc:
         run["steps"]["sector_rotation"] = {"status": "failed", "error": str(exc)}
 
-    expires_at = min(now + MAX_EXPIRY, ceiling)
+    # EINT-029: v3는 다음 세션 자료 공개 기대 시각까지(24시간 상한 없음, 정책 안전 상한 10일). v1·v2는 24시간 상한.
+    expires_at = min(now + calendar.expiry_ceiling, ceiling)
     try:
         result = run_publication(
             krx_db=market_db, history_start=(session - timedelta(days=HISTORY_DAYS)).isoformat(), as_of=as_of,

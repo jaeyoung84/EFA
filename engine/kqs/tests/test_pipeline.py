@@ -5,7 +5,7 @@ import sqlite3
 import tempfile
 import unittest
 from contextlib import closing
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from krx_fixture import FakeKrx, available_time, build_market
@@ -49,6 +49,12 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(run["steps"]["quality"]["status"], "ready")
         payload = read_latest(self.paths["snapshot_db"], now=self.now + timedelta(minutes=1))
         self.assertEqual(payload["engine"]["data_as_of"], self.as_of)
+        # EINT-029: 만료 = 다음 거래일 22:00 KST(자료 공개 기대 시각), 24시간 상한 없음.
+        from kqs_publication.calendar import calendar_for_session
+        calendar = calendar_for_session(date.fromisoformat(self.as_of))
+        next_session = calendar.next_session(date.fromisoformat(self.as_of))
+        self.assertEqual(datetime.fromisoformat(payload["expires_at"]), calendar.availability_at(next_session))
+        self.assertEqual(payload["publication"]["calendar"]["policy"], "krx-session-expiry/v3")
         self.assertEqual(json.loads(self.paths["status_file"].read_text())["status"], "published")
         self.assertEqual([r["status"] for r in read_runs(self.paths["pipeline_runs_db"])], ["published"])
         self.assertEqual([a["status"] for a in read_attempts(self.paths["attempts_db"])], ["published"])

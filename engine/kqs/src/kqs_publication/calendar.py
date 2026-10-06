@@ -23,11 +23,17 @@ SCHEMA = "krx-equity-calendar/v1"
 # v1(EINT-004): 세션 자료는 다음 날 calendar 파일의 data_available_time_kst(06:00)부터 공개된 것으로 본다.
 # v2(EINT-028): 세션 자료는 같은 날 21:30 KST부터 공개된 것으로 본다(장 마감 뒤 저녁 게시). 새 게시는 v2를 쓰고,
 #   이미 v1로 게시된 추천은 그 metadata의 정책으로 계속 검증한다. 휴장일 파일(SHA)은 바꾸지 않는다.
+# v3(EINT-029): 세션 자료는 같은 날 22:00 KST 공개 기대. 게시는 다음 세션 자료 공개 기대 시각(다음 거래일 22:00)까지
+#   유효하다 — 금요일 밤 게시가 주말을 넘어 월요일 밤 새 게시까지 유지된다. 24시간 상한 대신 안전 상한 10일.
+#   v1·v2 게시본은 각자의 정책(24시간 상한 포함)으로 계속 검증한다.
 POLICY_V1 = "krx-session-expiry/v1"
 POLICY_V2 = "krx-session-expiry/v2"
-POLICY = POLICY_V2
-SUPPORTED_POLICIES = frozenset({POLICY_V1, POLICY_V2})
-SAME_DAY_AVAILABLE_TIME = time(21, 30)
+POLICY_V3 = "krx-session-expiry/v3"
+POLICY = POLICY_V3
+SUPPORTED_POLICIES = frozenset({POLICY_V1, POLICY_V2, POLICY_V3})
+SAME_DAY_POLICIES = {POLICY_V2: time(21, 30), POLICY_V3: time(22, 0)}
+SAME_DAY_AVAILABLE_TIME = SAME_DAY_POLICIES[POLICY_V2]   # v2 호환용 이름
+EXPIRY_CEILING = {POLICY_V1: timedelta(hours=24), POLICY_V2: timedelta(hours=24), POLICY_V3: timedelta(days=10)}
 REVIEWED_CALENDARS = {
     "krx-equity-2026": "krx_equity_2026.json",
     "krx-equity-2027": "krx_equity_2027.json",
@@ -76,11 +82,16 @@ class KRXCalendar:
 
     @property
     def policy_available_time(self) -> time:
-        return SAME_DAY_AVAILABLE_TIME if self.policy == POLICY_V2 else self.available_time
+        return SAME_DAY_POLICIES.get(self.policy, self.available_time)
+
+    @property
+    def expiry_ceiling(self) -> timedelta:
+        """게시 후 만료까지의 최대 길이(정책별). 실제 만료는 다음 세션 공개 기대 시각을 넘지도 못한다."""
+        return EXPIRY_CEILING[self.policy]
 
     def availability_at(self, session: date) -> datetime:
         self.require_session(session)
-        day = session if self.policy == POLICY_V2 else session + timedelta(days=1)
+        day = session if self.policy in SAME_DAY_POLICIES else session + timedelta(days=1)
         return datetime.combine(day, self.policy_available_time, tzinfo=KST).astimezone(timezone.utc)
 
     def _for(self, value: date) -> "KRXCalendar":
@@ -128,8 +139,10 @@ class KRXCalendar:
     def public_metadata(self) -> dict:
         metadata = {"calendar_id": self.calendar_id, "calendar_sha256": self.digest,
                     "policy": self.policy, "data_available_time_kst": self.policy_available_time.strftime("%H:%M")}
-        if self.policy == POLICY_V2:
+        if self.policy in SAME_DAY_POLICIES:
             metadata["data_available_day"] = "same_session_day"
+        if self.policy == POLICY_V3:
+            metadata["expiry"] = "until_next_session_availability"
         return metadata
 
 
@@ -180,11 +193,12 @@ def validate_publication_calendar(metadata: object, *, data_as_of: date, generat
     if metadata.get("calendar_sha256") != calendar.digest:
         raise CalendarError("Reviewed KRX calendar digest does not match the installed calendar.")
     expected_metadata = calendar.public_metadata()
-    if any(metadata.get(key) != expected_metadata.get(key) for key in ("data_available_time_kst", "data_available_day")):
+    if any(metadata.get(key) != expected_metadata.get(key) for key in ("data_available_time_kst", "data_available_day", "expiry")):
         raise CalendarError("Reviewed KRX calendar availability policy does not match.")
     next_available = calendar.publication_window(data_as_of, generated_at)
-    if expires_at > generated_at + timedelta(hours=24):
-        raise CalendarError("Publication expiry exceeds the 24 hour ceiling.")
+    if expires_at > generated_at + calendar.expiry_ceiling:
+        raise CalendarError("Publication expiry exceeds the policy ceiling "
+                            f"({calendar.expiry_ceiling.total_seconds() / 3600:g} hours).")
     if expires_at > next_available:
         raise CalendarError("Publication expiry crosses the next expected KRX data availability time.")
     return calendar.public_metadata()

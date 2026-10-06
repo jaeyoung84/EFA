@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_MANIFEST = "engine/kqs/revisions/EINT-028.json"
+DEFAULT_MANIFEST = "engine/kqs/revisions/EINT-029.json"
 
 
 def verify(root: Path = ROOT, manifest_path: str = DEFAULT_MANIFEST) -> dict:

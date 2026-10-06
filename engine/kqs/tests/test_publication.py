@@ -311,21 +311,21 @@ class PublicationTests(unittest.TestCase):
         runtime = run(offset=offset)
         kst = ZoneInfo("Asia/Seoul")
         generated = datetime(2027, 1, 4, 8, 30, tzinfo=kst)
-        # EINT-028(v2): 다음 세션 2027-01-04 자료는 그날 21:30 KST에 공개 기대 → 만료 상한도 그 시각이다.
+        # EINT-029(v3): 다음 세션 2027-01-04 자료는 그날 22:00 KST에 공개 기대 → 만료 상한도 그 시각이다.
         payload = publish(self.path, runtime, expected_as_of="2026-12-30", generated_at=generated,
-                          expires_at=datetime(2027, 1, 4, 21, 29, tzinfo=kst))
+                          expires_at=datetime(2027, 1, 4, 21, 59, tzinfo=kst))
         self.assertEqual(payload["engine"]["data_as_of"], "2026-12-30")
         self.assertEqual(payload["publication"]["calendar"]["calendar_id"], "krx-equity-2026")
         with self.assertRaisesRegex(KqsContractError, "next expected KRX"):
             publish(Path(self.directory.name) / "late.sqlite3", runtime, expected_as_of="2026-12-30",
-                    generated_at=generated, expires_at=datetime(2027, 1, 4, 21, 31, tzinfo=kst))
+                    generated_at=generated, expires_at=datetime(2027, 1, 4, 22, 1, tzinfo=kst))
 
     def test_eint028_same_day_availability_and_v1_payloads_still_validate(self):
         """v2: 세션 자료는 같은 날 21:30 KST부터 공개 기대. v1(다음 날 06:00)로 이미 게시된 metadata는 계속 검증된다."""
         from kqs_publication.calendar import (POLICY_V1, POLICY_V2, CalendarError, calendar_for_session, load_calendar,
                                               validate_publication_calendar)
         kst = ZoneInfo("Asia/Seoul")
-        v2 = calendar_for_session(date(2026, 10, 6))
+        v2 = calendar_for_session(date(2026, 10, 6), policy=POLICY_V2)   # EINT-029부터 기본은 v3
         self.assertEqual(v2.policy, POLICY_V2)
         self.assertEqual(v2.latest_available_session(datetime(2026, 10, 6, 21, 29, tzinfo=kst)), date(2026, 10, 2))   # 10/5 휴장
         self.assertEqual(v2.latest_available_session(datetime(2026, 10, 6, 21, 31, tzinfo=kst)), date(2026, 10, 6))
@@ -351,6 +351,37 @@ class PublicationTests(unittest.TestCase):
             validate_publication_calendar({**v1_meta, "policy": "krx-session-expiry/v9"}, data_as_of=date(2026, 10, 2),
                                           generated_at=datetime(2026, 10, 6, 9, 28, tzinfo=kst),
                                           expires_at=datetime(2026, 10, 7, 6, 0, tzinfo=kst))
+
+    def test_eint029_friday_evening_publication_lasts_until_the_next_session_evening(self):
+        """v3: 금요일 22:00 게시는 24시간 상한 없이 다음 거래일(월) 22:00까지 유효. v2 metadata는 여전히 24시간 상한."""
+        from kqs_publication.calendar import (POLICY_V2, POLICY_V3, CalendarError, calendar_for_session,
+                                              validate_publication_calendar)
+        kst = ZoneInfo("Asia/Seoul")
+        friday, generated = date(2026, 10, 16), datetime(2026, 10, 16, 22, 3, tzinfo=kst)
+        v3 = calendar_for_session(friday)
+        self.assertEqual(v3.policy, POLICY_V3)
+        self.assertEqual(v3.latest_available_session(datetime(2026, 10, 16, 21, 59, tzinfo=kst)), date(2026, 10, 15))
+        self.assertEqual(v3.latest_available_session(datetime(2026, 10, 16, 22, 0, tzinfo=kst)), friday)
+        monday_evening = datetime(2026, 10, 19, 22, 0, tzinfo=kst)
+        self.assertEqual(v3.publication_window(friday, generated), monday_evening)
+        meta = v3.public_metadata()
+        self.assertEqual((meta["data_available_time_kst"], meta["expiry"]), ("22:00", "until_next_session_availability"))
+        self.assertEqual(validate_publication_calendar(meta, data_as_of=friday, generated_at=generated,
+                                                       expires_at=monday_evening), meta)            # 약 72시간
+        with self.assertRaises(CalendarError):                                                      # 월요일 22:00을 넘을 수 없다
+            validate_publication_calendar(meta, data_as_of=friday, generated_at=generated,
+                                          expires_at=monday_evening + timedelta(minutes=1))
+        v2_meta = calendar_for_session(friday, policy=POLICY_V2).public_metadata()
+        with self.assertRaisesRegex(CalendarError, "ceiling"):                                      # v2는 24시간 상한 유지
+            validate_publication_calendar(v2_meta, data_as_of=friday, generated_at=generated,
+                                          expires_at=datetime(2026, 10, 19, 21, 30, tzinfo=kst))
+        with self.assertRaises(CalendarError):                                                      # v3 metadata 위조(만료 표기 제거)
+            validate_publication_calendar({k: v for k, v in meta.items() if k != "expiry"}, data_as_of=friday,
+                                          generated_at=generated, expires_at=monday_evening)
+        # 추석 같은 긴 휴장도 다음 세션 22:00까지(2026-09-23 → 09-28), 안전 상한 10일 안이다.
+        chuseok = calendar_for_session(date(2026, 9, 23))
+        self.assertEqual(chuseok.publication_window(date(2026, 9, 23), datetime(2026, 9, 23, 22, 5, tzinfo=kst)),
+                         datetime(2026, 9, 28, 22, 0, tzinfo=kst))
 
     def test_krx_holiday_window_accepts_last_available_session_and_caps_expiry(self):
         offset = (date(2026, 9, 23) - date.fromisoformat(self.runtime["as_of"])).days

@@ -83,7 +83,7 @@ def test_eint028_collect_failure_while_waiting_for_the_next_attempt_is_not_an_al
     _status(path.parent, status="collect_failed", session="2026-09-29", finished_at=late_night.isoformat())
     health = pipeline_health(path.parent, now=late_night)
     assert health["expected_session"] == "2026-09-29" and health["level"] == "ok" and health["alerts"] == []
-    after_grace = datetime(2026, 9, 30, 0, 45, tzinfo=timezone.utc)       # 09-30 09:45 KST, 마지막 08:30 시도 뒤
+    after_grace = datetime(2026, 9, 30, 1, 15, tzinfo=timezone.utc)       # 09-30 10:15 KST(v3 공개 22:00 + 유예 12시간 뒤)
     _status(path.parent, status="collect_failed", session="2026-09-29", finished_at=after_grace.isoformat())
     late = pipeline_health(path.parent, now=after_grace)
     assert late["level"] == "error" and [a["code"] for a in late["alerts"]][:2] == ["publication_missing", "last_run_failed"]
