@@ -73,3 +73,17 @@ async def test_board_shows_my_card_decisions_and_health(native_publication, clie
     assert (await client.get("/api/kqs/strategy-board", headers=other)).json()["my_decisions"] == {}
     assert (await client.get("/api/kqs/pipeline-health")).status_code == 401
     assert (await client.get("/api/kqs/pipeline-health", headers=headers)).status_code == 200
+
+
+
+def test_eint028_collect_failure_while_waiting_for_the_next_attempt_is_not_an_alert(native_publication):  # noqa: F811
+    """22:00 시도가 KRX 공개 전이라 실패해도, 새 거래일 유예 시간 안이면 경고하지 않는다(06:00·08:30 재시도)."""
+    _, path = native_publication          # 2026-09-28 게시본, 09-29 09:00 KST 생성
+    late_night = datetime(2026, 9, 29, 13, 5, tzinfo=timezone.utc)        # 09-29 22:05 KST, 새 거래일 09-29 대기 중
+    _status(path.parent, status="collect_failed", session="2026-09-29", finished_at=late_night.isoformat())
+    health = pipeline_health(path.parent, now=late_night)
+    assert health["expected_session"] == "2026-09-29" and health["level"] == "ok" and health["alerts"] == []
+    after_grace = datetime(2026, 9, 30, 0, 45, tzinfo=timezone.utc)       # 09-30 09:45 KST, 마지막 08:30 시도 뒤
+    _status(path.parent, status="collect_failed", session="2026-09-29", finished_at=after_grace.isoformat())
+    late = pipeline_health(path.parent, now=after_grace)
+    assert late["level"] == "error" and [a["code"] for a in late["alerts"]][:2] == ["publication_missing", "last_run_failed"]

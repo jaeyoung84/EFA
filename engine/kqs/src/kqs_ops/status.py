@@ -16,7 +16,11 @@ from kqs_publication.contract import KqsContractError
 from kqs_publication.store import read_latest
 
 
-def check_health(state_dir: Path, *, now: datetime | None = None, grace_hours: float = 6.0) -> dict:
+# EINT-028: 자료 공개 기대 21:30 KST, 시도 22:00·06:00·08:30 → 마지막 시도까지 기다린 뒤(09:30 이후) 경보한다.
+DEFAULT_GRACE_HOURS = 12.0
+
+
+def check_health(state_dir: Path, *, now: datetime | None = None, grace_hours: float = DEFAULT_GRACE_HOURS) -> dict:
     now = now or datetime.now(timezone.utc)
     paths = state_paths(state_dir)
     report = {"checked_at": now.isoformat(), "healthy": False, "expected_session": None,
@@ -53,7 +57,7 @@ def check_health(state_dir: Path, *, now: datetime | None = None, grace_hours: f
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="KQS publication health check for monitoring.")
     parser.add_argument("--state-dir", required=True, type=Path)
-    parser.add_argument("--grace-hours", type=float, default=6.0)
+    parser.add_argument("--grace-hours", type=float, default=DEFAULT_GRACE_HOURS)
     args = parser.parse_args(argv)
     report = check_health(args.state_dir, grace_hours=args.grace_hours)
     print(json.dumps(report, ensure_ascii=False, indent=1))

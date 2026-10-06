@@ -37,6 +37,6 @@ services:
     read_only: true
     tmpfs: ["/tmp"]
     entrypoint: ["kqs-pipeline-status"]
-    command: ["--state-dir", "/var/lib/kqs/state", "--grace-hours", "6"]
+    command: ["--state-dir", "/var/lib/kqs/state", "--grace-hours", "12"]
     volumes:
       - /opt/investing-app/state/kqs:/var/lib/kqs/state:ro

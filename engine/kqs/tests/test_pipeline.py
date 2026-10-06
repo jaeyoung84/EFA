@@ -71,10 +71,27 @@ class PipelineTests(unittest.TestCase):
         self.run_pipeline()
         again = self.run_pipeline(now=self.now + timedelta(minutes=30))
         self.assertEqual(again["status"], "already_published")
-        self.assertEqual({v["status"] for v in again["steps"]["collection"]["markets"].values()}, {"skipped"})
+        # EINT-028: 이미 게시된 거래일이면 수집·검사·게시를 다시 하지 않고 바로 끝낸다(KRX 호출 없음).
+        self.assertEqual(again["steps"], {"skipped": {"reason": "session_already_published"}})
         with closing(sqlite3.connect(self.paths["snapshot_db"])) as connection:
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM kqs_recommendation_snapshots").fetchone()[0], 1)
         self.assertEqual(len(read_runs(self.paths["pipeline_runs_db"])), 2)
+
+    def test_eint028_attempts_after_success_do_not_call_krx_but_failures_retry(self):
+        """22:00 실패 → 06:00 성공 → 08:30은 KRX를 부르지 않고 끝난다. refresh는 건너뛰지 않는다."""
+        first_client = KrxOpenApiClient(auth_key=KEY, transport=FakeKrx({}), sleep=lambda _: None)
+        failed = run_daily_pipeline(state_dir=self.state, market_db=self.market, client=first_client, now=self.now)
+        self.assertEqual(failed["status"], "collect_failed")
+        self.assertTrue(first_client.transport.urls)                      # 실패한 시도는 KRX를 불렀다
+        ok = self.run_pipeline(now=self.now + timedelta(hours=1))
+        self.assertEqual(ok["status"], "published", ok.get("error"))
+        later_transport = FakeKrx(self.rows)
+        later = run_daily_pipeline(state_dir=self.state, market_db=self.market, now=self.now + timedelta(hours=2),
+                                   client=KrxOpenApiClient(auth_key=KEY, transport=later_transport, sleep=lambda _: None))
+        self.assertEqual(later["status"], "already_published")
+        self.assertEqual(later_transport.urls, [])                        # 성공 뒤 남은 시도는 KRX 호출 0회
+        forced = self.run_pipeline(now=self.now + timedelta(hours=3), refresh=True)
+        self.assertNotIn("skipped", forced["steps"])
 
     def test_provider_not_ready_is_collect_failed_and_alerts_after_grace(self):
         run = self.run_pipeline(rows={})

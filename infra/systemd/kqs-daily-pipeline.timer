@@ -1,9 +1,10 @@
 [Unit]
-Description=Run the KQS daily pipeline after KRX data is expected (06:00 KST) with one retry
+Description=Run the KQS daily pipeline after the close (22:00 KST), retrying at 06:00 and 08:30; once a session is published the remaining attempts exit without calling KRX (EINT-028)
 
 [Timer]
+OnCalendar=*-*-* 22:00:00 Asia/Seoul
+OnCalendar=*-*-* 06:00:00 Asia/Seoul
 OnCalendar=*-*-* 08:30:00 Asia/Seoul
-OnCalendar=*-*-* 10:30:00 Asia/Seoul
 Persistent=true
 RandomizedDelaySec=120
 

@@ -109,6 +109,23 @@ def published_payloads(path: Path, *, schema: str, through: str) -> list[dict]:
         connection.close()
 
 
+def session_published(path: Path, data_as_of: str) -> bool:
+    """EINT-028: 이 거래일(data_as_of)의 추천이 이미 게시됐는가(만료 여부와 무관, 읽기 전용, DB를 만들지 않음).
+
+    같은 거래일은 첫 게시만 유효하고 다시 게시해도 만료가 늘지 않으므로(첫 payload 고정), 이미 있으면 다시 할 일이 없다.
+    """
+    if not path.is_file():
+        return False
+    connection = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=10)
+    try:
+        connection.execute("PRAGMA query_only = ON")
+        if not connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (TABLE,)).fetchone():
+            return False
+        return connection.execute(f"SELECT 1 FROM {TABLE} WHERE data_as_of=?", (data_as_of,)).fetchone() is not None
+    finally:
+        connection.close()
+
+
 def is_published(path: Path, run_id: str) -> bool:
     """Read-only check used by the writer while it holds the lock; never creates the DB."""
     if not path.is_file():

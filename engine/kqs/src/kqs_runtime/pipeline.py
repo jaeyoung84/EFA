@@ -22,6 +22,7 @@ from kqs_collection.store import publish as record_quality
 from kqs_ops.paths import state_paths
 from kqs_ops.runlog import SUCCESS, record_run, write_status
 from kqs_publication.calendar import KST, CalendarError, calendar_for_session
+from kqs_publication.store import session_published
 from kqs_runtime.outcomes import OutcomeError, build_outcome_report, write_outcome_report
 from kqs_runtime.worker import require_separate_paths, run_publication
 
@@ -54,6 +55,12 @@ def run_daily_pipeline(*, state_dir: Path, market_db: Path, client: KrxOpenApiCl
         return finish("failed", f"KRX calendar: {exc}")
     as_of = session.isoformat()
     run["session"] = as_of
+
+    # EINT-028: 예약 실행은 22:00·06:00·08:30 KST 순서로 시도한다. 이 거래일이 이미 게시됐으면 남은 시도는
+    # KRX를 부르지 않고 바로 끝낸다(같은 거래일은 첫 게시만 유효해 다시 해도 바뀌는 것이 없다). refresh는 예외.
+    if not refresh and session_published(paths["snapshot_db"], as_of):
+        run["steps"]["skipped"] = {"reason": "session_already_published"}
+        return finish("already_published")
 
     try:
         run["steps"]["collection"] = collect_session(client, MarketStore(market_db), session, refresh=refresh)

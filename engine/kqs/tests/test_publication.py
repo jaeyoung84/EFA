@@ -110,7 +110,8 @@ class PublicationTests(unittest.TestCase):
         self.assertFalse(self.path.exists())
 
     def test_latest_expired_run_does_not_fall_back_to_older_valid_run(self):
-        self.publish(expires_at=self.generated + timedelta(hours=20))
+        # EINT-028: 다음 세션 자료 공개(당일 21:30) 전까지가 상한이라 07:00 생성 + 14시간(21:00)으로 둔다.
+        self.publish(expires_at=self.generated + timedelta(hours=14))
         newer = run("flat", offset=1)
         new_time = self.generated + timedelta(hours=1)
         # New data day requires generation in that KST session or later.
@@ -121,7 +122,7 @@ class PublicationTests(unittest.TestCase):
             read_latest(self.path, now=new_time + timedelta(hours=2))
 
     def test_same_session_new_run_expired_does_not_fall_back(self):
-        self.publish(expires_at=self.generated + timedelta(hours=20))
+        self.publish(expires_at=self.generated + timedelta(hours=14))
         alternative = run("flat")
         publish(self.path, alternative, expected_as_of=alternative["as_of"],
                 generated_at=self.generated + timedelta(minutes=1),
@@ -310,13 +311,46 @@ class PublicationTests(unittest.TestCase):
         runtime = run(offset=offset)
         kst = ZoneInfo("Asia/Seoul")
         generated = datetime(2027, 1, 4, 8, 30, tzinfo=kst)
+        # EINT-028(v2): 다음 세션 2027-01-04 자료는 그날 21:30 KST에 공개 기대 → 만료 상한도 그 시각이다.
         payload = publish(self.path, runtime, expected_as_of="2026-12-30", generated_at=generated,
-                          expires_at=datetime(2027, 1, 5, 5, 59, tzinfo=kst))
+                          expires_at=datetime(2027, 1, 4, 21, 29, tzinfo=kst))
         self.assertEqual(payload["engine"]["data_as_of"], "2026-12-30")
         self.assertEqual(payload["publication"]["calendar"]["calendar_id"], "krx-equity-2026")
         with self.assertRaisesRegex(KqsContractError, "next expected KRX"):
             publish(Path(self.directory.name) / "late.sqlite3", runtime, expected_as_of="2026-12-30",
-                    generated_at=generated, expires_at=datetime(2027, 1, 5, 6, 30, tzinfo=kst))
+                    generated_at=generated, expires_at=datetime(2027, 1, 4, 21, 31, tzinfo=kst))
+
+    def test_eint028_same_day_availability_and_v1_payloads_still_validate(self):
+        """v2: 세션 자료는 같은 날 21:30 KST부터 공개 기대. v1(다음 날 06:00)로 이미 게시된 metadata는 계속 검증된다."""
+        from kqs_publication.calendar import (POLICY_V1, POLICY_V2, CalendarError, calendar_for_session, load_calendar,
+                                              validate_publication_calendar)
+        kst = ZoneInfo("Asia/Seoul")
+        v2 = calendar_for_session(date(2026, 10, 6))
+        self.assertEqual(v2.policy, POLICY_V2)
+        self.assertEqual(v2.latest_available_session(datetime(2026, 10, 6, 21, 29, tzinfo=kst)), date(2026, 10, 2))   # 10/5 휴장
+        self.assertEqual(v2.latest_available_session(datetime(2026, 10, 6, 21, 31, tzinfo=kst)), date(2026, 10, 6))
+        self.assertEqual(v2.public_metadata()["data_available_time_kst"], "21:30")
+        self.assertEqual(v2.public_metadata()["data_available_day"], "same_session_day")
+        # 금요일 22:00 게시는 휴장 다음 세션(화) 21:30이 아니라 24시간 상한에 먼저 걸린다.
+        self.assertEqual(v2.publication_window(date(2026, 10, 2), datetime(2026, 10, 2, 22, 0, tzinfo=kst)),
+                         datetime(2026, 10, 6, 21, 30, tzinfo=kst))
+        v1 = load_calendar("krx-equity-2026", policy=POLICY_V1)
+        self.assertEqual(v1.latest_available_session(datetime(2026, 10, 7, 5, 59, tzinfo=kst)), date(2026, 10, 2))
+        v1_meta = v1.public_metadata()
+        self.assertNotIn("data_available_day", v1_meta)
+        self.assertEqual(validate_publication_calendar(
+            v1_meta, data_as_of=date(2026, 10, 2), generated_at=datetime(2026, 10, 6, 9, 28, tzinfo=kst),
+            expires_at=datetime(2026, 10, 7, 6, 0, tzinfo=kst)), v1_meta)            # 실제 10/6 복구 게시와 같은 형태
+        with self.assertRaises(CalendarError):                                       # v1 metadata를 v2 시각으로 위조
+            validate_publication_calendar({**v1_meta, "data_available_time_kst": "21:30"}, data_as_of=date(2026, 10, 2),
+                                          generated_at=datetime(2026, 10, 6, 9, 28, tzinfo=kst),
+                                          expires_at=datetime(2026, 10, 7, 6, 0, tzinfo=kst))
+        with self.assertRaises(CalendarError):
+            load_calendar("krx-equity-2026", policy="krx-session-expiry/v9")
+        with self.assertRaises(CalendarError):
+            validate_publication_calendar({**v1_meta, "policy": "krx-session-expiry/v9"}, data_as_of=date(2026, 10, 2),
+                                          generated_at=datetime(2026, 10, 6, 9, 28, tzinfo=kst),
+                                          expires_at=datetime(2026, 10, 7, 6, 0, tzinfo=kst))
 
     def test_krx_holiday_window_accepts_last_available_session_and_caps_expiry(self):
         offset = (date(2026, 9, 23) - date.fromisoformat(self.runtime["as_of"])).days
