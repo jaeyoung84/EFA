@@ -49,7 +49,11 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(self.counts(), {"KOSPI": 1, "KOSDAQ": 1, "ETF": 2})
 
     def test_closure_or_uncovered_year_is_never_requested(self):
-        for closed in (date(2026, 9, 24), date(2026, 9, 26), date(2027, 2, 9), date(2028, 1, 3)):
+        # EINT-030: 연간 작업이 새 해를 등록해도 의미가 유지되도록 '등록된 마지막 해의 다음 해'를 쓴다.
+        from kqs_publication.calendar import REVIEWED_CALENDARS
+        uncovered = max(int(calendar_id.rsplit("-", 1)[1]) for calendar_id in REVIEWED_CALENDARS) + 1
+        first_weekday = next(date(uncovered, 1, d) for d in range(2, 9) if date(uncovered, 1, d).weekday() < 5)
+        for closed in (date(2026, 9, 24), date(2026, 9, 26), date(2027, 2, 9), first_weekday):
             with self.subTest(day=closed), self.assertRaises(CalendarError):
                 collect_session(self.client, MarketStore(self.market), closed)
         self.assertEqual(self.fake.urls, [])

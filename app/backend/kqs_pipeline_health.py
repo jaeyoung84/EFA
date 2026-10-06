@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from kqs_ops.status import check_health
+from kqs_publication import calendar as krx_calendar
 
 SUCCESS = {"published", "already_published"}
 STALE_RUN_AFTER = timedelta(hours=30)
@@ -38,6 +39,31 @@ def _parse(value: str | None) -> datetime | None:
     except (TypeError, ValueError):
         return None
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def calendar_alerts(now: datetime) -> list[dict]:
+    """EINT-030: 12월에 내년 KRX 휴장일 캘린더가 없거나(1일부터) 아직 잠정본이면(20일부터) 알린다.
+
+    매년 12월 15일 GitHub 자동 작업이 준비 PR을 연다. 캘린더가 없는 해로 넘어가면 엔진은 게시를 멈춘다(fail-closed).
+    """
+    local = now.astimezone(krx_calendar.KST)
+    if local.month != 12:
+        return []
+    next_year = local.year + 1
+    calendar_id = f"krx-equity-{next_year}"
+    filename = krx_calendar.REVIEWED_CALENDARS.get(calendar_id)
+    if filename is None:
+        return [{"level": "warning", "code": "calendar_next_year_missing", "title": f"{next_year}년 KRX 휴장일 캘린더 미등록",
+                 "message": "12월 15일 자동 작업이 연 준비 PR을 확인·병합하세요. 없으면 1월 첫 거래일부터 추천 게시가 멈춥니다."}]
+    try:
+        raw = json.loads((Path(krx_calendar.__file__).with_name("calendars") / filename).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    status = str((raw.get("source") or {}).get("review_status", ""))
+    if status.startswith("provisional") and local.day >= 20:
+        return [{"level": "warning", "code": "calendar_next_year_provisional", "title": f"{next_year}년 KRX 휴장일 캘린더가 잠정본입니다",
+                 "message": "KRX 공식 일정과 대조한 자동 작업 PR을 확인·병합하세요."}]
+    return []
 
 
 def pipeline_health(directory: Path | None = None, *, now: datetime | None = None) -> dict:
@@ -84,6 +110,7 @@ def pipeline_health(directory: Path | None = None, *, now: datetime | None = Non
                 alerts.append({"level": "warning", "code": f"{step}_failed", "title": f"{label} 갱신 실패",
                                "message": "추천 게시는 정상이지만 이 정보는 이전 값일 수 있습니다."})
 
+    alerts.extend(calendar_alerts(now))
     level = "error" if any(a["level"] == "error" for a in alerts) else "warning" if alerts else "ok"
     return {
         "level": level, "alerts": alerts, "checked_at": now.isoformat(),

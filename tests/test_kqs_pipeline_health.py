@@ -87,3 +87,19 @@ def test_eint028_collect_failure_while_waiting_for_the_next_attempt_is_not_an_al
     _status(path.parent, status="collect_failed", session="2026-09-29", finished_at=after_grace.isoformat())
     late = pipeline_health(path.parent, now=after_grace)
     assert late["level"] == "error" and [a["code"] for a in late["alerts"]][:2] == ["publication_missing", "last_run_failed"]
+
+
+
+def test_eint030_december_calendar_alerts(monkeypatch):
+    """12월에 내년 캘린더가 없으면 1일부터, 잠정본이면 20일부터 경고. 다른 달·확정본은 경고 없음."""
+    from app.backend import kqs_pipeline_health as module
+    from kqs_publication import calendar as krx_calendar
+    at = lambda m, d, y=2026: datetime(y, m, d, 3, tzinfo=timezone.utc)  # noqa: E731
+    assert module.calendar_alerts(at(11, 30)) == []
+    assert module.calendar_alerts(at(12, 5)) == []                                     # 2027 잠정본, 20일 전
+    provisional = module.calendar_alerts(at(12, 21))
+    assert [a["code"] for a in provisional] == ["calendar_next_year_provisional"] and "2027" in provisional[0]["title"]
+    missing = module.calendar_alerts(at(12, 2, 2027))                                    # 2028 미등록
+    assert [a["code"] for a in missing] == ["calendar_next_year_missing"] and "2028" in missing[0]["title"]
+    monkeypatch.setitem(krx_calendar.REVIEWED_CALENDARS, "krx-equity-2028", "krx_equity_2026.json")   # 확정본처럼
+    assert module.calendar_alerts(at(12, 22, 2027)) == []

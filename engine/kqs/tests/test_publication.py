@@ -280,6 +280,23 @@ class PublicationTests(unittest.TestCase):
         self.assertFalse(calendar.is_session(date(2026, 9, 25)))
         self.assertEqual(calendar.next_session(date(2026, 9, 23)), date(2026, 9, 28))
 
+    def test_every_registered_calendar_keeps_the_basic_krx_rules(self):
+        """EINT-030: 연간 자동 준비 도구가 새 해를 등록해도 이 검사가 그대로 적용된다."""
+        from kqs_publication.calendar import REVIEWED_CALENDARS, load_calendar
+        self.assertGreaterEqual(len(REVIEWED_CALENDARS), 2)
+        for calendar_id in REVIEWED_CALENDARS:
+            calendar = load_calendar(calendar_id)
+            year = calendar.year
+            self.assertEqual(calendar_id, f"krx-equity-{year}")
+            self.assertTrue(all(day.weekday() < 5 for day in calendar.closures), calendar_id)   # 주말은 휴장 목록에 없다
+            last = date(year, 12, 31)
+            while last.weekday() >= 5:
+                last -= timedelta(days=1)
+            self.assertFalse(calendar.is_session(last), f"{calendar_id} 연말 마지막 평일")
+            if date(year, 1, 1).weekday() < 5:
+                self.assertFalse(calendar.is_session(date(year, 1, 1)), f"{calendar_id} 1월 1일")
+            self.assertTrue(8 <= len(calendar.closures) <= 30, calendar_id)
+
     def test_krx_2027_calendar_uses_reviewed_closures_and_2026_law(self):
         calendar = calendar_for_session(date(2027, 2, 5))
         self.assertEqual(calendar.calendar_id, "krx-equity-2027")
@@ -300,11 +317,15 @@ class PublicationTests(unittest.TestCase):
             datetime(2027, 1, 4, 8, 30, tzinfo=kst)), date(2026, 12, 30))
         self.assertEqual(calendar_for_session(date(2027, 1, 5)).latest_available_session(
             datetime(2027, 1, 5, 8, 30, tzinfo=kst)), date(2027, 1, 4))
-        # 검토되지 않은 2028년으로는 넘어가지 않는다
-        with self.assertRaisesRegex(Exception, "2028"):
-            calendar_for_session(date(2027, 12, 30)).next_session(date(2027, 12, 30))
+        # 검토되지 않은 해로는 넘어가지 않는다. EINT-030: 연간 작업이 새 해를 등록해도 '등록된 마지막 해의 다음 해'로 검사한다.
+        from kqs_publication.calendar import REVIEWED_CALENDARS
+        last_year = max(int(calendar_id.rsplit("-", 1)[1]) for calendar_id in REVIEWED_CALENDARS)
+        last_calendar = calendar_for_session(date(last_year, 6, 1))
+        last_session = max(day for day in (date(last_year, 12, d) for d in range(20, 32)) if last_calendar.is_session(day))
+        with self.assertRaisesRegex(Exception, str(last_year + 1)):
+            last_calendar.next_session(last_session)
         with self.assertRaises(Exception):
-            calendar_for_session(date(2028, 1, 3))
+            calendar_for_session(date(last_year + 1, 1, 3))
 
     def test_year_end_session_publishes_across_the_boundary_with_capped_expiry(self):
         offset = (date(2026, 12, 30) - date.fromisoformat(self.runtime["as_of"])).days

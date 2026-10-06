@@ -1,0 +1,123 @@
+# EINT-030: 매년 12월 15일 다음 해 KRX 휴장일 캘린더를 준비해 변경 요청(PR)으로 올린다. 자동으로 main에 반영하지 않는다.
+# 사람이 공식 KRX 일정과 대조한 뒤 PR을 승인(병합)하면 배포되고, 서버 엔진 worker 이미지는 별도로 다시 빌드한다.
+# 필요: 저장소 비밀값 KASI_HOLIDAY_API_KEY(공공데이터포털 '한국천문연구원_특일 정보'),
+#       Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests" 켜기.
+name: KQS yearly KRX calendar
+
+on:
+  schedule:
+    - cron: "0 0 15 12 *"   # 12월 15일 09:00 KST
+  workflow_dispatch:
+    inputs:
+      year:
+        description: "준비할 해(비우면 내년)"
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: kqs-calendar-prepare
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install engine dependencies and python-holidays
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r engine/kqs/requirements.lock
+          python -m pip install holidays
+
+      - name: Prepare next year's calendar
+        id: prep
+        env:
+          KASI_HOLIDAY_API_KEY: ${{ secrets.KASI_HOLIDAY_API_KEY }}
+          YEAR: ${{ inputs.year }}
+        run: |
+          python scripts/kqs_calendar_prepare.py ${YEAR:+--year "$YEAR"} --apply --report "$RUNNER_TEMP/calendar-report.json"
+          python - "$RUNNER_TEMP/calendar-report.json" >> "$GITHUB_OUTPUT" <<'PY'
+          import json, sys
+          report = json.load(open(sys.argv[1]))
+          print(f"action={report['action']}")
+          print(f"year={report['year']}")
+          PY
+
+      - name: Revision record, change log draft and tests
+        if: steps.prep.outputs.action != 'none'
+        env:
+          YEAR: ${{ steps.prep.outputs.year }}
+          ACTION: ${{ steps.prep.outputs.action }}
+        run: |
+          python engine/kqs/tools/new_revision.py \
+            --summary "krx-equity-${YEAR} calendar ${ACTION} by the yearly job (scripts/kqs_calendar_prepare.py)" \
+            --scope "KRX closure calendar for ${YEAR} only; recommendation rules, ranking, exits and contract unchanged" \
+            --reason "Yearly calendar job (EINT-030): KASI official holidays cross-checked with python-holidays and KRX rules" \
+            --tests "engine unittest + check_revision in the yearly job; reviewer compares with the official KRX schedule" \
+            > "$RUNNER_TEMP/revision.json"
+          python - "$RUNNER_TEMP/calendar-report.json" "$RUNNER_TEMP/revision.json" <<'PY'
+          import json, sys
+          report, revision = json.load(open(sys.argv[1])), json.load(open(sys.argv[2]))
+          diff = report.get("source_differences") or []
+          lines = [
+              "", f"## {revision['change_id']} — 연간 자동 준비: KRX {report['year']} 휴장일 캘린더 ({report['action']})", "",
+              f"- 자동 작업(EINT-030)이 만든 초안이다. 병합 전 공식 KRX 일정과 대조하고 이 기록을 검토 결과로 고친다.",
+              f"- 휴장일 {len(report['closures'])}일: " + ", ".join(report["closures"]),
+              f"- 기존 대비 추가 {report.get('added', [])} · 삭제 {report.get('removed', [])}",
+              f"- 출처 차이(천문연 vs python-holidays): {json.dumps(diff, ensure_ascii=False) if diff else '없음'}",
+              f"- 개정 기록: {revision['manifest']} (이전 {revision['supersedes']}), 변경 구성요소 {revision['changed_components']}",
+              "- 배포: 병합 후 백엔드 자동 배포 + 서버 엔진 worker 이미지 재빌드가 필요하다.",
+          ]
+          with open("docs/engine/CHANGES.md", "a", encoding="utf-8") as handle:
+              handle.write("\n".join(lines) + "\n")
+          PY
+          PYTHONPATH=engine/kqs/src:engine/kqs/tests python -m unittest discover -s engine/kqs/tests
+          python engine/kqs/tools/check_revision.py
+
+      - name: Open pull request
+        if: steps.prep.outputs.action != 'none'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          YEAR: ${{ steps.prep.outputs.year }}
+          ACTION: ${{ steps.prep.outputs.action }}
+        run: |
+          branch="calendar/krx-${YEAR}-$(date -u +%Y%m%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add engine/kqs/src/kqs_publication/calendars engine/kqs/src/kqs_publication/calendar.py \
+                  engine/kqs/revisions engine/kqs/tools/check_revision.py docs/engine/verification docs/engine/CHANGES.md
+          git commit -m "chore(kqs): prepare the KRX ${YEAR} closure calendar (${ACTION}, yearly job)"
+          git push origin "$branch"
+          python - "$RUNNER_TEMP/calendar-report.json" > "$RUNNER_TEMP/pr-body.md" <<'PY'
+          import json, sys
+          r = json.load(open(sys.argv[1]))
+          print(f"## KRX {r['year']} 휴장일 캘린더 — 연간 자동 준비 ({r['action']})\n")
+          print("**병합 전 확인:** KRX 공식 증시 일정(휴장일)과 아래 날짜가 같은지, 출처 차이 항목이 있으면 어느 쪽이 맞는지.\n")
+          print("| 날짜 | 이름 |\n| --- | --- |")
+          for day, name in r["closures"].items():
+              print(f"| {day} | {name} |")
+          print(f"\n- 기존 대비 추가: {r.get('added', [])} / 삭제: {r.get('removed', [])}")
+          print(f"- 출처 차이: `{json.dumps(r.get('source_differences') or [], ensure_ascii=False)}`")
+          print("- 엔진 테스트·개정 무결성 검사는 이 자동 작업 안에서 통과했다.")
+          print("- 병합 후: 백엔드는 자동 배포, 서버 엔진 worker 이미지는 다시 빌드해야 한다.")
+          PY
+          gh pr create --base main --head "$branch" --title "KRX ${YEAR} 휴장일 캘린더 준비 (${ACTION})" --body-file "$RUNNER_TEMP/pr-body.md"
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/calendar-report.json" ]; then
+            { echo '### KRX calendar report'; echo '```json'; cat "$RUNNER_TEMP/calendar-report.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
