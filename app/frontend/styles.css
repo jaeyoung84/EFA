@@ -3368,3 +3368,10 @@ a.dash-news-title:hover { color: var(--primary); text-decoration: underline; }
   .dart-board-list,.dart-board-col[data-board-market="기타"] .dart-board-list { height:auto; max-height:72vh; min-height:0; }
   .dart-item-top .dart-activity-link { padding:4px 0; }
 }
+/* 추천 판단 근거(2026-10-06, 합의안 A): 기준일 갭·업종 집중·최근 지분공시. 참고 표시 */
+.pick-ctx { display:flex; flex-wrap:wrap; gap:4px; margin:4px 0; }
+.pick-ctx.is-loading:empty { display:none; }
+.pick-ctx-chip { display:inline-block; padding:1px 7px; border-radius:6px; border:1px solid var(--border); color:var(--text-muted); font-size:.68rem; line-height:1.6; white-space:nowrap; }
+.pick-ctx-chip.is-caution { color:#f5b800; border-color:rgba(245,184,0,.45); background:rgba(245,184,0,.08); }
+.pick-ctx-chip.is-info { color:#38bdf8; border-color:rgba(56,189,248,.45); background:rgba(56,189,248,.08); }
+.pick-ctx-chip.is-muted { opacity:.75; }

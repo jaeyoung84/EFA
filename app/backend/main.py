@@ -562,6 +562,76 @@ _RISK_CACHE: dict[str, tuple[float, dict]] = {}
 RISK_CACHE_SECONDS = 1800
 
 
+_PICK_CONTEXT_CACHE: dict[str, tuple[float, dict]] = {}
+PICK_CONTEXT_CACHE_SECONDS = 10 * 60
+
+
+@app.get("/api/market/pick-context")
+async def market_pick_context(user: dict = Depends(current_user)) -> dict:
+    """오늘 추천 종목의 판단 근거(기준일 갭·업종 집중·최근 지분공시). 참고 표시용이며 추천 규칙과 무관하다."""
+    try:
+        from .kqs_recommendations import read_local_recommendations
+        from .pick_context import as_of_gap, recent_activity, sector_concentration
+    except ImportError:
+        from kqs_recommendations import read_local_recommendations  # type: ignore
+        from pick_context import as_of_gap, recent_activity, sector_concentration  # type: ignore
+    try:
+        payload = await asyncio.to_thread(read_local_recommendations)
+    except RuntimeError as exc:
+        return {"available": False, "detail": str(exc), "items": {}, "sector_groups": {}}
+    snapshot_id = str(payload.get("snapshot_id") or payload.get("generated_at"))
+    hit = _PICK_CONTEXT_CACHE.get(snapshot_id)
+    if hit and monotonic() - hit[0] < PICK_CONTEXT_CACHE_SECONDS:
+        return hit[1]
+    as_of = str(payload["engine"]["data_as_of"])[:10]
+    picks: dict[str, str] = {}
+    names: dict[str, str] = {}
+    for signal in payload.get("signals", []):
+        if signal.get("action") == "entry" and signal.get("selection_outcome") == "selected":
+            picks.setdefault(signal["symbol"], signal.get("market", ""))
+            names.setdefault(signal["symbol"], signal.get("name") or signal["symbol"])
+    as_of_day = datetime.fromisoformat(as_of).date()
+    gate = asyncio.Semaphore(4)
+
+    async def gap(symbol: str, market: str) -> dict:
+        ticker = f"{symbol}.{'KQ' if market == 'KOSDAQ' else 'KS'}"
+        try:
+            async with gate:
+                stored = await get_daily_ohlcv(ticker, as_of_day - timedelta(days=14), as_of_day + timedelta(days=1),
+                                               adjusted=False, prefer_cached=True)
+        except Exception as exc:
+            return {"status": "unavailable", "as_of": as_of, "error": str(exc)[:200]}
+        return as_of_gap(stored["bars"], as_of)
+
+    def sector_of(code: str) -> str | None:
+        try:
+            return sector_status(code, _stock_ksic(code), rotation).get("sector_name")
+        except Exception:
+            return None
+
+    rotation = read_sector_rotation()
+    symbols = list(picks)
+    gaps = await asyncio.gather(*(gap(symbol, picks[symbol]) for symbol in symbols))
+    sectors = dict(zip(symbols, await asyncio.gather(*(asyncio.to_thread(sector_of, code) for code in symbols))))
+    groups = sector_concentration(sectors)
+    try:
+        activity_items = (await latest_market_activity()).get("items") or []
+    except Exception:
+        activity_items = []
+    items = {}
+    for symbol, gap_info in zip(symbols, gaps):
+        group = next(((name, members) for name, members in groups.items() if symbol in members), None)
+        items[symbol] = {"gap": gap_info, "sector": sectors.get(symbol),
+                         "same_sector": [{"symbol": code, "name": names.get(code, code)} for code in group[1] if code != symbol] if group else [],
+                         "recent_activity": recent_activity(activity_items, symbol)}
+    result = {"available": True, "as_of": as_of, "snapshot_id": snapshot_id, "items": items, "sector_groups": groups,
+              "note": "기준일에 이미 관측된 값만 쓰는 참고 정보입니다. 추천을 막거나 순서를 바꾸지 않습니다. "
+                      "갭은 Yahoo 일봉(수정주가 아님), 업종은 DART 업종코드, 공시는 최근 7일 지분·자사주 수집분 기준입니다."}
+    _PICK_CONTEXT_CACHE.clear()
+    _PICK_CONTEXT_CACHE[snapshot_id] = (monotonic(), result)
+    return result
+
+
 @app.get("/api/market/stock-risk")
 async def market_stock_risk(symbols: str = "", user: dict = Depends(current_user)) -> dict:
     """EINT-025: 종목(6자리 코드, 쉼표로 최대 30개)의 최근 30일 위험 공시와 거래소 지정 상태. 참고 표시용."""

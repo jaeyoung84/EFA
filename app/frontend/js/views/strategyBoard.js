@@ -7,6 +7,7 @@ import { fillSectorBadges, sectorSlot } from '../utils/sectorBadges.js';
 import { liveSlot, startLiveQuotes } from '../utils/liveQuotes.js';
 import { fillRiskBadges, riskSlot } from '../utils/riskBadges.js';
 import { exitPlanHtml } from '../utils/exitPlan.js';
+import { contextSlot, fillPickContext } from '../utils/pickContext.js';
 
 const esc = (value) => String(value ?? '-').replace(/[&<>'"]/g, (char) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
@@ -70,6 +71,7 @@ function pickRow(pick, decisions) {
       <summary><span class="sb-rank">${esc(pick.rank)}</span><span class="sb-name"><strong>${esc(pick.name)}</strong><small>${esc(pick.symbol)} · ${esc(pick.market)}</small>${sectorSlot(pick.symbol)}${riskSlot(pick.symbol)}</span><span class="sb-close">${price(pick.close)}<small>기준일 종가</small>${liveSlot(pick.symbol, pick.market)}</span></summary>
       <ul class="sb-reasons">${(pick.reasons || []).map((reason) => `<li>${esc(reason)}</li>`).join('')}</ul>
       ${riskSlot(pick.symbol, { full: true, hideClean: true })}
+      ${contextSlot(pick.symbol)}
       ${pick.exit_plan ? exitPlanHtml(pick.exit_plan) : pick.exit_reference ? `<p class="sb-note"><b>청산 기준</b> ${esc(pick.exit_reference)}</p>` : ''}
       ${decisionBadges(decisions[pick.signal_id])}
       ${pick.signal_id ? decisionForm(pick) : ''}
@@ -193,6 +195,7 @@ export function strategyBoardView(container) {
     container.querySelectorAll('[data-sb-decision]').forEach((form) => bindDecisionForm(form, load));
     fillSectorBadges(container);
     fillRiskBadges(container);
+    fillPickContext(container);
     startLiveQuotes(container);
   };
   load();
