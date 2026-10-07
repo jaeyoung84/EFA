@@ -1070,6 +1070,30 @@ async def market_krx_futures() -> dict:
     return await kospi200_futures(kis_service())
 
 
+def futures_session_quote(closes, last_price: float | None = None) -> dict:
+    """CME 선물: 마지막 체결가와 직전 세션 마감가(매일 18:00 ET에 새 세션 시작) 대비 등락률.
+
+    마지막 봉이 속한 세션의 시작(그날 또는 전날 18:00 ET)보다 앞선 마지막 봉을 직전 세션 마감가로 쓴다.
+    주말·휴장은 봉이 없으므로 자연히 금요일 마감가가 된다.
+    """
+    import pandas as pd
+    series = closes.dropna()
+    if series.empty:
+        raise ValueError("no futures bars")
+    index = series.index.tz_convert("America/New_York") if series.index.tz is not None else series.index.tz_localize("America/New_York")
+    series.index = index
+    last_at = index[-1]
+    session_start = last_at.normalize() + pd.Timedelta(hours=18)
+    if last_at < session_start:
+        session_start -= pd.Timedelta(days=1)
+    before = series[series.index < session_start]
+    if before.empty:
+        raise ValueError("no previous session")
+    current, previous = (last_price if last_price and last_price > 0 else float(series.iloc[-1])), float(before.iloc[-1])
+    return {"value": round(current, 4), "change_pct": round((current / previous - 1) * 100, 2),
+            "previous_close": round(previous, 4), "latest_data_at": last_at.tz_convert("UTC").isoformat()}
+
+
 @app.post("/api/market/snapshot")
 def market_snapshot(req: MarketSnapshotRequest) -> dict[str, object]:
     import pandas as pd
@@ -1083,6 +1107,20 @@ def market_snapshot(req: MarketSnapshotRequest) -> dict[str, object]:
 
     for ticker in req.tickers:
         label = MARKET_SNAPSHOT_LABELS.get(ticker, ticker)
+        if ticker.endswith("=F"):
+            # 선물: Yahoo의 previous_close는 한 세션 전 값일 때가 있어(2026-10-07 NQ=F +0.37% vs 실제 -0.10%)
+            # 직전 CME 세션 마감가를 분봉에서 직접 찾아 등락률을 계산한다.
+            try:
+                tk = yf.Ticker(ticker)
+                try:
+                    last_price = float(tk.fast_info.last_price)   # 분봉보다 몇 분 더 최신인 체결가
+                except Exception:
+                    last_price = None
+                quote = futures_session_quote(tk.history(period="5d", interval="5m")["Close"], last_price=last_price)
+                items.append({"ticker": ticker, "label": label, "status": "ok", **quote})
+                continue
+            except Exception:
+                pass   # 아래 일반 경로로 대신한다
         try:
             tk = yf.Ticker(ticker)
             fi = tk.fast_info
