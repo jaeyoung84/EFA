@@ -32,7 +32,8 @@ Object.assign(window.Apex, { theme: { mode: 'dark' }, chart: { background: 'tran
   grid: { borderColor: '#1e2b42' }, tooltip: { theme: 'dark' } });
 const breadcrumb = document.getElementById('breadcrumb');
 // 시세 띠: 화면 표시 이름 → 시세 티커. /api/market/snapshot은 지연 시세다.
-const TOPBAR_MARKETS = { 'KOSPI': '^KS11', 'KOSDAQ': '^KQ11', 'NASDAQ': '^IXIC', 'S&P500': '^GSPC', 'USD/KRW': 'KRW=X' };
+const TOPBAR_MARKETS = { 'KOSPI': '^KS11', 'KOSDAQ': '^KQ11', 'NASDAQ': '^IXIC', 'S&P500': '^GSPC',
+  'S&P500 선물': 'ES=F', '나스닥 선물': 'NQ=F', 'USD/KRW': 'KRW=X' };
 const TOPBAR_REFRESH_MS = 30_000;
 const VISITOR_HEARTBEAT_MS = 30_000;
 const VISITOR_ID_KEY = 'investment_analysis_visitor_id';
@@ -177,7 +178,7 @@ async function checkHealth() {
 }
 
 function formatMarketValue(label, value) {
-  const digits = label === 'USD/KRW' ? 2 : 0;
+  const digits = label === 'USD/KRW' || label.includes('선물') ? 2 : 0;
   return Number(value).toLocaleString('ko-KR', {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
@@ -197,6 +198,31 @@ function formatTimestamp(ts) {
     second: '2-digit',
     hour12: false,
   }).format(date);
+}
+
+// 코스피200 야간선물(한투, 실시간·30초 캐시): 야간 18:00~05:00에는 진행 중 시세, 그 외에는 마지막 야간 종가.
+async function refreshKospiNightFutures() {
+  const node = document.querySelector('.ticker-item[data-krx-night]');
+  if (!node) return;
+  const valueEl = node.querySelector('b');
+  const changeEl = node.querySelector('em');
+  const tagEl = node.querySelector('small');
+  try {
+    const data = await fetch('/api/market/krx-futures').then((response) => response.json());
+    const night = data.night || {};
+    if (data.status !== 'ok' || night.status !== 'ok') throw new Error(night.reason || data.reason || '조회 실패');
+    valueEl.textContent = night.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    changeEl.textContent = `${night.change_pct >= 0 ? '+' : ''}${night.change_pct.toFixed(2)}%`;
+    changeEl.className = night.change_pct >= 0 ? 'up' : 'dn';
+    tagEl.textContent = data.night_session_open ? '야간 진행 중' : '야간 종가';
+    node.title = `${night.contract || ''} · 한투 시세(실시간) · 야간 18:00~05:00 KST · 조회 ${formatTimestamp(data.fetched_at)}`;
+  } catch (error) {
+    valueEl.textContent = '-';
+    changeEl.textContent = '조회 실패';
+    changeEl.className = '';
+    tagEl.textContent = '';
+    node.title = String(error.message || error);
+  }
 }
 
 async function refreshTopbarMarkets() {
@@ -229,6 +255,7 @@ async function refreshTopbarMarkets() {
     });
 
     if (stamp) stamp.textContent = formatTimestamp(data.fetched_at);
+    refreshKospiNightFutures();
   } catch {
     nodes.forEach((node) => {
       const valueEl = node.querySelector('b');

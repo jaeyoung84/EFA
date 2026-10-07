@@ -954,6 +954,8 @@ class PortfolioCombinationRequest(BaseModel):
 
 
 MARKET_SNAPSHOT_LABELS = {
+    "ES=F": "S&P500 선물",
+    "NQ=F": "나스닥100 선물",
     "^KS11": "KOSPI",
     "^IXIC": "NASDAQ",
     "KRW=X": "USD/KRW",
@@ -1056,6 +1058,16 @@ def portfolio_combination(req: PortfolioCombinationRequest) -> dict[str, object]
         "latest_data_at": latest_data_at,
         "chart_points": chart_points,
     }
+
+
+@app.get("/api/market/krx-futures")
+async def market_krx_futures() -> dict:
+    """코스피200 선물 최근월물의 주간·야간 시세(한투, 30초 캐시). 상단 시세 띠 참고 표시용."""
+    try:
+        from .krx_futures import kospi200_futures
+    except ImportError:
+        from krx_futures import kospi200_futures  # type: ignore
+    return await kospi200_futures(kis_service())
 
 
 @app.post("/api/market/snapshot")

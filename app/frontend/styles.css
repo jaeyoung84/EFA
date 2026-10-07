@@ -3391,3 +3391,5 @@ a.dash-news-title:hover { color: var(--primary); text-decoration: underline; }
 .sb-watch li span { grid-column:1 / -1; color:var(--text-muted); }
 .sb-watch li em { grid-column:1 / -1; color:#f5b800; font-style:normal; font-size:.7rem; }
 @media (max-width:760px) { .sb-funnel-grid { grid-template-columns:1fr; } }
+/* 시세 띠: 코스피200 야간선물 상태 표시(야간 진행 중 / 야간 종가) */
+.efa-ticker .ticker-tag { color: var(--text-muted); font-size: .72rem; }
