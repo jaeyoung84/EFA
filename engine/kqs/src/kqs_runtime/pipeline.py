@@ -24,6 +24,7 @@ from kqs_ops.runlog import SUCCESS, record_run, write_status
 from kqs_publication.calendar import KST, CalendarError, calendar_for_session
 from kqs_publication.store import session_published
 from kqs_runtime.outcomes import OutcomeError, build_outcome_report, write_outcome_report
+from kqs_runtime.rebound_shadow import ReboundShadowError, build_rebound_shadow, write_rebound_shadow
 from kqs_runtime.worker import require_separate_paths, run_publication
 
 HISTORY_DAYS = 730
@@ -124,6 +125,15 @@ def run_daily_pipeline(*, state_dir: Path, market_db: Path, client: KrxOpenApiCl
                                                    "rows_sha256": outcomes["rows_sha256"]}
     except (OutcomeError, OSError, sqlite3.Error) as exc:
         run["steps"]["recommendation_outcomes"] = {"status": "failed", "error": str(exc)}
+    # EINT-032: pre-registered prospective observation B-1 (rebound-confirmed entry). Observation only;
+    # a failure is recorded but never changes the publication status.
+    try:
+        shadow = build_rebound_shadow(paths["snapshot_db"], market_db, as_of)
+        write_rebound_shadow(paths["rebound_shadow"], shadow)
+        run["steps"]["rebound_shadow"] = {"status": "written", "rows": len(shadow["rows"]),
+                                          "rows_sha256": shadow["rows_sha256"], "verdict": shadow["summary"]["verdict"]}
+    except (ReboundShadowError, OSError, sqlite3.Error, KeyError, ValueError) as exc:
+        run["steps"]["rebound_shadow"] = {"status": "failed", "error": str(exc)}
     return finish(PUBLICATION_STATUS[attempt["status"]], attempt.get("error"))
 
 

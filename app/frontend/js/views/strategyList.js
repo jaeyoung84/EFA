@@ -1,7 +1,7 @@
 import { manualRequest, resetManualRequest, kstTradeAt, kstRecordTime } from './kqsManualRecords.js';
 import { authRequest, authDownload, isAuthenticated, openAuthModal } from '../auth.js';
 import { kqsRecommendationsHtml } from './kqsRecommendations.js';
-import { outcomesHtml } from './recommendationOutcomes.js';
+import { outcomesHtml, reboundShadowHtml } from './recommendationOutcomes.js';
 import { kqsStatusHtml, kqsReviewCandidatesHtml, kqsReviewPacketHtml, kqsNativeReconciliationHtml } from './kqsEngineViews.js';
 
 const TYPE_BADGE = {
@@ -821,6 +821,9 @@ export function strategyListView(container) {
     const el = container.querySelector('#stg-recommendation-outcomes');
     try { el.innerHTML = outcomesHtml(await authRequest('/api/kqs/recommendation-outcomes')); }
     catch (error) { el.innerHTML = `<p style="color:#ef4444; font-size:.8rem;">${escapeHtml(error.message)}</p>`; }
+    // EINT-032: 사전등록 B-1 관측은 실제 추천 성과와 섞지 않고 아래에 따로 붙인다.
+    const shadow = await authRequest('/api/kqs/rebound-shadow').catch((error) => ({ available: false, detail: error.message }));
+    el.insertAdjacentHTML('beforeend', reboundShadowHtml(shadow));
   }
 
   async function loadKqsDecisionOutcomes() {

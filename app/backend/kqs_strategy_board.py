@@ -228,3 +228,34 @@ def read_outcome_report(path: Path | None = None) -> dict:
                        "청산 규칙은 반영하지 않았습니다. 아이템별 표본이 기준 미만이면 성과 판단을 보류합니다. "
                        "미래 수익을 보장하지 않으며 주문·자동 모의체결은 없습니다."),
     }
+
+
+# EINT-032: 사전등록 B-1(반등 확인 후 진입) 전향 관측. 엔진이 매일 쓰는 파일을 보여 주기만 한다.
+REBOUND_SCHEMA = "kqs-rebound-shadow/v1"
+REBOUND_ROW_LIMIT = 200
+
+
+def rebound_shadow_path() -> Path:
+    snapshot = os.getenv("KQS_SNAPSHOT_DB", "").strip()
+    if snapshot:
+        return Path(snapshot).parent / "rebound-shadow.json"
+    return Path(__file__).resolve().parents[2] / "state/kqs/rebound-shadow.json"
+
+
+def read_rebound_shadow(path: Path | None = None) -> dict:
+    """사전등록 관측 파일. 없거나 형식이 다르면 '없음'으로 알리고 숫자를 만들지 않는다."""
+    path = path or rebound_shadow_path()
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {"available": False, "detail": "반등 확인 관측 파일이 아직 없습니다. 2026-10-07 이후 신호가 게시된 뒤 생성됩니다."}
+    except (OSError, ValueError):
+        return {"available": False, "detail": "반등 확인 관측 파일을 읽을 수 없습니다."}
+    if not isinstance(report, dict) or report.get("schema") != REBOUND_SCHEMA:
+        return {"available": False, "detail": "반등 확인 관측 파일 형식이 다릅니다."}
+    rows = sorted(report.get("rows", []), key=lambda row: (row["as_of"], -(row.get("rank") or 0)), reverse=True)
+    return {"available": True, "through": report["through"], "registered_from": report["registered_from"],
+            "preregistration": report["preregistration"], "preregistration_sha256": report["preregistration_sha256"],
+            "costs": report["costs"], "summary": report["summary"], "rows": rows[:REBOUND_ROW_LIMIT], "row_count": len(rows),
+            "disclaimer": ("사전등록한 가설 하나(반등 확인 후 진입)의 관측 기록입니다. 실제 추천·청산 규칙과 내 기록에는 영향이 없고 "
+                           "주문·자동 모의체결은 없습니다. 끝난 짝이 100개(또는 2028-10-07)가 되기 전에는 판정하지 않습니다.")}
