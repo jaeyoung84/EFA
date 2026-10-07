@@ -33,7 +33,7 @@ Object.assign(window.Apex, { theme: { mode: 'dark' }, chart: { background: 'tran
 const breadcrumb = document.getElementById('breadcrumb');
 // 시세 띠: 화면 표시 이름 → 시세 티커. /api/market/snapshot은 지연 시세다.
 const TOPBAR_MARKETS = { 'KOSPI': '^KS11', 'KOSDAQ': '^KQ11', 'NASDAQ': '^IXIC', 'S&P500': '^GSPC',
-  'S&P500 선물': 'ES=F', '나스닥 선물': 'NQ=F', 'USD/KRW': 'KRW=X' };
+  'S&P500 선물': 'ES=F', '나스닥100 선물': 'NQ=F', 'USD/KRW': 'KRW=X' };
 const TOPBAR_REFRESH_MS = 30_000;
 const VISITOR_HEARTBEAT_MS = 30_000;
 const VISITOR_ID_KEY = 'investment_analysis_visitor_id';
