@@ -73,10 +73,12 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         self.app.dependency_overrides[kqs.current_user] = user
 
     def publish(self, expired=False):
-        generated = self.now - timedelta(hours=3) if expired else self.now
+        # v4(EINT-031): 09-28 자료는 09-29 08:00 KST 공개 기대라 만료 게시본은 08:10 생성·08:40 만료로 만든다.
+        generated = self.now - timedelta(minutes=50) if expired else self.now
         with WriterLock(self.path) as lock:
             return publish(self.path, self.runtime, expected_as_of=self.runtime["as_of"], generated_at=generated,
-                           expires_at=generated + timedelta(hours=2), writer_lock=lock)
+                           expires_at=generated + (timedelta(minutes=30) if expired else timedelta(hours=2)),
+                           writer_lock=lock)
 
     async def test_recommendations_without_auth_are_rejected_before_read(self):
         response = await self.client.get("/api/kqs/recommendations")

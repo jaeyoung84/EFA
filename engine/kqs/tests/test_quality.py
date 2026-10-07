@@ -24,7 +24,7 @@ class QualityTests(unittest.TestCase):
         self.market = Path(self.directory.name) / "market.sqlite3"
         self.as_of = create_db(self.market)
         self.observed = datetime.combine(date.fromisoformat(self.as_of) + timedelta(days=1),
-                                         datetime.min.time(), tzinfo=ZoneInfo("Asia/Seoul")).replace(hour=7)
+                                         datetime.min.time(), tzinfo=ZoneInfo("Asia/Seoul")).replace(hour=9)
         self.manifest = Path(self.directory.name) / "coverage.json"
         self.quality_db = Path(self.directory.name) / "quality.sqlite3"
         self.write_manifest()

@@ -55,7 +55,7 @@ def run_daily_pipeline(*, state_dir: Path, market_db: Path, client: KrxOpenApiCl
     as_of = session.isoformat()
     run["session"] = as_of
 
-    # EINT-028: 예약 실행은 22:00·06:00·08:30 KST 순서로 시도한다. 이 거래일이 이미 게시됐으면 남은 시도는
+    # EINT-028/031: 예약 실행은 08:20·08:50·09:30·10:30 KST 순서로 시도한다. 이 거래일이 이미 게시됐으면 남은 시도는
     # KRX를 부르지 않고 바로 끝낸다(같은 거래일은 첫 게시만 유효해 다시 해도 바뀌는 것이 없다). refresh는 예외.
     if not refresh and session_published(paths["snapshot_db"], as_of):
         run["steps"]["skipped"] = {"reason": "session_already_published"}
@@ -101,7 +101,7 @@ def run_daily_pipeline(*, state_dir: Path, market_db: Path, client: KrxOpenApiCl
     except (SectorRotationError, OSError) as exc:
         run["steps"]["sector_rotation"] = {"status": "failed", "error": str(exc)}
 
-    # EINT-029: v3는 다음 세션 자료 공개 기대 시각까지(24시간 상한 없음, 정책 안전 상한 10일). v1·v2는 24시간 상한.
+    # EINT-029/031: v3·v4는 다음 세션 자료 공개 기대 시각(v4는 + 유예 3시간)까지, 안전 상한 10일. v1·v2는 24시간 상한.
     expires_at = min(now + calendar.expiry_ceiling, ceiling)
     try:
         result = run_publication(

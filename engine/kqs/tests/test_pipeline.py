@@ -49,12 +49,13 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(run["steps"]["quality"]["status"], "ready")
         payload = read_latest(self.paths["snapshot_db"], now=self.now + timedelta(minutes=1))
         self.assertEqual(payload["engine"]["data_as_of"], self.as_of)
-        # EINT-029: 만료 = 다음 거래일 22:00 KST(자료 공개 기대 시각), 24시간 상한 없음.
+        # EINT-031(v4): 만료 = 다음 세션 자료 공개 기대(그다음 거래일 08:00 KST) + 유예 3시간, 24시간 상한 없음.
         from kqs_publication.calendar import calendar_for_session
         calendar = calendar_for_session(date.fromisoformat(self.as_of))
         next_session = calendar.next_session(date.fromisoformat(self.as_of))
-        self.assertEqual(datetime.fromisoformat(payload["expires_at"]), calendar.availability_at(next_session))
-        self.assertEqual(payload["publication"]["calendar"]["policy"], "krx-session-expiry/v3")
+        self.assertEqual(datetime.fromisoformat(payload["expires_at"]),
+                         calendar.availability_at(next_session) + calendar.expiry_grace)
+        self.assertEqual(payload["publication"]["calendar"]["policy"], "krx-session-expiry/v4")
         self.assertEqual(json.loads(self.paths["status_file"].read_text())["status"], "published")
         self.assertEqual([r["status"] for r in read_runs(self.paths["pipeline_runs_db"])], ["published"])
         self.assertEqual([a["status"] for a in read_attempts(self.paths["attempts_db"])], ["published"])
@@ -84,7 +85,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(len(read_runs(self.paths["pipeline_runs_db"])), 2)
 
     def test_eint028_attempts_after_success_do_not_call_krx_but_failures_retry(self):
-        """22:00 실패 → 06:00 성공 → 08:30은 KRX를 부르지 않고 끝난다. refresh는 건너뛰지 않는다."""
+        """08:20 실패 → 08:50 성공 → 09:30은 KRX를 부르지 않고 끝난다. refresh는 건너뛰지 않는다."""
         first_client = KrxOpenApiClient(auth_key=KEY, transport=FakeKrx({}), sleep=lambda _: None)
         failed = run_daily_pipeline(state_dir=self.state, market_db=self.market, client=first_client, now=self.now)
         self.assertEqual(failed["status"], "collect_failed")

@@ -1,10 +1,11 @@
 [Unit]
-Description=Run the KQS daily pipeline after the close (22:00 KST), retrying at 06:00 and 08:30; once a session is published the remaining attempts exit without calling KRX (EINT-028)
+Description=Run the KQS daily pipeline when KRX publishes the previous session (next trading day ~08:00 KST): 08:20, retrying 08:50, 09:30 and 10:30; once a session is published the remaining attempts exit without calling KRX (EINT-031)
 
 [Timer]
-OnCalendar=*-*-* 22:00:00 Asia/Seoul
-OnCalendar=*-*-* 06:00:00 Asia/Seoul
-OnCalendar=*-*-* 08:30:00 Asia/Seoul
+OnCalendar=*-*-* 08:20:00 Asia/Seoul
+OnCalendar=*-*-* 08:50:00 Asia/Seoul
+OnCalendar=*-*-* 09:30:00 Asia/Seoul
+OnCalendar=*-*-* 10:30:00 Asia/Seoul
 Persistent=true
 RandomizedDelaySec=120
 

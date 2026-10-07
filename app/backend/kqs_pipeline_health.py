@@ -89,7 +89,7 @@ def pipeline_health(directory: Path | None = None, *, now: datetime | None = Non
     except (OSError, ValueError):
         alerts.append({"level": "warning", "code": "run_log_unreadable", "title": "엔진 실행 기록을 읽을 수 없습니다",
                        "message": "엔진 일일 실행 상태 파일이 손상됐거나 권한이 없습니다."})
-    # EINT-028: 22:00 시도가 KRX 공개 전이라 수집에 실패해도 06:00·08:30에 다시 시도한다. 새 거래일을 기다리는
+    # EINT-028/031: 첫 시도(08:20)가 KRX 공개 전이라 수집에 실패해도 08:50·09:30·10:30에 다시 시도한다. 새 거래일을 기다리는
     # 유예 시간 안의 수집 실패는 정상 대기라 경고하지 않는다(유예가 지나면 위의 publication_missing 오류가 뜬다).
     waiting_retry = (report.get("healthy") and report.get("published_session") != report.get("expected_session")
                      and last.get("status") == "collect_failed")
@@ -99,7 +99,7 @@ def pipeline_health(directory: Path | None = None, *, now: datetime | None = Non
             alerts.append({"level": "error" if not report.get("healthy") else "warning", "code": "last_run_failed",
                            "title": f"최근 엔진 실행: {RUN_STATUS_LABELS.get(status, status or '알 수 없음')}",
                            "message": (f"기준일 {last.get('session') or '-'} 실행이 끝나지 않았습니다. "
-                                       "예약 실행(22:00·06:00·08:30 KST) 중 다음 시도에서 다시 수집합니다.")})
+                                       "예약 실행(08:20·08:50·09:30·10:30 KST) 중 다음 시도에서 다시 수집합니다.")})
         finished = _parse(last.get("finished_at"))
         if finished is None or now - finished > STALE_RUN_AFTER:
             alerts.append({"level": "warning", "code": "run_log_stale", "title": "엔진이 최근에 실행되지 않았습니다",

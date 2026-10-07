@@ -16,8 +16,8 @@ from kqs_publication.contract import KqsContractError
 from kqs_publication.store import read_latest
 
 
-# EINT-028: 자료 공개 기대 21:30 KST, 시도 22:00·06:00·08:30 → 마지막 시도까지 기다린 뒤(09:30 이후) 경보한다.
-DEFAULT_GRACE_HOURS = 12.0
+# EINT-031: 자료 공개 기대 = 다음 거래일 08:00 KST, 시도 08:20·08:50·09:30·10:30 → 마지막 시도가 끝난 뒤(11:30 이후) 경보한다.
+DEFAULT_GRACE_HOURS = 3.5
 
 
 def check_health(state_dir: Path, *, now: datetime | None = None, grace_hours: float = DEFAULT_GRACE_HOURS) -> dict:

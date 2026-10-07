@@ -51,7 +51,7 @@ def build_market(path: Path, *, previous_counts: dict | None = None):
 
 def available_time(as_of: str) -> datetime:
     return datetime.combine(date.fromisoformat(as_of) + timedelta(days=1), datetime.min.time(),
-                            tzinfo=ZoneInfo("Asia/Seoul")).replace(hour=7)
+                            tzinfo=ZoneInfo("Asia/Seoul")).replace(hour=9)
 
 
 class FakeKrx:

@@ -34,7 +34,7 @@ class WorkerTests(unittest.TestCase):
         self.manifest = root / "coverage.json"
         self.as_of = create_db(self.market)
         self.generated = datetime.combine(date.fromisoformat(self.as_of) + timedelta(days=1), datetime.min.time(),
-                                          tzinfo=ZoneInfo("Asia/Seoul")).replace(hour=7)
+                                          tzinfo=ZoneInfo("Asia/Seoul")).replace(hour=9)
         self.expiry = self.generated + timedelta(hours=4)
         self.write_manifest()
 

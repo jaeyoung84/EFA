@@ -47,7 +47,7 @@ class PublicationTests(unittest.TestCase):
         self.path = Path(self.directory.name) / "recommendations.sqlite3"
         self.runtime = run()
         self.generated = datetime.combine(date.fromisoformat(self.runtime["as_of"]) + timedelta(days=1),
-                                          datetime.min.time(), tzinfo=ZoneInfo("Asia/Seoul")).replace(hour=7)
+                                          datetime.min.time(), tzinfo=ZoneInfo("Asia/Seoul")).replace(hour=9)
         self.expiry = self.generated + timedelta(hours=4)
 
     def publish(self, **kwargs):
@@ -134,7 +134,7 @@ class PublicationTests(unittest.TestCase):
         self.publish()
         older = run(offset=-1)
         older_generated = datetime.combine(date.fromisoformat(older["as_of"]) + timedelta(days=1),
-                                           datetime.min.time(), tzinfo=ZoneInfo("Asia/Seoul")).replace(hour=7)
+                                           datetime.min.time(), tzinfo=ZoneInfo("Asia/Seoul")).replace(hour=9)
         with self.assertRaisesRegex(KqsContractError, "되돌릴"):
             publish(self.path, older, expected_as_of=older["as_of"], generated_at=older_generated,
                     expires_at=older_generated + timedelta(hours=4))
@@ -211,7 +211,8 @@ class PublicationTests(unittest.TestCase):
         self.assertFalse(self.path.exists())
 
     def test_expiry_is_explicit_timezone_aware_and_at_most_24_hours(self):
-        for expiry in (self.generated, self.generated + timedelta(hours=25), self.expiry.replace(tzinfo=None)):
+        # v4 상한은 다음 세션 공개 기대 + 3시간(이 픽스처에선 생성 + 26시간)이라 27시간은 넘는다.
+        for expiry in (self.generated, self.generated + timedelta(hours=27), self.expiry.replace(tzinfo=None)):
             with self.assertRaises(KqsContractError):
                 self.publish(expires_at=expiry)
         self.assertFalse(self.path.exists())
@@ -332,14 +333,15 @@ class PublicationTests(unittest.TestCase):
         runtime = run(offset=offset)
         kst = ZoneInfo("Asia/Seoul")
         generated = datetime(2027, 1, 4, 8, 30, tzinfo=kst)
-        # EINT-029(v3): 다음 세션 2027-01-04 자료는 그날 22:00 KST에 공개 기대 → 만료 상한도 그 시각이다.
+        # EINT-031(v4): 12/30 자료는 다음 거래일 2027-01-04 08:00 공개 기대. 다음 세션(01-04) 자료는 01-05 08:00 공개
+        # 기대라 만료 상한은 01-05 08:00 + 3시간 = 11:00이다.
         payload = publish(self.path, runtime, expected_as_of="2026-12-30", generated_at=generated,
-                          expires_at=datetime(2027, 1, 4, 21, 59, tzinfo=kst))
+                          expires_at=datetime(2027, 1, 5, 10, 59, tzinfo=kst))
         self.assertEqual(payload["engine"]["data_as_of"], "2026-12-30")
         self.assertEqual(payload["publication"]["calendar"]["calendar_id"], "krx-equity-2026")
         with self.assertRaisesRegex(KqsContractError, "next expected KRX"):
             publish(Path(self.directory.name) / "late.sqlite3", runtime, expected_as_of="2026-12-30",
-                    generated_at=generated, expires_at=datetime(2027, 1, 4, 22, 1, tzinfo=kst))
+                    generated_at=generated, expires_at=datetime(2027, 1, 5, 11, 1, tzinfo=kst))
 
     def test_eint028_same_day_availability_and_v1_payloads_still_validate(self):
         """v2: 세션 자료는 같은 날 21:30 KST부터 공개 기대. v1(다음 날 06:00)로 이미 게시된 metadata는 계속 검증된다."""
@@ -379,7 +381,7 @@ class PublicationTests(unittest.TestCase):
                                               validate_publication_calendar)
         kst = ZoneInfo("Asia/Seoul")
         friday, generated = date(2026, 10, 16), datetime(2026, 10, 16, 22, 3, tzinfo=kst)
-        v3 = calendar_for_session(friday)
+        v3 = calendar_for_session(friday, policy=POLICY_V3)   # EINT-031부터 기본은 v4
         self.assertEqual(v3.policy, POLICY_V3)
         self.assertEqual(v3.latest_available_session(datetime(2026, 10, 16, 21, 59, tzinfo=kst)), date(2026, 10, 15))
         self.assertEqual(v3.latest_available_session(datetime(2026, 10, 16, 22, 0, tzinfo=kst)), friday)
@@ -400,36 +402,71 @@ class PublicationTests(unittest.TestCase):
             validate_publication_calendar({k: v for k, v in meta.items() if k != "expiry"}, data_as_of=friday,
                                           generated_at=generated, expires_at=monday_evening)
         # 추석 같은 긴 휴장도 다음 세션 22:00까지(2026-09-23 → 09-28), 안전 상한 10일 안이다.
-        chuseok = calendar_for_session(date(2026, 9, 23))
+        chuseok = calendar_for_session(date(2026, 9, 23), policy=POLICY_V3)
         self.assertEqual(chuseok.publication_window(date(2026, 9, 23), datetime(2026, 9, 23, 22, 5, tzinfo=kst)),
                          datetime(2026, 9, 28, 22, 0, tzinfo=kst))
 
     def test_krx_holiday_window_accepts_last_available_session_and_caps_expiry(self):
         offset = (date(2026, 9, 23) - date.fromisoformat(self.runtime["as_of"])).days
         runtime = run(offset=offset)
-        generated = datetime(2026, 9, 28, 7, tzinfo=ZoneInfo("Asia/Seoul"))
+        generated = datetime(2026, 9, 28, 9, tzinfo=ZoneInfo("Asia/Seoul"))   # v4: 09-23 자료는 다음 거래일 09-28 08:00 공개
         payload = publish(self.path, runtime, expected_as_of="2026-09-23", generated_at=generated,
                           expires_at=datetime(2026, 9, 28, 20, tzinfo=ZoneInfo("Asia/Seoul")))
         self.assertEqual(payload["publication"]["calendar"]["calendar_id"], "krx-equity-2026")
         self.assertEqual(payload["engine"]["data_as_of"], "2026-09-23")
         with self.assertRaisesRegex(KqsContractError, "next expected KRX"):
             publish(Path(self.directory.name) / "beyond.sqlite3", runtime, expected_as_of="2026-09-23",
-                    generated_at=generated, expires_at=datetime(2026, 9, 29, 6, 30, tzinfo=ZoneInfo("Asia/Seoul")))
+                    generated_at=generated, expires_at=datetime(2026, 9, 29, 11, 1, tzinfo=ZoneInfo("Asia/Seoul")))
 
     def test_krx_stale_or_holiday_data_and_calendar_tamper_fail_closed(self):
         offset = (date(2026, 9, 23) - date.fromisoformat(self.runtime["as_of"])).days
         runtime = run(offset=offset)
         with self.assertRaisesRegex(KqsContractError, "latest available KRX session"):
             publish(self.path, runtime, expected_as_of="2026-09-23",
-                    generated_at=datetime(2026, 9, 29, 7, tzinfo=ZoneInfo("Asia/Seoul")),
-                    expires_at=datetime(2026, 9, 29, 8, tzinfo=ZoneInfo("Asia/Seoul")))
+                    generated_at=datetime(2026, 9, 29, 9, tzinfo=ZoneInfo("Asia/Seoul")),
+                    expires_at=datetime(2026, 9, 29, 10, tzinfo=ZoneInfo("Asia/Seoul")))
         payload = publish(Path(self.directory.name) / "valid.sqlite3", runtime, expected_as_of="2026-09-23",
-                          generated_at=datetime(2026, 9, 28, 5, tzinfo=ZoneInfo("Asia/Seoul")),
+                          generated_at=datetime(2026, 9, 28, 9, tzinfo=ZoneInfo("Asia/Seoul")),
                           expires_at=datetime(2026, 9, 28, 20, tzinfo=ZoneInfo("Asia/Seoul")))
         payload["publication"]["calendar"]["calendar_sha256"] = "0" * 64
         payload["integrity"]["payload_sha256"] = canonical_payload_digest(payload)
         with self.assertRaisesRegex(KqsContractError, "calendar digest"):
-            validate_recommendation_payload(payload, now=datetime(2026, 9, 28, 6, tzinfo=ZoneInfo("Asia/Seoul")))
+            validate_recommendation_payload(payload, now=datetime(2026, 9, 28, 10, tzinfo=ZoneInfo("Asia/Seoul")))
+
+    def test_eint031_morning_publication_lasts_until_the_next_morning_attempts_end(self):
+        """v4: 세션 자료는 다음 거래일 08:00 공개 기대. 게시는 그다음 세션 자료 공개 기대 + 3시간까지 유효해 밤사이 공백이 없다."""
+        from kqs_publication.calendar import POLICY_V4, CalendarError, calendar_for_session, validate_publication_calendar
+        kst = ZoneInfo("Asia/Seoul")
+        v4 = calendar_for_session(date(2026, 10, 16))
+        self.assertEqual(v4.policy, POLICY_V4)
+        # 실제 2026-10-06 22:00·10-07 06:00은 KRX 자료 전이라 실패했다 → v4에선 그 시각의 최신 공개 세션이 10-02다.
+        self.assertEqual(v4.latest_available_session(datetime(2026, 10, 6, 22, 0, tzinfo=kst)), date(2026, 10, 2))
+        self.assertEqual(v4.latest_available_session(datetime(2026, 10, 7, 7, 59, tzinfo=kst)), date(2026, 10, 2))
+        self.assertEqual(v4.latest_available_session(datetime(2026, 10, 7, 8, 0, tzinfo=kst)), date(2026, 10, 6))
+        # 10-02(금) 자료는 10-05 휴장이라 10-06 08:00에 공개 기대
+        self.assertEqual(v4.availability_at(date(2026, 10, 2)), datetime(2026, 10, 6, 8, 0, tzinfo=kst))
+        # 목요일 자료를 금요일 아침 게시 → 주말을 넘어 월요일 11:00까지(월요일 08:20 새 게시까지 공백 없음)
+        thursday, friday_morning = date(2026, 10, 15), datetime(2026, 10, 16, 8, 22, tzinfo=kst)
+        monday_11 = datetime(2026, 10, 19, 11, 0, tzinfo=kst)
+        self.assertEqual(v4.publication_window(thursday, friday_morning), monday_11)
+        meta = v4.public_metadata()
+        self.assertEqual((meta["data_available_time_kst"], meta["data_available_day"], meta["expiry"], meta["expiry_grace_minutes"]),
+                         ("08:00", "next_session_day", "until_next_session_availability_plus_grace", 180))
+        self.assertEqual(validate_publication_calendar(meta, data_as_of=thursday, generated_at=friday_morning,
+                                                       expires_at=monday_11), meta)
+        with self.assertRaises(CalendarError):                                   # 월요일 11:00을 넘을 수 없다
+            validate_publication_calendar(meta, data_as_of=thursday, generated_at=friday_morning,
+                                          expires_at=monday_11 + timedelta(minutes=1))
+        with self.assertRaises(CalendarError):                                   # 유예 시간 위조
+            validate_publication_calendar({**meta, "expiry_grace_minutes": 600}, data_as_of=thursday,
+                                          generated_at=friday_morning, expires_at=monday_11)
+        with self.assertRaisesRegex(CalendarError, "delay has not elapsed|latest available"):   # 자료 공개 전(07:59) 게시 불가
+            validate_publication_calendar(meta, data_as_of=thursday, generated_at=datetime(2026, 10, 16, 7, 59, tzinfo=kst),
+                                          expires_at=monday_11)
+        # 토·일 실행은 목요일 자료(이미 게시)를 최신으로 보고, 금요일 자료는 월요일 08:00 이후에 게시된다.
+        self.assertEqual(v4.latest_available_session(datetime(2026, 10, 17, 8, 20, tzinfo=kst)), thursday)
+        self.assertEqual(v4.latest_available_session(datetime(2026, 10, 19, 8, 20, tzinfo=kst)), date(2026, 10, 16))
+
 
 if __name__ == "__main__":
     unittest.main()

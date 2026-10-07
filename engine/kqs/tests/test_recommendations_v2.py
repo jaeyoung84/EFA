@@ -63,7 +63,7 @@ class RecommendationsV2(unittest.TestCase):
             warnings.simplefilter("ignore")
             cls.runtime = generate_recommendations(cls.history, cls.benchmarks, as_of=cls.as_of)
         cls.generated = datetime.combine(date.fromisoformat(cls.as_of) + timedelta(days=1), datetime.min.time(),
-                                         tzinfo=ZoneInfo("Asia/Seoul")).replace(hour=7)
+                                         tzinfo=ZoneInfo("Asia/Seoul")).replace(hour=9)
 
     def payload(self):
         return build_payload(self.runtime, generated_at=self.generated, expires_at=self.generated + timedelta(hours=4),
