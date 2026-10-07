@@ -111,14 +111,17 @@
   <div class="efa-ticker" aria-label="주요 지수 시세">
     <span class="efa-ticker-live"><i class="efa-live-dot" aria-hidden="true"></i>시세 <small>(15분 지연)</small></span>
     <span class="ticker-stamp" id="ticker-stamp">조회 중</span>
-    <span class="ticker-item" data-market-label="KOSPI"><span class="ticker-label">KOSPI</span><b>-</b><em>조회 중</em></span>
-    <span class="ticker-item" data-market-label="KOSDAQ"><span class="ticker-label">KOSDAQ</span><b>-</b><em></em></span>
-    <span class="ticker-item" data-market-label="NASDAQ"><span class="ticker-label">NASDAQ</span><b>-</b><em></em></span>
-    <span class="ticker-item" data-market-label="S&amp;P500"><span class="ticker-label">S&amp;P500</span><b>-</b><em></em></span>
-    <span class="ticker-item" data-market-label="S&amp;P500 선물" title="CME E-mini S&amp;P500 선물(ES=F) · Yahoo 15분 지연"><span class="ticker-label">S&amp;P500 선물</span><b>-</b><em></em></span>
-    <span class="ticker-item" data-market-label="나스닥100 선물" title="CME E-mini 나스닥100 선물(NQ=F) · Yahoo 15분 지연"><span class="ticker-label">나스닥100 선물</span><b>-</b><em></em></span>
-    <span class="ticker-item" data-krx-night><span class="ticker-label">코스피200 야간선물</span><b>-</b><em></em><small class="ticker-tag"></small></span>
-    <span class="ticker-item" data-market-label="USD/KRW"><span class="ticker-label">USD/KRW</span><b>-</b><em></em></span>
+    <div class="efa-ticker-track" id="ticker-track">
+      <span class="ticker-item" data-market-label="KOSPI"><span class="ticker-label">KOSPI</span><b>-</b><em>조회 중</em></span>
+      <span class="ticker-item" data-market-label="KOSDAQ"><span class="ticker-label">KOSDAQ</span><b>-</b><em></em></span>
+      <span class="ticker-item" data-market-label="NASDAQ"><span class="ticker-label">NASDAQ</span><b>-</b><em></em></span>
+      <span class="ticker-item" data-market-label="S&amp;P500"><span class="ticker-label">S&amp;P500</span><b>-</b><em></em></span>
+      <span class="ticker-item" data-market-label="S&amp;P500 선물" title="CME E-mini S&amp;P500 선물(ES=F) · Yahoo 15분 지연"><span class="ticker-label">S&amp;P500 선물</span><b>-</b><em></em></span>
+      <span class="ticker-item" data-market-label="나스닥100 선물" title="CME E-mini 나스닥100 선물(NQ=F) · Yahoo 15분 지연"><span class="ticker-label">나스닥100 선물</span><b>-</b><em></em></span>
+      <span class="ticker-item" data-krx-night><span class="ticker-label">코스피200 야간선물</span><b>-</b><em></em><small class="ticker-tag"></small></span>
+      <span class="ticker-item" data-market-label="USD/KRW"><span class="ticker-label">USD/KRW</span><b>-</b><em></em></span>
+    </div>
+    <button type="button" class="efa-ticker-toggle" id="ticker-toggle" aria-expanded="false" aria-controls="ticker-track" aria-label="시세 전체 보기"><i class="fa-solid fa-chevron-down" aria-hidden="true"></i><span>접기</span></button>
   </div>
 
 

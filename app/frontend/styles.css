@@ -3393,3 +3393,33 @@ a.dash-news-title:hover { color: var(--primary); text-decoration: underline; }
 @media (max-width:760px) { .sb-funnel-grid { grid-template-columns:1fr; } }
 /* 시세 띠: 코스피200 야간선물 상태 표시(야간 진행 중 / 야간 종가) */
 .efa-ticker .ticker-tag { color: var(--text-muted); font-size: .72rem; }
+/* 모바일 시세 띠: 흐르는 띠 + 탭하면 2열 전체 보기. PC는 기존 한 줄 띠 그대로 */
+.efa-ticker-track { display: contents; }
+.efa-ticker-toggle { display: none; }
+@keyframes efa-ticker-marquee { from { transform: translateX(0); } to { transform: translateX(var(--ticker-shift, 0px)); } }
+@media (max-width: 760px) {
+  .efa-ticker { gap: 0; padding: 0 40px 0 12px; overflow: hidden; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .efa-ticker .efa-ticker-live, .efa-ticker .ticker-stamp { display: none; }
+  .efa-ticker-track { display: flex; align-items: center; will-change: transform;
+    animation: efa-ticker-marquee var(--ticker-duration, 40s) linear 1.5s infinite alternate; }
+  .efa-ticker.is-paused .efa-ticker-track { animation-play-state: paused; }
+  .efa-ticker .ticker-item { gap: 6px; margin-right: 14px; padding-right: 14px; font-size: .82rem; }
+  .efa-ticker-toggle { position: absolute; top: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; gap: 4px;
+    width: 40px; padding: 0; color: var(--text-muted); border: 0; background: linear-gradient(90deg, rgba(12,20,36,0), #0c1424 45%); }
+  .efa-ticker-toggle span { display: none; }
+  .efa-ticker.is-open { height: auto; flex-wrap: wrap; align-content: flex-start; gap: 6px 10px; padding: 10px 12px 12px;
+    box-shadow: 0 10px 24px rgba(0,0,0,.45); }
+  .efa-ticker.is-open .efa-ticker-track { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; width: 100%;
+    animation: none; transform: none; }
+  .efa-ticker.is-open .ticker-item { flex-wrap: wrap; justify-content: space-between; gap: 2px 6px; margin: 0; padding: 7px 9px;
+    border: 1px solid var(--border); border-radius: 8px; background: rgba(255,255,255,.03); white-space: normal; }
+  .efa-ticker.is-open .ticker-label { width: 100%; font-size: .7rem; }
+  .efa-ticker.is-open .efa-ticker-live, .efa-ticker.is-open .ticker-stamp { display: inline-flex; font-size: .72rem; border: 0; padding: 0; }
+  .efa-ticker.is-open .efa-ticker-toggle { position: static; width: auto; margin-left: auto; padding: 4px 8px; background: none; font-size: .74rem; }
+  .efa-ticker.is-open .efa-ticker-toggle i { transform: rotate(180deg); }
+  .efa-ticker.is-open .efa-ticker-toggle span { display: inline; }
+}
+@media (max-width: 760px) and (prefers-reduced-motion: reduce) {
+  .efa-ticker { overflow-x: auto; }
+  .efa-ticker-track { animation: none; }
+}

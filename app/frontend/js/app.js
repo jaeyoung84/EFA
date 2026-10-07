@@ -301,6 +301,47 @@ initAuth().then(() => { if (currentView) recordUsage(currentView); initShell(); 
 setInterval(checkHealth, 30000);
 refreshTopbarMarkets();
 setInterval(refreshTopbarMarkets, TOPBAR_REFRESH_MS);
+setupMobileTicker();
+
+// 모바일 시세 띠: 높이는 그대로 두고 지수들이 천천히 좌우로 흐른다(손가락을 대면 멈춤). 띠를 탭하면 전체 지수를
+// 2열 표로 펼치고 다시 탭하면 접는다. PC는 기존 한 줄 띠 그대로. 움직임 줄이기 설정이면 흐르지 않고 손으로 민다.
+function setupMobileTicker() {
+  const ticker = document.querySelector('.efa-ticker');
+  const track = document.getElementById('ticker-track');
+  const toggle = document.getElementById('ticker-toggle');
+  if (!ticker || !track || !toggle) return;
+  const mobile = window.matchMedia('(max-width: 760px)');
+  let resumeTimer = null;
+  const measure = () => {
+    const shift = Math.max(0, track.scrollWidth - (ticker.clientWidth - 48));
+    ticker.style.setProperty('--ticker-shift', `${-shift}px`);
+    ticker.style.setProperty('--ticker-duration', `${Math.max(12, shift / 28)}s`);   // 초당 약 28px
+  };
+  const setOpen = (open) => {
+    ticker.classList.toggle('is-open', open);
+    toggle.setAttribute('aria-expanded', String(open));
+    toggle.setAttribute('aria-label', open ? '시세 접기' : '시세 전체 보기');
+    if (!open) requestAnimationFrame(measure);
+  };
+  ticker.addEventListener('click', (event) => {
+    if (!mobile.matches || event.target.closest('a')) return;
+    setOpen(!ticker.classList.contains('is-open'));
+  });
+  ticker.addEventListener('touchstart', () => {
+    clearTimeout(resumeTimer);
+    ticker.classList.add('is-paused');
+  }, { passive: true });
+  ticker.addEventListener('touchend', () => {
+    resumeTimer = setTimeout(() => ticker.classList.remove('is-paused'), 2500);
+  }, { passive: true });
+  document.addEventListener('click', (event) => {
+    if (ticker.classList.contains('is-open') && !ticker.contains(event.target)) setOpen(false);
+  });
+  window.addEventListener('resize', measure);
+  mobile.addEventListener?.('change', () => { if (!mobile.matches) setOpen(false); measure(); });
+  new MutationObserver(() => requestAnimationFrame(measure)).observe(track, { subtree: true, characterData: true, childList: true });
+  measure();
+}
 refreshVisitorCount();
 setInterval(refreshVisitorCount, VISITOR_HEARTBEAT_MS);
 document.addEventListener('visibilitychange', () => {
