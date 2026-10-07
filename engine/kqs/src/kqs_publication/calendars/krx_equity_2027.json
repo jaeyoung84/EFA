@@ -14,26 +14,26 @@
   "source": {
     "rule_url": "https://global.krx.co.kr/contents/GLB/06/0602/0602010201/GLB0602010201T1.jsp",
     "schedule_url": "https://global.krx.co.kr/contents/GLB/05/0501/0501060000/GLB0501060000T3.jsp",
-    "verified_at": "2026-09-30",
-    "review_status": "provisional-before-krx-official-2027-schedule",
-    "notes": "KRX closes on weekdays that are public holidays (incl. substitute holidays), Labor Day and the last day of the year. Built before KRX published its 2027 schedule: public holidays from python-holidays 0.105 (KR, 2026 law: Constitution Day and Labor Day are public holidays with substitute holidays), lunar dates cross-checked with korean-lunar-calendar and pandas-market-calendars XKRX. The 2026 law was checked against real 2026 KRX data (no trading on 2026-05-01 and 2026-07-17). Re-verify against the official KRX 2027 schedule (published around December 2026); any change requires a new file digest and successor manifest."
+    "verified_at": "2026-10-07",
+    "review_status": "official-kasi-holidays-auto-prepared-pending-review",
+    "notes": "Prepared by scripts/kqs_calendar_prepare.py (EINT-030) from the Korea Astronomy and Space Science Institute special-day API (getRestDeInfo, isHoliday=Y; primary) cross-checked with python-holidays (KR), plus KRX rules: weekday public holidays incl. substitute/temporary holidays, Labor Day (May 1) and the last weekday of the year. A reviewer must compare with the official KRX schedule before merging. Source differences: []"
   },
   "closures": {
-    "2027-01-01": "New Year's Day",
-    "2027-02-08": "Lunar New Year holiday",
-    "2027-02-09": "Lunar New Year substitute holiday",
-    "2027-03-01": "Independence Movement Day",
-    "2027-05-03": "Labor Day substitute holiday (2026 law; confirm with KRX)",
-    "2027-05-05": "Children's Day",
-    "2027-05-13": "Buddha's Birthday",
-    "2027-07-19": "Constitution Day substitute holiday (2026 law; confirm with KRX)",
-    "2027-08-16": "Liberation Day substitute holiday",
-    "2027-09-14": "Chuseok holiday",
-    "2027-09-15": "Chuseok",
-    "2027-09-16": "Chuseok holiday",
-    "2027-10-04": "National Foundation Day substitute holiday",
-    "2027-10-11": "Hangeul Day substitute holiday",
-    "2027-12-27": "Christmas Day substitute holiday",
-    "2027-12-31": "Last KRX trading day of the year"
+    "2027-01-01": "1월1일",
+    "2027-02-08": "설날",
+    "2027-02-09": "대체공휴일(설날)",
+    "2027-03-01": "삼일절",
+    "2027-05-03": "대체공휴일(노동절)",
+    "2027-05-05": "어린이날",
+    "2027-05-13": "부처님오신날",
+    "2027-07-19": "대체공휴일(제헌절)",
+    "2027-08-16": "대체공휴일(광복절)",
+    "2027-09-14": "추석",
+    "2027-09-15": "추석",
+    "2027-09-16": "추석",
+    "2027-10-04": "대체공휴일(개천절)",
+    "2027-10-11": "대체공휴일(한글날)",
+    "2027-12-27": "대체공휴일(기독탄신일)",
+    "2027-12-31": "연말 휴장(그해 마지막 평일)"
   }
 }
