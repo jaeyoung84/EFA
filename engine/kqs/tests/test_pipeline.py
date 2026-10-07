@@ -69,6 +69,13 @@ class PipelineTests(unittest.TestCase):
                          ("kqs-recommendation-outcomes/v1", self.as_of, 1))
         self.assertTrue(all(row["status"] == "awaiting_entry" for row in outcomes["rows"]))  # nothing after as_of yet
         self.assertEqual(run["steps"]["recommendation_outcomes"]["status"], "written")
+        # EINT-033: signal funnel (observation only) — stage counts from the stored audit, rolling history.
+        self.assertEqual(run["steps"]["signal_funnel"]["status"], "written", run["steps"]["signal_funnel"])
+        funnel = json.loads(self.paths["signal_funnel"].read_text())
+        self.assertEqual((funnel["schema"], funnel["as_of"], funnel["recommendation"]), ("kqs-signal-funnel/v1", self.as_of, False))
+        self.assertEqual([row["as_of"] for row in funnel["history"]], [self.as_of])
+        self.assertEqual(funnel["today"]["swing"]["selected"], sum(1 for s in payload["signals"] if s["signal_type"] == "swing"))
+        self.assertEqual(run["steps"]["rebound_shadow"]["status"], "written")
         # EINT-021: the fixture market has no sector-ETF history, so the step fails closed and is only recorded
         self.assertIn(run["steps"]["sector_rotation"]["status"], {"written", "failed"})
         self.assertTrue(all(KEY not in path.read_bytes().decode("latin-1") for path in self.state.rglob("*")

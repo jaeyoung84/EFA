@@ -25,6 +25,7 @@ from kqs_publication.calendar import KST, CalendarError, calendar_for_session
 from kqs_publication.store import session_published
 from kqs_runtime.outcomes import OutcomeError, build_outcome_report, write_outcome_report
 from kqs_runtime.rebound_shadow import ReboundShadowError, build_rebound_shadow, write_rebound_shadow
+from kqs_runtime.signal_funnel import SignalFunnelError, build_signal_funnel, read_previous, write_signal_funnel
 from kqs_runtime.worker import require_separate_paths, run_publication
 
 HISTORY_DAYS = 730
@@ -134,6 +135,14 @@ def run_daily_pipeline(*, state_dir: Path, market_db: Path, client: KrxOpenApiCl
                                           "rows_sha256": shadow["rows_sha256"], "verdict": shadow["summary"]["verdict"]}
     except (ReboundShadowError, OSError, sqlite3.Error, KeyError, ValueError) as exc:
         run["steps"]["rebound_shadow"] = {"status": "failed", "error": str(exc)}
+    # EINT-033: why the two reversion items fired or not (stage counts) and watch candidates. Observation only.
+    try:
+        funnel = build_signal_funnel(paths["snapshot_db"], market_db, as_of, read_previous(paths["signal_funnel"]))
+        write_signal_funnel(paths["signal_funnel"], funnel)
+        run["steps"]["signal_funnel"] = {"status": "written", "swing_both": funnel["today"]["swing"]["both"],
+                                         "long_term_both": funnel["today"]["long_term"]["both"], "sha256": funnel["sha256"]}
+    except (SignalFunnelError, OSError, sqlite3.Error, KeyError, ValueError, IndexError) as exc:
+        run["steps"]["signal_funnel"] = {"status": "failed", "error": str(exc)}
     return finish(PUBLICATION_STATUS[attempt["status"]], attempt.get("error"))
 
 

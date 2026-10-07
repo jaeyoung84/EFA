@@ -3375,3 +3375,19 @@ a.dash-news-title:hover { color: var(--primary); text-decoration: underline; }
 .pick-ctx-chip.is-caution { color:#f5b800; border-color:rgba(245,184,0,.45); background:rgba(245,184,0,.08); }
 .pick-ctx-chip.is-info { color:#38bdf8; border-color:rgba(56,189,248,.45); background:rgba(56,189,248,.08); }
 .pick-ctx-chip.is-muted { opacity:.75; }
+/* 평균회귀 신호 단계·관찰 후보(EINT-033): 추천과 구분되는 관찰 정보 */
+.sb-funnel-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:8px; }
+.sb-funnel-grid article { min-width:0; padding:12px; border:1px solid var(--border); border-radius:10px; background:var(--surface-soft); }
+.sb-funnel-grid h3 { margin:0 0 8px; font-size:.9rem; color:var(--text); }
+.sb-funnel-grid h4 { margin:12px 0 6px; font-size:.78rem; color:var(--text); }
+.sb-funnel-grid h4 small { display:block; margin-top:2px; color:var(--text-muted); font-weight:500; font-size:.68rem; }
+.sb-funnel-steps { list-style:none; margin:0; padding:0; display:grid; gap:3px; font-size:.76rem; }
+.sb-funnel-steps li { display:flex; justify-content:space-between; gap:8px; padding:3px 8px; border-radius:6px; color:var(--text-muted); }
+.sb-funnel-steps li.is-key { color:var(--text); background:rgba(56,189,248,.08); }
+.sb-funnel-steps li b { font-variant-numeric:tabular-nums; }
+.sb-watch { list-style:none; margin:0; padding:0; display:grid; gap:4px; font-size:.74rem; }
+.sb-watch li { display:grid; grid-template-columns:auto 1fr; gap:1px 8px; padding:5px 8px; border:1px dashed var(--border); border-radius:6px; }
+.sb-watch li small { color:var(--text-subtle); text-align:right; }
+.sb-watch li span { grid-column:1 / -1; color:var(--text-muted); }
+.sb-watch li em { grid-column:1 / -1; color:#f5b800; font-style:normal; font-size:.7rem; }
+@media (max-width:760px) { .sb-funnel-grid { grid-template-columns:1fr; } }

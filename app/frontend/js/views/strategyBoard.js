@@ -8,6 +8,7 @@ import { liveSlot, startLiveQuotes } from '../utils/liveQuotes.js';
 import { fillRiskBadges, riskSlot } from '../utils/riskBadges.js';
 import { exitPlanHtml } from '../utils/exitPlan.js';
 import { contextSlot, fillPickContext } from '../utils/pickContext.js';
+import { funnelHtml } from '../utils/signalFunnel.js';
 
 const esc = (value) => String(value ?? '-').replace(/[&<>'"]/g, (char) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
@@ -127,6 +128,7 @@ export function boardHtml(data) {
     </section>
     ${healthBanner(health)}
     <section class="sb-grid">${(data.items || []).map((item) => itemCard(item, decisions)).join('')}</section>
+    <section class="sb-sells sb-funnel" data-sb-funnel><p class="sb-empty">신호 단계 기록을 불러오는 중…</p></section>
     <section class="sb-sells">
       <header><h2>내 보유 종목 매도 신호</h2><span class="sb-count ${alerts ? 'is-alert' : ''}">${alerts}건</span></header>
       ${sells.length ? `<div class="sb-table"><table><thead><tr><th>종목</th><th>아이템</th><th>매수일·가격</th><th>기준 종가</th><th>신호</th><th>세부</th></tr></thead>
@@ -196,6 +198,9 @@ export function strategyBoardView(container) {
     fillSectorBadges(container);
     fillRiskBadges(container);
     fillPickContext(container);
+    const funnel = container.querySelector('[data-sb-funnel]');
+    if (funnel) authRequest('/api/kqs/signal-funnel').then((data) => { funnel.innerHTML = funnelHtml(data); })
+      .catch((error) => { funnel.innerHTML = funnelHtml({ available: false, detail: error.message }); });
     startLiveQuotes(container);
   };
   load();

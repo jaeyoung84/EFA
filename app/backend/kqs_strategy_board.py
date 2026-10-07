@@ -259,3 +259,30 @@ def read_rebound_shadow(path: Path | None = None) -> dict:
             "costs": report["costs"], "summary": report["summary"], "rows": rows[:REBOUND_ROW_LIMIT], "row_count": len(rows),
             "disclaimer": ("사전등록한 가설 하나(반등 확인 후 진입)의 관측 기록입니다. 실제 추천·청산 규칙과 내 기록에는 영향이 없고 "
                            "주문·자동 모의체결은 없습니다. 끝난 짝이 100개(또는 2028-10-07)가 되기 전에는 판정하지 않습니다.")}
+
+
+# EINT-033: 평균회귀 2종의 신호 단계별 건수와 관찰 후보(추천 아님). 엔진이 매일 쓰는 파일을 보여 주기만 한다.
+FUNNEL_SCHEMA = "kqs-signal-funnel/v1"
+
+
+def signal_funnel_path() -> Path:
+    snapshot = os.getenv("KQS_SNAPSHOT_DB", "").strip()
+    if snapshot:
+        return Path(snapshot).parent / "signal-funnel.json"
+    return Path(__file__).resolve().parents[2] / "state/kqs/signal-funnel.json"
+
+
+def read_signal_funnel(path: Path | None = None) -> dict:
+    path = path or signal_funnel_path()
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {"available": False, "detail": "신호 단계 기록이 아직 없습니다. 엔진의 다음 게시 후 생성됩니다."}
+    except (OSError, ValueError):
+        return {"available": False, "detail": "신호 단계 기록을 읽을 수 없습니다."}
+    if not isinstance(report, dict) or report.get("schema") != FUNNEL_SCHEMA:
+        return {"available": False, "detail": "신호 단계 기록 형식이 다릅니다."}
+    return {"available": True, "as_of": report["as_of"], "today": report["today"], "watch": report["watch"],
+            "watch_rules": report.get("watch_rules", {}), "history": report.get("history", [])[-60:],
+            "disclaimer": ("관찰 후보는 진입 기준에 가까운 종목일 뿐 추천이 아닙니다. 검증된 신호가 아니며 매수 근거로 쓰지 말고, "
+                           "어떤 성과 표본에도 넣지 않습니다. 기준(볼린저 하단·RSI 30·OBV)은 바뀌지 않았습니다.")}

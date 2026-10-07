@@ -29,7 +29,7 @@ try:
     from ..kqs_recommendations import (read_local_recommendations, recommendation_source,
                                       publication_status, publication_candidates, publication_packet,
                                       native_positions_not_applicable)
-    from ..kqs_strategy_board import board_items, holding_signals, read_outcome_report, read_rebound_shadow
+    from ..kqs_strategy_board import board_items, holding_signals, read_outcome_report, read_rebound_shadow, read_signal_funnel
     from ..kqs_pipeline_health import pipeline_health
     from .auth import current_user
 except ImportError:
@@ -40,7 +40,7 @@ except ImportError:
     from kqs_recommendations import (read_local_recommendations, recommendation_source,
                                     publication_status, publication_candidates, publication_packet,
                                     native_positions_not_applicable)  # type: ignore
-    from kqs_strategy_board import board_items, holding_signals, read_outcome_report, read_rebound_shadow  # type: ignore
+    from kqs_strategy_board import board_items, holding_signals, read_outcome_report, read_rebound_shadow, read_signal_funnel  # type: ignore
     from kqs_pipeline_health import pipeline_health  # type: ignore
     from routers.auth import current_user  # type: ignore
 
@@ -1400,6 +1400,12 @@ async def get_kqs_recommendation_outcomes(user: dict = Depends(current_user)) ->
 async def get_kqs_rebound_shadow(user: dict = Depends(current_user)) -> dict:
     """EINT-032: 사전등록 B-1 '반등 확인 후 진입' 전향 관측(볼린저 RSI 신호, 원래 규칙과 짝 비교). 읽기 전용."""
     return JSONResponse(content=await asyncio.to_thread(read_rebound_shadow), headers={"Cache-Control": "no-store"})
+
+
+@router.get("/signal-funnel")
+async def get_kqs_signal_funnel(user: dict = Depends(current_user)) -> dict:
+    """EINT-033: 볼린저 RSI·RSI-OBV가 어느 조건에서 막혔는지(단계별 건수)와 관찰 후보(추천 아님). 읽기 전용."""
+    return JSONResponse(content=await asyncio.to_thread(read_signal_funnel), headers={"Cache-Control": "no-store"})
 
 
 class KqsPositionSellInput(ManualRecordInput):

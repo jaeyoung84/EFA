@@ -15,5 +15,6 @@ def state_paths(state_dir: Path) -> dict:
         "instrument_catalog": state_dir / "instrument-catalog.json",
         "recommendation_outcomes": state_dir / "recommendation-outcomes.json",
         "rebound_shadow": state_dir / "rebound-shadow.json",
+        "signal_funnel": state_dir / "signal-funnel.json",
         "sector_rotation": state_dir / "sector-rotation.json",
     }
