@@ -632,6 +632,19 @@ async def market_pick_context(user: dict = Depends(current_user)) -> dict:
     return result
 
 
+# Codex 수정: CODX-SL-001 (2026-10-08), 저장된 공매도·대차 참고자료만 읽는 인증 API.
+@app.get("/api/market/short-lending-reference")
+async def market_short_lending_reference(user: dict = Depends(current_user)) -> dict:
+    try:
+        from .short_lending_reference import read_short_lending_references
+    except ImportError:
+        from short_lending_reference import read_short_lending_references  # type: ignore
+    try:
+        return await read_short_lending_references()
+    except RuntimeError as exc:
+        return {"available": False, "detail": str(exc), "items": {}}
+
+
 @app.get("/api/market/stock-risk")
 async def market_stock_risk(symbols: str = "", user: dict = Depends(current_user)) -> dict:
     """EINT-025: 종목(6자리 코드, 쉼표로 최대 30개)의 최근 30일 위험 공시와 거래소 지정 상태. 참고 표시용."""

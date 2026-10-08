@@ -21,6 +21,7 @@ from datetime import date, datetime, timedelta, timezone
 try:
     from .db import get_db
     from .dart_market_activity import collect_market_activity
+    from .short_lending_reference import collect_short_lending_references  # Codex 수정: CODX-SL-001 (2026-10-08)
     from .holdings_news import collect_holdings_news
     from .market_data import MarketDataError, capture_market_data_lineage_snapshot, get_daily_ohlcv, market_factor_snapshot, sync_market_data_alerts
     from .quote_cache import fetch_quote_cached
@@ -30,6 +31,7 @@ try:
 except ImportError:
     from db import get_db
     from dart_market_activity import collect_market_activity
+    from short_lending_reference import collect_short_lending_references  # Codex 수정: CODX-SL-001 (2026-10-08)
     from holdings_news import collect_holdings_news  # type: ignore
     from market_data import MarketDataError, capture_market_data_lineage_snapshot, get_daily_ohlcv, market_factor_snapshot, sync_market_data_alerts
     from quote_cache import fetch_quote_cached
@@ -399,6 +401,32 @@ def start_scheduler() -> None:
         coalesce=True,
         max_instances=1,
         misfire_grace_time=21600,
+    )
+    # Codex 수정: CODX-SL-001 (2026-10-08), 추천과 무관한 읽기 전용 수급 관측.
+    # 08:45는 개장 전 첫 관측, 16:10은 누락/공급자 지연 시 별도 시각의 재관측이다.
+    _scheduler.add_job(
+        collect_short_lending_references,
+        "cron",
+        day_of_week="mon-fri",
+        hour=8,
+        minute=45,
+        timezone="Asia/Seoul",
+        kwargs={"slot": "preopen"},
+        id="collect_short_lending_preopen",
+        coalesce=True,
+        max_instances=1,
+    )
+    _scheduler.add_job(
+        collect_short_lending_references,
+        "cron",
+        day_of_week="mon-fri",
+        hour=16,
+        minute=10,
+        timezone="Asia/Seoul",
+        kwargs={"slot": "late"},
+        id="collect_short_lending_late",
+        coalesce=True,
+        max_instances=1,
     )
     # 내 보유종목 뉴스: 화면이 아니라 이 작업만 한투 뉴스 TR을 부른다(06~23시 KST, 10분마다, 겹침 없음).
     _scheduler.add_job(

@@ -14,3 +14,4 @@ Claude Code가 수정하기 전에 사용자의 명시적 승인이 필요하다
 | PORT-001 | 2026-10-06 | docker-compose.desktop.yml의 backend 호스트 포트 매핑 제거; AGENTS.md의 “AWS 홈페이지와 로컬 Docker 경계” 절 | AWS 홈페이지를 로컬 테스트 환경과 혼동하지 않도록 로컬 포트 공개와 무단 로컬 Docker 작업 차단 |
 | AUTH-001 | 2026-10-06 | AGENTS.md의 “AWS 홈페이지와 로컬 Docker 경계” 절 내 Chrome IAM·GitHub Actions OIDC 규칙 | 사용자가 쓰는 Chrome IAM 콘솔을 대화형 확인의 우선 경로로 지정하고 WSL 원격 로그인을 기본 경로에서 제외 |
 | DART-002 | 2026-10-06 | .github/workflows/dart-refresh.yml 전체 | GitHub OIDC와 고정 SSM 명령으로 운영 백엔드의 당일 DART 수집만 수동 실행; 로컬 Docker·AWS CLI 로그인 불필요 |
+| CODX-SL-001 | 2026-10-08 | app/backend/short_lending_reference.py 전체; app/backend/scheduler.py의 import·08:45/16:10 수집 작업; app/backend/main.py의 저장자료 API; app/frontend/js/utils/pickContext.js의 수급 참고 칩; scripts/tests/test_short_lending_reference.py 전체; docs/engine/CHANGES.md의 CODX-SL-001 절; 이 행 | 선정 추천의 공매도 거래·대차잔고를 시점별로 불변 누적하고 중립 참고자료로만 표시. 추천·매매 규칙 미변경, AWS 배포 미실시 |
