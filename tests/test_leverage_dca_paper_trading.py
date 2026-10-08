@@ -407,7 +407,7 @@ async def test_buy_is_not_capped_by_shared_portfolio_concentration_policy(client
 
 @pytest.mark.asyncio
 async def test_soxl_divergence_threshold_tightens_after_first_entry(client, make_user, monkeypatch):
-    """첫 진입 전엔 괴리 -50%p 이내면 매수하고, 일단 SOXL을 보유하면 -20%p+자체낙폭 -20% 기준으로 더 보수적으로 바뀐다."""
+    """첫 진입 전엔 괴리 -50%p 이내면 매수하고, 보유 뒤엔 내 SOXL 평가손익률 -20% 이하에서만 추가 매수를 멈춘다(2026-10-08)."""
     monkeypatch.setattr(strategy, "fetch_market_signals", _async_signals(soxl_drawdown_pct=-30.0, upro_drawdown_pct=-5.0))
     headers = await make_user("leverage-dca-phase@example.com")
     await client.put("/api/strategy/leverage-dca/config", json={
@@ -423,10 +423,17 @@ async def test_soxl_divergence_threshold_tightens_after_first_entry(client, make
     await _simulate_next_trading_day("leverage-dca-phase@example.com")
     second = await client.post("/api/strategy/leverage-dca/run-now", headers=headers)
     second_result = second.json()["result"]
-    # 이제 SOXL을 보유 중이므로 같은 -25%p 괴리(+자체 낙폭 -30% > -20%)면 SOXL 매수만 중단된다.
-    assert {action["ticker"] for action in second_result["actions"]} == {"UPRO"}
-    assert second_result["stop_state"]["stop_soxl_only"] is True
+    # 2026-10-08 규칙: 보유 중이어도 내 SOXL 평가손익률(약 0%)이 -20%보다 높으면 계속 산다(괴리 -25%p 무관).
+    assert {action["ticker"] for action in second_result["actions"]} == {"UPRO", "SOXL"}
     assert second_result["stop_state"]["has_soxl_position"] is True
+    assert second_result["stop_state"]["stop_soxl_only"] is False
+
+    _mock_quotes(monkeypatch, upro_price=100.0, soxl_price=15.0)        # SOXL 평가손익률 약 -25%
+    await _simulate_next_trading_day("leverage-dca-phase@example.com")
+    third = (await client.post("/api/strategy/leverage-dca/run-now", headers=headers)).json()["result"]
+    assert {action["ticker"] for action in third["actions"]} == {"UPRO"}
+    assert third["stop_state"]["stop_soxl_only"] is True
+    assert third["stop_state"]["soxl_position_return_pct"] <= -20
 
 
 @pytest.mark.asyncio

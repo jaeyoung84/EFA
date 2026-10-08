@@ -3300,10 +3300,16 @@ async def run_leverage_dca_cycle_for_user(user: dict, signals: dict, reserve_sig
         result = {"status": "sold", "sell_trigger": sell_result, "actions": actions}
     else:
         has_soxl_position = positions.get("SOXL", {}).get("quantity", 0.0) > 1e-8
+        soxl_position_return_pct = None
+        if has_soxl_position:
+            # 2026-10-08 사용자 결정: 보유 중 SOXL 추가 매수 중단은 내 SOXL 평가손익률(-20%) 기준이다.
+            soxl_cost, soxl_value, soxl_errors = await _leverage_dca_valuation({"SOXL": positions["SOXL"]})
+            if not soxl_errors and soxl_cost > 0:
+                soxl_position_return_pct = (soxl_value / soxl_cost - 1) * 100
         raw_stop_state = evaluate_buy_stop_conditions(
             spx_drawdown_pct=signals["spx_drawdown_pct"], vix=signals["vix"],
             soxl_drawdown_pct=signals["soxl_drawdown_pct"], upro_drawdown_pct=signals["upro_drawdown_pct"], policy=policy,
-            has_soxl_position=has_soxl_position,
+            has_soxl_position=has_soxl_position, soxl_position_return_pct=soxl_position_return_pct,
         )
         # S&P/VIX발 매수 전면중지는 재개 조건(50일선 위 3일 연속 + VIX 재개 기준 미만)을
         # 충족하기 전까지 유지한다 — 오늘 지표만 보고 바로 재개하지 않는 히스테리시스.

@@ -121,21 +121,20 @@ def test_soxl_first_entry_still_stops_beyond_relaxed_threshold():
     assert state["stop_soxl_only"] is True
 
 
-def test_soxl_after_entry_uses_stricter_threshold_and_own_drawdown():
-    """이미 SOXL을 보유 중이면 괴리 -20%p + SOXL 자체 낙폭 -20% 조건을 모두 충족해야 중단한다."""
-    # 괴리는 -20%p를 넘지만 SOXL 자체 낙폭이 아직 -20%에 못 미치면 중단하지 않는다.
-    state = evaluate_buy_stop_conditions(spx_drawdown_pct=-2.0, vix=15.0, soxl_drawdown_pct=-15.0,
-                                          upro_drawdown_pct=1.0, policy=DEFAULT_LEVERAGE_DCA_POLICY,
-                                          has_soxl_position=True)
-    assert state["divergence_pct"] == -16.0
-    assert state["stop_soxl_only"] is False
-
-    # 괴리도 -20%p를 넘고 SOXL 자체 낙폭도 -20%를 넘으면 중단한다.
-    state = evaluate_buy_stop_conditions(spx_drawdown_pct=-2.0, vix=15.0, soxl_drawdown_pct=-35.0,
-                                          upro_drawdown_pct=-5.0, policy=DEFAULT_LEVERAGE_DCA_POLICY,
-                                          has_soxl_position=True)
-    assert state["divergence_pct"] == -30.0
-    assert state["stop_soxl_only"] is True
+def test_soxl_after_entry_stops_on_my_position_loss_not_on_drawdown():
+    """2026-10-08 사용자 결정: SOXL 보유 중에는 내 SOXL 평가손익률이 -20% 이하일 때만 추가 매수를 멈춘다."""
+    common = dict(spx_drawdown_pct=-2.0, vix=15.0, soxl_drawdown_pct=-47.0, upro_drawdown_pct=-1.5,
+                  policy=DEFAULT_LEVERAGE_DCA_POLICY, has_soxl_position=True)
+    # 고점 대비 -47%·괴리 -45.5%p여도 내 평가손익률이 -5%면 계속 산다(예전 규칙이면 중단).
+    state = evaluate_buy_stop_conditions(**common, soxl_position_return_pct=-5.0)
+    assert state["stop_soxl_only"] is False and state["reasons"] == []
+    # 내 평가손익률이 -20% 이하이면 SOXL만 중단한다.
+    state = evaluate_buy_stop_conditions(**common, soxl_position_return_pct=-20.0)
+    assert state["stop_soxl_only"] is True and state["stop_all"] is False
+    assert "평가손익률이 -20.00%" in state["reasons"][0]
+    assert state["soxl_position_return_pct"] == -20.0
+    # 평가손익률을 계산하지 못하면 중단하지 않는다(시세 오류는 실행 단계에서 따로 막는다).
+    assert evaluate_buy_stop_conditions(**common, soxl_position_return_pct=None)["stop_soxl_only"] is False
 
 
 def test_resume_condition_requires_both_ma_streak_and_low_vix():
