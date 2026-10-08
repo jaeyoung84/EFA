@@ -135,6 +135,12 @@ def test_soxl_after_entry_stops_on_my_position_loss_not_on_drawdown():
     assert state["soxl_position_return_pct"] == -20.0
     # 평가손익률을 계산하지 못하면 중단하지 않는다(시세 오류는 실행 단계에서 따로 막는다).
     assert evaluate_buy_stop_conditions(**common, soxl_position_return_pct=None)["stop_soxl_only"] is False
+    # 보유 중에도 괴리 -50%p 이하이면 첫 매수 전과 똑같이 중단한다(평가손익률이 괜찮아도).
+    collapsed = dict(common, soxl_drawdown_pct=-55.0, upro_drawdown_pct=-2.0)
+    state = evaluate_buy_stop_conditions(**collapsed, soxl_position_return_pct=3.0)
+    assert state["stop_soxl_only"] is True and "50.0%p" in state["reasons"][0]
+    both = evaluate_buy_stop_conditions(**collapsed, soxl_position_return_pct=-25.0)
+    assert both["stop_soxl_only"] is True and len(both["reasons"]) == 2
 
 
 def test_resume_condition_requires_both_ma_streak_and_low_vix():

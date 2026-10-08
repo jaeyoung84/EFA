@@ -93,7 +93,8 @@ def evaluate_buy_stop_conditions(*, spx_drawdown_pct: float, vix: float, soxl_dr
     괴리가 -50%p 이내(``soxl_divergence_stop_pct_first_entry``)면 진입 기회를 놓치지 않도록
     매수를 허용한다. 이미 SOXL을 보유 중이라면(2026-10-08 사용자 결정) 고점 대비 낙폭·괴리 대신
     **내 SOXL 평가손익률**(평가액 ÷ 취득원가 − 1)이 -20%(``soxl_position_loss_stop_pct``) 이하일 때
-    추가 매수(물타기)를 중단하고, 그 위로 회복하면 다시 산다. 평가손익률을 모르면 중단하지 않는다.
+    추가 매수(물타기)를 중단하고, 그 위로 회복하면 다시 산다. 평가손익률을 모르면 이 조건으로는 중단하지 않는다.
+    첫 매수 전 기준인 괴리 -50%p(``soxl_divergence_stop_pct_first_entry``) 이하도 보유 중에 똑같이 적용한다.
     """
     reasons: list[str] = []
     stop_all = False
@@ -106,10 +107,15 @@ def evaluate_buy_stop_conditions(*, spx_drawdown_pct: float, vix: float, soxl_dr
     divergence_pct = soxl_drawdown_pct - upro_drawdown_pct
     if has_soxl_position:
         limit = policy["soxl_position_loss_stop_pct"]
-        stop_soxl_only = soxl_position_return_pct is not None and soxl_position_return_pct <= limit
-        if stop_soxl_only and not stop_all:
+        position_loss = soxl_position_return_pct is not None and soxl_position_return_pct <= limit
+        divergence_collapse = divergence_pct <= policy["soxl_divergence_stop_pct_first_entry"]
+        stop_soxl_only = position_loss or divergence_collapse
+        if position_loss and not stop_all:
             reasons.append(f"보유 중인 SOXL 평가손익률이 {soxl_position_return_pct:.2f}%로 {limit}% 이하라 "
                            f"SOXL 매수만 중단합니다.")
+        if divergence_collapse and not stop_all:
+            reasons.append(f"SOXL 낙폭이 UPRO보다 {abs(policy['soxl_divergence_stop_pct_first_entry'])}%p 이상 커 "
+                           f"(첫 매수 전과 같은 기준) SOXL 매수만 중단합니다.")
     else:
         stop_soxl_only = divergence_pct <= policy["soxl_divergence_stop_pct_first_entry"]
         if stop_soxl_only and not stop_all:
