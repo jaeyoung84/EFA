@@ -1118,3 +1118,6 @@
 - 잠금: `research/us_pullback_v1/LOCK.json`(pullback_v4.py `acc95cfd…`, run.py `717bea15…`, 사전등록 `b877ec9a…`).
 - 검증: `research/us_pullback_v1/test_run.py` 4개(합성 자료: 구성 구간·제외 구간 진입 차단, 미국 비용, 1회 실행 거부, 잠금·스냅샷 해시 불일치 거부, 대응을 중립으로 두면 원래 v4 엔진과 거래 동일, 판정 규칙).
 - 실행 경로: 운영 서버(RAM 2GB) 대신 로컬에서 실행. 서버 Mongo의 미국 컬렉션 4개만 덤프 → 비공개 백업 버킷 → 로컬 복원 → `export_snapshot.py`로 해시가 붙은 SQLite 스냅샷 → `run.py` 1회. 아직 실행하지 않았다.
+- **실행·판정(2026-10-12 05:22 UTC, 1회, 27초, 로컬)**: 잠금 3/3 일치, 스냅샷 표 해시 bars `7c169ae5…`·spy `cc7c56a9…`·intervals `0fdfd54b…`·coverage `caba536e…`, 구성 이력 `1379247819:1379179365`, 제외 구간 17개, 창 내 월말 coverage 최저 97.83%(95% 미만 0개월), 폐지 forced_close 1건(0.1%) → INVALID 아님. 거래 1,030건, 평균 순수익률 **−0.054%**, 기대값 −0.054, PF 0.97, Payoff 1.32, 6개월 이익 구간 0.45(20개), 부트스트랩 PF 하한 0.81 → **REJECT**(평균 ≤ 0). 진단(판정 미사용): CAGR −1.6% vs 같은 창 SPY 12.8%, 최대 낙폭 −30.9%, 청산 market_regime 313·holding_limit 300·stop 276·trailing 136·forced_close 5. 거래 해시 `657f0014…`. 결과 `research/us_pullback_v1/RESULT.json`, 거래 `TRADES.csv`.
+- 결론: 한국 v4 규칙은 미국 대형주에서 비용 차감 후 기대값이 음수였다. 사전등록 §4·§5대로 트랙 종료, 같은 창 재실행·파라미터 변형 금지. 한국 v4 판정·전향 관측은 바꾸지 않는다. 미국 데이터 경로(EINT-035/036)와 섹터 순환은 그대로 유지한다.
+- 실행 경로 기록: 첫 스냅샷은 SPY가 2023-10-05부터라 실행 전에 폐기, ETF 수집 시작을 2016-01-04로 고쳐(`a44ed0d`) 다시 내보냈다(개별주 해시 동일). 서버 덤프는 비공개 버킷 `research-exports/us-equity/20261012T052111Z/`(회원 데이터 없음).

@@ -1,0 +1,87 @@
+{
+ "metrics": {
+  "trades": 1030,
+  "win_rate": 0.4233,
+  "mean_net_return_pct": -0.0539,
+  "expectancy": -0.0539,
+  "profit_factor": 0.9715,
+  "payoff": 1.3236,
+  "window_share": 0.45,
+  "window_count": 20,
+  "bootstrap_pf_lower95": 0.8139
+ },
+ "checks": {
+  "trades": true,
+  "expectancy": false,
+  "profit_factor": false,
+  "payoff": false,
+  "window_share": false,
+  "bootstrap_pf_lower95": false
+ },
+ "diagnostics": {
+  "cagr_pct": -1.577,
+  "max_drawdown_pct": -30.89,
+  "spy_cagr_pct": 12.836,
+  "exit_reasons": {
+   "market_regime": 313,
+   "holding_limit": 300,
+   "stop": 276,
+   "trailing": 136,
+   "forced_close": 5
+  },
+  "trades_per_year": {
+   "2017": 99,
+   "2018": 101,
+   "2019": 107,
+   "2020": 101,
+   "2021": 123,
+   "2022": 80,
+   "2023": 105,
+   "2024": 116,
+   "2025": 89,
+   "2026": 109
+  },
+  "tail_share_top5pct": null,
+  "delisting_forced_close": 1
+ },
+ "verdict": "REJECT",
+ "coverage_below_floor": [],
+ "window": [
+  "2017-03-01",
+  "2026-09-30"
+ ],
+ "lock": {
+  "pullback_v4": "acc95cfdc1f70a8e70661c841dd7018314a1a77e782664f25075e5941c3b9430",
+  "run": "717bea15e60d40a2b641b85e7eee745516555460dcfbe9ec40d02864dc9c0b8c",
+  "prereg": "b877ec9a1d6dbe6b6c45074cf203c370f7c550a97e84c9c501f2dfb993d6028f"
+ },
+ "snapshot": {
+  "path_name": "us_pb_v1_snapshot.sqlite3",
+  "table_sha256": {
+   "bars": "7c169ae5fefa122a60df6588f8c39beaf7431d206a5ca3474b0ec289e706fc96",
+   "spy": "cc7c56a9497a9c0a4fc73762d925e85374493e0b8e1a4f9d9211973be89c4ffb",
+   "intervals": "0fdfd54bb27e11da077529135a3cab0195ba44e8aabe9f932da8660a6edd381c",
+   "coverage": "caba536e4045282bb3e8e4d7f41c8b8c2462816b09f921ddf702c2f440ba9ea4"
+  },
+  "membership_id": "1379247819:1379179365",
+  "source_run_id": "275ff5af7dff476e9a81071820e49e40"
+ },
+ "costs": {
+  "entry": 0.0005,
+  "exit": 0.00053
+ },
+ "config": {
+  "max_positions": 5,
+  "max_weight": 0.2,
+  "risk_per_trade": 0.005,
+  "atr_multiple": 1.5,
+  "holding_limit": 15,
+  "trailing_atr_multiple": 2.0,
+  "regime_exit": true,
+  "min_turnover": 0,
+  "max_daily_return": 0.08
+ },
+ "capital": 100000.0,
+ "trades_sha256": "657f00143c59168f48453ceee0ae03982072dc6de138fd81957782f33c7185c8",
+ "executed_at": "2026-10-12T05:22:29.748386+00:00"
+}
