@@ -13,7 +13,6 @@ import re
 from datetime import date, datetime
 
 import requests
-from bs4 import BeautifulSoup
 
 POLICY = "docs/engine/US_DATA_POLICY_v1.md"
 START = "2016-01-04"
@@ -79,8 +78,13 @@ def _ticker(value: str) -> str | None:
     return value if TICKER.fullmatch(value) else None
 
 
+def _soup(html: str):
+    from bs4 import BeautifulSoup   # 이 수집에서만 쓰므로 앱 import를 막지 않게 늦게 불러온다
+    return BeautifulSoup(html, "html.parser")
+
+
 def parse_constituents(html: str) -> list[dict]:
-    table = BeautifulSoup(html, "html.parser").find("table", id="constituents")
+    table = _soup(html).find("table", id="constituents")
     if table is None:
         raise UniverseError("현재 구성표(id=constituents)가 없습니다.")
     rows = _grid(table)
@@ -109,7 +113,7 @@ def _date(value: str) -> str | None:
 
 def parse_changes(html: str) -> list[dict]:
     """변경표 행: 날짜, 편입 티커, 편출 티커, 사유. 두 줄 머리글을 건너뛴다."""
-    table = BeautifulSoup(html, "html.parser").find("table", id="changes")
+    table = _soup(html).find("table", id="changes")
     if table is None:
         raise UniverseError("변경표(id=changes)가 없습니다.")
     out = []
