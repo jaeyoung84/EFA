@@ -1084,3 +1084,13 @@
 - 품질: 매 실행 월말 coverage(구성 종목 중 그날 일봉 보유 비율, 99% 미만 검토), 구성 기간 일봉 공백(`no_bars`/`starts_late`/`ends_early`), 고정 표본 20종목(티커 SHA-256 순) Yahoo 교차검증. 일정 화~토 KST 07:45, 10:45. 운영 상태는 `/api/market/us-data-status`의 `equities`.
 - 경계: 화면 노출·추천·한국 엔진·원장·레버리지 DCA 변경 없음. 폐지 수익률 처리·홀드아웃·연구용 내보내기는 3단계 사전등록에서 정한다.
 - 검증: `test_us_universe.py` 4개(rowspan 날짜 채움, 역순 복원, 별칭, 월말 검토), `test_us_equity_data.py` 5개(판 번호별 1회 저장, 폐지 종목 백필·공백 표시·coverage, 원시 불변·기업행위 계수 재수집, 실패 기록·로그인 API, 고정 표본). 백엔드 전체 493 통과(기존 DART 날짜 고정 실패 1건 제외).
+
+## EINT-037 — 2026-10-12: 미국 3단계 — 사전등록 US-PB-v1(한국 Pullback v4 규칙의 미국 대형주 이식, 실행 전 고정)
+
+- 문서: [research/us_pullback_v1/PREREGISTRATION_US_PB_v1.md](../../research/us_pullback_v1/PREREGISTRATION_US_PB_v1.md). 미국 3단계의 유일한 후보. 작성 시점까지 미국 개별주의 수익률·신호·백테스트 결과를 보지 않았다(데이터 품질 지표만 열람).
+- 규칙: `kqs_runtime/pullback_v4.py` 함수를 수정 없이 호출(신규 파라미터 0). 미국 대응만 고정: SPY 단일 게이트, 신호일 S&P 500 구성 종목만 진입(EINT-036 공백 표시 구간 전체 제외), 거래대금 하한 0, 비용 진입 5bp·청산 5.3bp, 분할 조정 가격(배당 제외), 자본 100,000 USD.
+- 창·횟수: 2017-03-01~2026-09-30 한 번. 결과 파일이 있으면 실행기가 거부한다.
+- 판정: 한국 TrendGoal 그대로(거래 ≥ 30, 기대값 > 0, PF ≥ 1.3, Payoff ≥ 2.0, 6개월 이익 구간 비율 ≥ 0.5) + 부트스트랩 PF 95% 하한 > 1. 평균 ≤ 0 REJECT, 일부 미달 FAIL(힌트), 전부 충족 PASS(과거) → 전향 관측(완결 100건, 시한 2028-10-12) 뒤에만 추천 표시. 폐지 forced_close > 2%·월말 coverage < 95%·해시 불일치는 INVALID.
+- 잠금: `research/us_pullback_v1/LOCK.json`(pullback_v4.py `acc95cfd…`, run.py `717bea15…`, 사전등록 `b877ec9a…`).
+- 검증: `research/us_pullback_v1/test_run.py` 4개(합성 자료: 구성 구간·제외 구간 진입 차단, 미국 비용, 1회 실행 거부, 잠금·스냅샷 해시 불일치 거부, 대응을 중립으로 두면 원래 v4 엔진과 거래 동일, 판정 규칙).
+- 실행 경로: 운영 서버(RAM 2GB) 대신 로컬에서 실행. 서버 Mongo의 미국 컬렉션 4개만 덤프 → 비공개 백업 버킷 → 로컬 복원 → `export_snapshot.py`로 해시가 붙은 SQLite 스냅샷 → `run.py` 1회. 아직 실행하지 않았다.
