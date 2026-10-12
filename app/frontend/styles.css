@@ -3169,8 +3169,40 @@ body { background: var(--bg); }
 .sb-name .sector-badge, .dash-brief-name .sector-badge { display: flex; }
 /* EINT-021 섹터 순환(RRG) */
 .rrg-page .dash-card { margin-bottom: 0; }
-.rrg-page .efa-page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
-.rrg-page .efa-page-head .dash-seg { flex-shrink: 0; }
+/* EINT-035: 한국/미국 시장 탭. 열 폭을 화면에 고정해 모바일에서 표 최소 폭이 페이지를 밀어내지 않게 한다. */
+.rrg-page { grid-template-columns: minmax(0, 1fr); }
+.rrg-page > * { min-width: 0; }
+.rrg-market-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.rrg-market-tabs button { display: flex; align-items: center; gap: 14px; padding: 14px 18px; color: #c3cbd8; text-align: left; background: var(--surface); border: 2px solid var(--border); border-radius: 12px; cursor: pointer; transition: border-color .15s, background .15s; }
+.rrg-market-tabs button:hover { border-color: var(--border-strong); background: var(--surface-soft); }
+.rrg-market-tabs button i { display: grid; place-items: center; flex-shrink: 0; width: 42px; height: 42px; color: var(--text-muted); background: var(--surface-soft); border-radius: 10px; font-size: 1.15rem; }
+.rrg-market-tabs button span { display: grid; gap: 2px; min-width: 0; }
+.rrg-market-tabs button b { color: #e6ebf3; font-size: 1.15rem; }
+.rrg-market-tabs button small { color: var(--text-muted); font-size: .8rem; }
+.rrg-market-tabs button.is-active { color: #fff; background: rgba(245, 184, 0, .1); border-color: var(--primary); }
+.rrg-market-tabs button.is-active i { color: #111; background: var(--primary); }
+.rrg-market-tabs button.is-active b { color: var(--primary); }
+.rrg-market-pill { display: inline-block; margin-right: 6px; padding: 2px 9px; color: #111; background: var(--primary); border-radius: 6px; font-size: .78rem; font-weight: 800; vertical-align: 2px; }
+.rrg-sym { display: none; margin-left: 6px; color: var(--text-muted); font-size: .72rem; font-weight: 400; }
+.rrg-svg.is-compact .rrg-tick { font-size: 15px; }
+.rrg-svg.is-compact .rrg-name { font-size: 17px; }
+.rrg-svg.is-compact .rrg-quad-label { font-size: 22px; }
+.rrg-svg.is-compact .rrg-quad-en { display: none; }
+.rrg-svg.is-compact .rrg-axis-title { font-size: 15px; }
+@media (max-width: 640px) {
+  .rrg-market-tabs { gap: 8px; }
+  .rrg-market-tabs button { gap: 10px; padding: 12px; }
+  .rrg-market-tabs button i { width: 34px; height: 34px; font-size: 1rem; }
+  .rrg-market-tabs button b { font-size: 1.05rem; }
+  .rrg-market-tabs button small { font-size: .7rem; }
+  .rrg-table .rrg-opt { display: none; }
+  .rrg-table { font-size: .76rem; }
+  .rrg-table th, .rrg-table td { padding-left: 4px; padding-right: 4px; }
+  .rrg-table th { font-size: .68rem; }
+  .rrg-table .rrg-badge { padding: 2px 6px; font-size: .68rem; }
+  .rrg-sym { display: block; margin-left: 0; }
+  .rrg-page .dash-card { padding: 14px 12px; }
+}
 .rrg-headline { margin: 0 0 14px; padding: 12px 14px; color: #e6ebf3; background: var(--surface-soft); border-left: 3px solid var(--primary); border-radius: 8px; font-size: .95rem; line-height: 1.7; }
 .rrg-headline i { margin-right: 6px; color: var(--primary); }
 .rrg-headline span { color: #c3cbd8; font-size: .86rem; }
@@ -3208,7 +3240,7 @@ body { background: var(--bg); }
 .rrg-guide summary { color: #dfe5ee; font-weight: 700; cursor: pointer; }
 .rrg-guide ul { margin: 10px 0 0; padding-left: 18px; color: #c3cbd8; font-size: .84rem; line-height: 1.7; }
 @media (max-width: 1100px) { .rrg-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 640px) { .rrg-cards { grid-template-columns: 1fr; } .rrg-name { font-size: 18px; } .rrg-tick { font-size: 16px; } }
+@media (max-width: 640px) { .rrg-cards { grid-template-columns: 1fr; } }
 .lvdca-readonly { border-color: rgba(59,139,255,.5); background: rgba(59,139,255,.08); }
 .lvdca-readonly i { color: #3b8bff; }
 .lvdca-readonly[hidden] { display: none; }
