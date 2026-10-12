@@ -1839,8 +1839,16 @@ KOREAN_SEARCH_ALIASES = {
 
 
 @app.get("/api/home/chart-search")
-def home_chart_search(q: str = "") -> dict[str, object]:
-    """KRX 전체 상장사와 Yahoo Finance 자동완성으로 종목을 검색한다."""
+def home_chart_search(q: str = "", scope: str = "") -> dict[str, object]:
+    """KRX 전체 상장사와 Yahoo Finance 자동완성으로 종목을 검색한다.
+
+    scope=holdings(포트폴리오 입력)는 국내 주식과 미국 주식·ETF만 남기고(선물·지수·해외 상장 제외)
+    정확히 맞는 종목에 exact 표시를 붙여 맨 앞에 둔다. 미국 종목은 한글 별칭으로도 찾는다.
+    """
+    try:
+        from . import us_search_aliases as us_alias
+    except ImportError:
+        import us_search_aliases as us_alias  # type: ignore
     query = q.strip()
     if len(query) < 1:
         return {"items": []}
@@ -1852,6 +1860,7 @@ def home_chart_search(q: str = "") -> dict[str, object]:
     for alias, (ticker, name) in KOREAN_SEARCH_ALIASES.items():
         if lowered in alias.lower() or lowered in name.lower():
             items.append({"ticker": ticker, "name": name, "exchange": "Korea Exchange", "source": "static_alias"})
+    items.extend(us_alias.alias_items(query))
     try:
         url = "https://query1.finance.yahoo.com/v1/finance/search?" + urllib.parse.urlencode({"q": query, "quotesCount": 12, "newsCount": 0})
         request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -1862,7 +1871,8 @@ def home_chart_search(q: str = "") -> dict[str, object]:
             ticker = str(quote.get("symbol", "")).upper()
             if quote.get("quoteType") not in allowed_types or not re.fullmatch(r"[A-Z0-9.^=\-]{1,24}", ticker):
                 continue
-            items.append({"ticker": ticker, "name": str(quote.get("shortname") or quote.get("longname") or ticker), "exchange": str(quote.get("exchange", "")), "source": "yahoo_finance"})
+            items.append({"ticker": ticker, "name": str(quote.get("shortname") or quote.get("longname") or ticker), "exchange": str(quote.get("exchange", "")),
+                          "source": "yahoo_finance", "quote_type": str(quote.get("quoteType"))})
     except Exception:
         pass
     if not items:
@@ -1877,6 +1887,8 @@ def home_chart_search(q: str = "") -> dict[str, object]:
             continue
         seen_tickers.add(ticker)
         deduplicated.append(item)
+    if scope == "holdings":
+        deduplicated = us_alias.mark_and_rank(query, [item for item in deduplicated if us_alias.holding_candidate(item)])
     return {"items": deduplicated[:12]}
 
 

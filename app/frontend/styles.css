@@ -3146,6 +3146,8 @@ body { background: var(--bg); }
 .holdings-partial { display: block; margin-top: 4px; color: var(--yellow, #f5b800); font-size: .74rem; }
 .holdings-list-note { margin: 10px 0 6px; color: var(--text-muted); font-size: .76rem; }
 .holdings-table-wrap tr.is-missing td { color: var(--text-muted); }
+/* 종목 검색 목록은 표 상자(overflow) 안에서 잘리지 않도록 겹쳐 띄우지 않고 칸 안에 펼친다. */
+.holdings-editor .holdings-search-results { position: static; margin-top: 6px; box-shadow: none; max-height: 240px; }
 .holdings-missing-reason { font-size: .76rem; }
 /* 금일 상승종목: 코스피·코스닥 전 종목 */
 .gainers-page.is-wide { max-width: none; width: 100%; }

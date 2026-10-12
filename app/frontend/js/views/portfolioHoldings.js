@@ -59,6 +59,14 @@ const VALUATION_SOURCE = {
   mixed_delayed_quotes: '지연 시세·검증 캐시 혼합',
 };
 
+/** 자동 연결 대상: 서버가 exact로 표시한 종목이 티커 하나뿐일 때(GOOGL·GOOG처럼 둘이면 목록에서 고른다), 아니면 이름 완전 일치. */
+export function holdingExactMatch(items, query, normalize) {
+  const exact = items.filter((item) => item.exact);
+  if (new Set(exact.map((item) => item.ticker)).size === 1) return exact[0];
+  if (exact.length > 1) return null;
+  return items.find((item) => normalize(item.name) === normalize(query)) || null;
+}
+
 export function valuationSourceText(valuation) {
   const source = VALUATION_SOURCE[valuation.source] || VALUATION_SOURCE.mixed_delayed_quotes;
   const at = (valuation.positions || []).map((item) => item.quoted_at).filter(Boolean).sort().at(-1);
@@ -281,6 +289,7 @@ export function portfolioHoldingsView(container) {
   let tickerSearchTimer = null;
   let tickerSearchAbort = null;
   const normalizedName = (value) => String(value || '').trim().toLocaleLowerCase().replace(/\s+/g, '');
+  const exactMatch = (items, query) => holdingExactMatch(items, query, normalizedName);
   const selectInstrument = (row, item) => {
     const wrapper = row.querySelector('.holdings-ticker-search');
     const nameInput = row.querySelector('[data-field="name"]');
@@ -298,8 +307,9 @@ export function portfolioHoldingsView(container) {
     list.replaceChildren();
     classifySectors(row);
   };
+  // 포트폴리오 입력용 검색: 선물·지수·해외 상장을 빼고, 정확히 맞는 종목(티커·한글 별칭·회사명)에 exact가 붙는다.
   const searchInstruments = async (query, signal) => {
-    const response = await fetch(`/api/home/chart-search?q=${encodeURIComponent(query)}`, { signal });
+    const response = await fetch(`/api/home/chart-search?scope=holdings&q=${encodeURIComponent(query)}`, { signal });
     if (!response.ok) throw new Error('종목 검색에 실패했습니다.');
     return (await response.json()).items || [];
   };
@@ -310,8 +320,7 @@ export function portfolioHoldingsView(container) {
     const selectedName = row.querySelector('.holdings-ticker-search').dataset.selectedName;
     if (!query || (tickerInput.value && normalizedName(query) === normalizedName(selectedName))) return;
     const items = await searchInstruments(query);
-    const exact = items.find((item) => normalizedName(item.name) === normalizedName(query));
-    const selected = exact || (items.length === 1 ? items[0] : null);
+    const selected = exactMatch(items, query) || (items.length === 1 ? items[0] : null);
     if (!selected) throw new Error(`“${query}” 종목을 하나로 결정할 수 없습니다. 검색 목록에서 종목을 선택하세요.`);
     selectInstrument(row, selected);
   };
@@ -338,7 +347,7 @@ export function portfolioHoldingsView(container) {
       tickerSearchAbort = new AbortController();
       try {
         const items = await searchInstruments(query, tickerSearchAbort.signal);
-        const exact = items.find((item) => normalizedName(item.name) === normalizedName(query));
+        const exact = exactMatch(items, query);
         if (exact) { selectInstrument(row, exact); return; }
         items.forEach((item) => {
           const li = document.createElement('li');
