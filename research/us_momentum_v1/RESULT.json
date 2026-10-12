@@ -1,0 +1,124 @@
+{
+ "metrics": {
+  "trades": 2313,
+  "win_rate": 0.3843,
+  "mean_net_return_pct": -0.1525,
+  "expectancy": -0.1525,
+  "profit_factor": 0.944,
+  "payoff": 1.5121,
+  "window_share": 0.4,
+  "window_count": 20,
+  "bootstrap_pf_q": 0.8236
+ },
+ "checks": {
+  "trades": true,
+  "expectancy": false,
+  "profit_factor": false,
+  "payoff": false,
+  "window_share": false,
+  "bootstrap_pf_q": false,
+  "cagr_vs_spy": "False"
+ },
+ "diagnostics": {
+  "portfolio": {
+   "cagr_pct": 8.235,
+   "max_drawdown_pct": -27.517,
+   "sharpe": 0.649
+  },
+  "spy": {
+   "cagr_pct": 13.024,
+   "max_drawdown_pct": -34.181,
+   "sharpe": 0.769
+  },
+  "avg_target_per_month": 23.44,
+  "cash_months": 3,
+  "rebalances": 115,
+  "exit_reasons": {
+   "atr_stop": 895,
+   "rebalance": 882,
+   "sma50": 532,
+   "window_end": 3,
+   "forced_close": 1
+  },
+  "trades_per_year": {
+   "2017": 220,
+   "2018": 252,
+   "2019": 208,
+   "2020": 197,
+   "2021": 393,
+   "2022": 134,
+   "2023": 169,
+   "2024": 393,
+   "2025": 181,
+   "2026": 166
+  },
+  "pnl_per_year": {
+   "2017": 2829,
+   "2018": -3408,
+   "2019": 8597,
+   "2020": 16644,
+   "2021": 53831,
+   "2022": -13101,
+   "2023": -13973,
+   "2024": 23447,
+   "2025": 1933,
+   "2026": 36341
+  },
+  "delisting_forced_close": 1,
+  "without_stress": {
+   "trades": {
+    "trades": 1969,
+    "win_rate": 0.3961,
+    "mean_net_return_pct": -0.0458,
+    "expectancy": -0.0458,
+    "profit_factor": 0.9824,
+    "payoff": 1.4975,
+    "window_share": 0.5,
+    "window_count": 16,
+    "bootstrap_pf_q": 0.8479
+   },
+   "portfolio_ann_pct": 12.985,
+   "spy_ann_pct": 19.11
+  },
+  "stress_only_trades": {
+   "trades": 344,
+   "win_rate": 0.3169,
+   "mean_net_return_pct": -0.763,
+   "expectancy": -0.763,
+   "profit_factor": 0.7763,
+   "payoff": 1.6737,
+   "window_share": 0.2857,
+   "window_count": 7,
+   "bootstrap_pf_q": 0.5358
+  }
+ },
+ "verdict": "REJECT",
+ "coverage_below_floor": [],
+ "window": [
+  "2017-03-01",
+  "2026-09-30"
+ ],
+ "lock": {
+  "pullback_v4": "acc95cfdc1f70a8e70661c841dd7018314a1a77e782664f25075e5941c3b9430",
+  "snapshot_loader": "717bea15e60d40a2b641b85e7eee745516555460dcfbe9ec40d02864dc9c0b8c",
+  "run": "5286f48f8eb64827a60bd85ea5cf75c11d24e7c297b6386dc9f566a71383199b",
+  "prereg": "e892c81be534b630ba5f7afa05ce290c62e0c177586c44f089fe095a5266113d"
+ },
+ "snapshot": {
+  "table_sha256": {
+   "bars": "7c169ae5fefa122a60df6588f8c39beaf7431d206a5ca3474b0ec289e706fc96",
+   "spy": "cc7c56a9497a9c0a4fc73762d925e85374493e0b8e1a4f9d9211973be89c4ffb",
+   "intervals": "0fdfd54bb27e11da077529135a3cab0195ba44e8aabe9f932da8660a6edd381c",
+   "coverage": "caba536e4045282bb3e8e4d7f41c8b8c2462816b09f921ddf702c2f440ba9ea4"
+  },
+  "membership_id": "1379247819:1379179365",
+  "source_run_id": "275ff5af7dff476e9a81071820e49e40"
+ },
+ "costs": {
+  "buy": 0.0005,
+  "sell": 0.00053
+ },
+ "capital": 100000.0,
+ "trades_sha256": "5e507a1805c7824a37a9d56bb3bc1eabf8828cdb7f0966ce86ae302ab8c87100",
+ "executed_at": "2026-10-12T05:36:56.114786+00:00"
+}
