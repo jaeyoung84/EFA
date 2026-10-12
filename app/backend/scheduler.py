@@ -23,6 +23,7 @@ try:
     from .dart_market_activity import collect_market_activity
     from .short_lending_reference import collect_short_lending_references  # Codex 수정: CODX-SL-001 (2026-10-08)
     from .holdings_news import collect_holdings_news
+    from .us_portfolio_updates import collect_us_portfolio_updates
     from .us_market_data import collect_us_market_data
     from .us_equity_data import collect_us_equity_data
     from .market_data import MarketDataError, capture_market_data_lineage_snapshot, get_daily_ohlcv, market_factor_snapshot, sync_market_data_alerts
@@ -35,6 +36,7 @@ except ImportError:
     from dart_market_activity import collect_market_activity
     from short_lending_reference import collect_short_lending_references  # Codex 수정: CODX-SL-001 (2026-10-08)
     from holdings_news import collect_holdings_news  # type: ignore
+    from us_portfolio_updates import collect_us_portfolio_updates  # type: ignore
     from us_market_data import collect_us_market_data  # type: ignore
     from us_equity_data import collect_us_equity_data  # type: ignore
     from market_data import MarketDataError, capture_market_data_lineage_snapshot, get_daily_ohlcv, market_factor_snapshot, sync_market_data_alerts
@@ -441,6 +443,16 @@ def start_scheduler() -> None:
         coalesce=True,
         max_instances=1,
         next_run_time=datetime.now(timezone.utc) + timedelta(seconds=60),
+    )
+    # Codex 수정: CODX-USPORT-001 (2026-10-12), 미국 보유 뉴스·SEC 공시는 화면 요청과 분리해 캐시한다.
+    _scheduler.add_job(
+        collect_us_portfolio_updates,
+        "interval",
+        hours=1,
+        id="collect_us_portfolio_updates",
+        coalesce=True,
+        max_instances=1,
+        next_run_time=datetime.now(timezone.utc) + timedelta(seconds=90),
     )
     # EINT-035: 미국 섹터 ETF 일봉(Alpaca SIP)과 미국 섹터 순환. 미국 장 마감(KST 05~06시) 뒤 07:30, 10:30 재시도.
     # 이미 저장된 원시 일봉은 다시 쓰지 않으므로 두 번 돌아도 결과가 바뀌지 않는다.

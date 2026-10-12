@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 import re
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -19,6 +20,7 @@ try:
     from ..quote_cache import fetch_quote_cached
     from ..live_quotes import domestic_kis_quotes, provider_status as live_quote_provider_status
     from ..holdings_news import holdings_news_feed
+    from ..us_portfolio_updates import us_disclosures_feed
     from ..market_data import MarketDataError, market_factor_snapshot, market_factor_universe_snapshot
     from ..risk_engine import DEFAULT_RISK_POLICY, evaluate_policy, volatility_target
     from .auth import current_user
@@ -27,6 +29,7 @@ except ImportError:
     from quote_cache import fetch_quote_cached
     from live_quotes import domestic_kis_quotes, provider_status as live_quote_provider_status  # type: ignore
     from holdings_news import holdings_news_feed  # type: ignore
+    from us_portfolio_updates import us_disclosures_feed  # type: ignore
     from market_data import MarketDataError, market_factor_snapshot, market_factor_universe_snapshot  # type: ignore
     from risk_engine import DEFAULT_RISK_POLICY, evaluate_policy, volatility_target  # type: ignore
     from routers.auth import current_user
@@ -58,7 +61,7 @@ class HoldingInput(BaseModel):
     name: str = Field(default="", max_length=80)
     quantity: float = Field(gt=0, le=100_000_000)
     average_price: float = Field(ge=0, le=10_000_000_000)
-    currency: str = Field(default="KRW", pattern=r"^[A-Z]{3}$")
+    currency: Literal["KRW", "USD"] = "KRW"
     sector: str = Field(default="미분류", max_length=40)
 
 class PortfolioUpdate(BaseModel):
@@ -75,21 +78,41 @@ class RiskPolicyInput(BaseModel):
     max_daily_loss_pct: float = Field(default=DEFAULT_RISK_POLICY["max_daily_loss_pct"], ge=0.1, le=100)
     target_annual_volatility_pct: float = Field(default=DEFAULT_RISK_POLICY["target_annual_volatility_pct"], ge=1, le=100)
 
+# Codex 수정: CODX-USPORT-001 (2026-10-12), 평가·화면에서 한국/미국 보유분을 같은 규칙으로 구분한다.
+def _holding_market(holding: dict) -> str:
+    ticker = str(holding.get("ticker") or "").upper()
+    return "US" if holding.get("currency") == "USD" and not ticker.endswith((".KS", ".KQ")) else "KR"
+
+
 def _serialize(document: dict | None) -> dict:
     if not document:
-        return {"cash_krw": 0, "holdings": [], "updated_at": None}
+        return {"cash_krw": 0, "holdings": [], "holding_count": 0, "updated_at": None,
+                "book_cost": {"KR": {"amount": 0, "currency": "KRW", "count": 0},
+                              "US": {"amount": 0, "currency": "USD", "count": 0}}}
     holdings = document.get("holdings", [])
     purchase_value_krw = sum(
         item["quantity"] * item["average_price"]
         for item in holdings
         if item.get("currency", "KRW") == "KRW"
     )
+    us_purchase_value = sum(
+        float(item["quantity"]) * float(item["average_price"])
+        for item in holdings
+        if _holding_market(item) == "US"
+    )
+    market_counts = {"KR": 0, "US": 0}
+    for item in holdings:
+        market_counts[_holding_market(item)] += 1
     return {
         "cash_krw": document.get("cash_krw", 0),
         "holdings": holdings,
         "holding_count": len(holdings),
         "purchase_value_krw": round(purchase_value_krw),
         "book_value_krw": round(document.get("cash_krw", 0) + purchase_value_krw),
+        "book_cost": {
+            "KR": {"amount": round(purchase_value_krw, 2), "currency": "KRW", "count": market_counts["KR"]},
+            "US": {"amount": round(us_purchase_value, 2), "currency": "USD", "count": market_counts["US"]},
+        },
         "updated_at": document.get("updated_at").isoformat() if document.get("updated_at") else None,
     }
 
@@ -189,25 +212,35 @@ async def _compute_valuation(portfolio: dict) -> dict:
     value_krw = cash_krw
     cost_krw = cash_krw
     priced_count = 0
+    market_totals = {
+        "KR": {"market": "KR", "label": "한국 주식", "holding_count": 0, "priced_count": 0, "value_krw": 0.0, "cost_krw": 0.0},
+        "US": {"market": "US", "label": "미국 주식", "holding_count": 0, "priced_count": 0, "value_krw": 0.0, "cost_krw": 0.0},
+    }
     for holding in holdings:
+        market = _holding_market(holding)
+        market_totals[market]["holding_count"] += 1
         quote = quotes[holding["ticker"]]
         if quote["status"] != "ok":
             excluded.append({"ticker": holding["ticker"], "name": holding["name"], "reason": quote["reason"], "stage": "valuation"})
-            positions.append({**holding, "status": "error", "reason": quote["reason"]})
+            positions.append({**holding, "market": market, "status": "error", "reason": quote["reason"]})
             continue
         fx = fx_rate if holding["currency"] == "USD" else 1.0
         if holding["currency"] == "USD" and fx is None:
             reason = "USD/KRW 환율 조회 실패"
             excluded.append({"ticker": holding["ticker"], "name": holding["name"], "reason": reason, "stage": "valuation"})
-            positions.append({**holding, "status": "error", "reason": reason})
+            positions.append({**holding, "market": market, "status": "error", "reason": reason})
             continue
         position_value_krw = quote["price"] * holding["quantity"] * fx
         position_cost_krw = holding["average_price"] * holding["quantity"] * fx
         value_krw += position_value_krw
         cost_krw += position_cost_krw
         priced_count += 1
+        market_totals[market]["priced_count"] += 1
+        market_totals[market]["value_krw"] += position_value_krw
+        market_totals[market]["cost_krw"] += position_cost_krw
         positions.append({
             **holding,
+            "market": market,
             "status": "ok",
             "price": quote["price"],
             "change_pct": quote["change_pct"],
@@ -222,6 +255,10 @@ async def _compute_valuation(portfolio: dict) -> dict:
     provider = live_quote_provider_status()
     has_kis = any(p.get("quote_source") in {"kis_realtime", "kis_rest"} for p in positions)
     profit_krw = value_krw - cost_krw
+    for summary in market_totals.values():
+        summary["value_krw"] = round(summary["value_krw"], 2)
+        summary["cost_krw"] = round(summary["cost_krw"], 2)
+        summary["available"] = summary["holding_count"] == summary["priced_count"]
     return {
         "source": _valuation_source([p.get("quote_source") for p in positions if p.get("status") == "ok"]),
         "fetched_at": _now().isoformat(),
@@ -235,6 +272,7 @@ async def _compute_valuation(portfolio: dict) -> dict:
         "value_krw": round(value_krw, 2) if all_priced else None,
         "profit_krw": round(profit_krw, 2) if all_priced else None,
         "return_pct": round(profit_krw / cost_krw * 100, 2) if all_priced and cost_krw else None,
+        "market_totals": market_totals,
         "positions": positions,
         "excluded": excluded,
     }
@@ -355,6 +393,10 @@ async def update_portfolio(payload: PortfolioUpdate, user: dict = Depends(curren
         item["name"] = item["name"].strip()
         if not TICKER_PATTERN.fullmatch(item["ticker"]):
             raise HTTPException(status_code=422, detail="티커는 영문·숫자와 . ^ = - 기호만 사용할 수 있습니다.")
+        domestic = bool(re.fullmatch(r"\d{6}\.(?:KS|KQ)", item["ticker"]))
+        expected_currency = "KRW" if domestic else "USD"
+        if item["currency"] != expected_currency:
+            raise HTTPException(status_code=422, detail=f"{item['ticker']}의 통화는 {expected_currency}여야 합니다.")
         if item["ticker"] in seen_tickers:
             raise HTTPException(status_code=422, detail="같은 티커는 한 번만 입력할 수 있습니다.")
         seen_tickers.add(item["ticker"])
@@ -378,6 +420,11 @@ async def update_portfolio(payload: PortfolioUpdate, user: dict = Depends(curren
 async def get_portfolio_news(user: dict = Depends(current_user)) -> JSONResponse:
     """내 보유종목 주요 뉴스(비중 높은 종목부터). 스케줄러가 모아 둔 캐시만 읽고 한투·네이버를 직접 부르지 않는다."""
     return JSONResponse(content=await holdings_news_feed(user["_id"]), headers={"Cache-Control": "no-store"})
+
+@router.get("/disclosures")
+async def get_portfolio_disclosures(user: dict = Depends(current_user)) -> JSONResponse:
+    """Codex 수정: CODX-USPORT-001 (2026-10-12), 미국 보유종목의 SEC 캐시만 읽는다."""
+    return JSONResponse(content=await us_disclosures_feed(user["_id"]), headers={"Cache-Control": "no-store"})
 
 
 @router.get("/valuation")

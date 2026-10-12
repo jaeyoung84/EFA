@@ -4,6 +4,9 @@ import { TIME_FORMAT } from '../utils/liveQuotes.js';
 const emptyHolding = () => ({ ticker: '', name: '', quantity: '', average_price: '', currency: 'KRW', sector: '미분류' });
 const money = (value) => new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 0 }).format(Number(value) || 0);
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
+const safeUrl = (value) => /^https?:\/\//i.test(String(value || '')) ? String(value) : null;
+const usd = (value) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(Number(value) || 0);
+const marketLabel = (market) => market === 'US' ? '미국' : '한국';
 
 const domesticStockCode = (ticker) => String(ticker || '').trim().toUpperCase().match(/^(\d{6})(?:\.(?:KS|KQ))?$/)?.[1] || null;
 const needsSectorClassification = (sector) => !String(sector || '').trim() || String(sector).trim() === '미분류';
@@ -88,6 +91,29 @@ export function portfolioInsights(portfolio, valuation) {
   return { total, positions: [...priced, ...unpriced], currency, max_position: maxPosition, hhi, concentration: hhi >= 0.45 ? '높음' : hhi >= 0.25 ? '보통' : '낮음' };
 }
 
+// Codex 수정: CODX-USPORT-001 (2026-10-12), 미국 뉴스와 SEC 제출자료를 포트폴리오에서 함께 확인한다.
+export function portfolioUpdatesHtml(news = {}, disclosures = {}) {
+  const newsRows = (news.items || []).slice(0, 8).map((item) => {
+    const url = safeUrl(item.url);
+    const title = url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>` : escapeHtml(item.title);
+    return `<li><span class="holdings-market is-${item.market === 'US' ? 'us' : 'kr'}">${marketLabel(item.market)}</span><div>${title}<small>${escapeHtml(item.name || item.ticker)} · ${escapeHtml(item.source || '출처 미상')}</small></div></li>`;
+  }).join('');
+  const filingRows = (disclosures.items || []).slice(0, 8).map((item) => {
+    const url = safeUrl(item.url);
+    const title = `${escapeHtml(item.form || 'SEC')} · ${escapeHtml(item.title || '제출자료')}`;
+    return `<li><span class="holdings-market is-us">미국</span><div>${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${title}</a>` : title}<small>${escapeHtml(item.name || item.company || item.ticker)} · ${escapeHtml(item.filed_at || '')}</small></div></li>`;
+  }).join('');
+  const pendingNews = (news.pending || []).length;
+  const pendingFilings = (disclosures.pending || []).length;
+  const newsEmpty = news.error ? `뉴스를 불러오지 못했습니다. ${escapeHtml(news.error)}` : pendingNews ? '새 보유종목 뉴스를 수집 중입니다.' : '표시할 최근 뉴스가 없습니다.';
+  const filingEmpty = disclosures.error ? `SEC 자료를 불러오지 못했습니다. ${escapeHtml(disclosures.error)}` : pendingFilings ? '새 미국 보유종목의 SEC 자료를 수집 중입니다.' : '표시할 최근 SEC 제출자료가 없습니다.';
+  return `<header><div><span class="jy-section-label">PORTFOLIO UPDATES</span><h2>보유종목 뉴스·공시</h2></div><small>참고자료 · 매매 신호 아님</small></header>
+    <div class="holdings-update-columns">
+      <article><h3>한국·미국 뉴스</h3>${newsRows ? `<ol>${newsRows}</ol>` : `<p>${newsEmpty}</p>`}</article>
+      <article><h3>미국 SEC 제출자료</h3>${filingRows ? `<ol>${filingRows}</ol>` : `<p>${filingEmpty}</p>`}</article>
+    </div><p class="holdings-valuation-note">국내 공시는 기존 DART 화면, 미국 공시는 SEC EDGAR 원문으로 확인합니다. 뉴스·공시는 추천 조건이나 자동 주문에 사용하지 않습니다.</p>`;
+}
+
 function holdingRow(holding, index) {
   return `<tr data-holding-row="${index}">
     <td><div class="holdings-ticker-search" data-selected-name="${escapeHtml(holding.name)}">
@@ -129,7 +155,7 @@ export function weightListHtml(positions) {
   const shown = priced.slice(0, MAX_LISTED_HOLDINGS);
   const missing = positions.length - priced.length;
   return `<p class="holdings-list-note">${listedNote(shown.length, priced.length, '자산(현금 포함)')}${missing ? ` · 시세 없음 ${missing}개 제외` : ''}</p>
-    <ol class="holdings-weight-list">${shown.map((item) => `<li><span>${escapeHtml(item.name || item.ticker)} <small>${escapeHtml(item.ticker)}</small></span><b>${item.weight_pct.toFixed(1)}%</b><i><em style="width:${Math.min(item.weight_pct, 100)}%"></em></i></li>`).join('')}</ol>`;
+    <ol class="holdings-weight-list">${shown.map((item) => `<li><span>${escapeHtml(item.name || item.ticker)} <small>${item.ticker === 'CASH' ? '현금' : `${marketLabel(item.market)} · ${escapeHtml(item.ticker)}`}</small></span><b>${item.weight_pct.toFixed(1)}%</b><i><em style="width:${Math.min(item.weight_pct, 100)}%"></em></i></li>`).join('')}</ol>`;
 }
 
 export function factorExposureHtml(data, names = {}) {
@@ -155,10 +181,11 @@ export function portfolioHoldingsView(container) {
   }
 
   container.innerHTML = `<section class="holdings-view">
-    <header class="holdings-head"><div><span class="jy-section-label">MY PORTFOLIO</span><h1>보유 자산</h1><p>장부 기준 보유 내역입니다. 시세 평가와 주문 연동은 다음 단계에서 추가됩니다.</p></div><div><strong id="holdings-book-value">₩0</strong><small>장부 기준 자산</small></div></header>
-    <div class="holdings-summary"><article><span>현금</span><strong id="holdings-cash-summary">₩0</strong></article><article><span>보유 종목</span><strong id="holdings-count">0개</strong></article><article><span>취득금액</span><strong id="holdings-cost">₩0</strong></article><article><span>평가손익</span><strong id="holdings-profit">조회 전</strong></article></div><p id="holdings-valuation-note" class="holdings-valuation-note">가격 데이터를 불러오는 중…</p>
+    <header class="holdings-head"><div><span class="jy-section-label">MY PORTFOLIO</span><h1>한국·미국 보유 자산</h1><p>한국 주식과 미국 주식을 현재 환율 기준 원화로 합산합니다. 뉴스·공시는 참고자료이며 주문과 연결되지 않습니다.</p></div><div><strong id="holdings-book-value">₩0</strong><small>원화 환산 총자산</small></div></header>
+    <div class="holdings-summary"><article><span>현금</span><strong id="holdings-cash-summary">₩0</strong></article><article><span>보유 종목</span><strong id="holdings-count">0개</strong></article><article><span>한국 주식</span><strong id="holdings-kr-value">₩0</strong></article><article><span>미국 주식</span><strong id="holdings-us-value">$0</strong></article><article><span>평가손익</span><strong id="holdings-profit">조회 전</strong></article></div><p id="holdings-valuation-note" class="holdings-valuation-note">가격 데이터를 불러오는 중…</p>
     <section class="holdings-insights" id="holdings-insights" hidden></section>
     <section class="holdings-insights" id="holdings-factor-exposure" hidden></section>
+    <section class="holdings-insights" id="holdings-updates" hidden></section>
     <section class="holdings-editor"><header><h2>보유 내역 입력</h2><p>종목명만 입력하세요. 정확히 일치하는 종목은 자동으로 연결되며, 이름이 비슷한 종목이 여러 개면 검색 목록에서 선택할 수 있습니다. 국내 종목 업종은 DART 기업개황 기준으로 자동 분류되며, 해외 종목이나 분류 자료가 없는 종목은 직접 입력할 수 있습니다.</p></header><label class="holdings-cash-label">보유 현금 (KRW)<input id="holdings-cash" type="number" min="0" step="1000" value="0"></label><div class="holdings-table-wrap"><table><thead><tr><th>종목명</th><th>수량</th><th>평균 단가</th><th>통화</th><th>업종</th><th></th></tr></thead><tbody id="holdings-rows"></tbody></table></div><div class="holdings-actions"><button type="button" id="holdings-add"><i class="fa-solid fa-plus"></i> 종목 추가</button><button type="button" class="run-btn" id="holdings-save"><i class="fa-solid fa-floppy-disk"></i> 포트폴리오 저장</button></div><p id="holdings-status" class="holdings-status" aria-live="polite"></p></section>
   </section>`;
 
@@ -169,7 +196,8 @@ export function portfolioHoldingsView(container) {
     container.querySelector('#holdings-book-value').textContent = `₩${money(data.book_value_krw)}`;
     container.querySelector('#holdings-cash-summary').textContent = `₩${money(data.cash_krw)}`;
     container.querySelector('#holdings-count').textContent = `${data.holding_count || 0}개`;
-    container.querySelector('#holdings-cost').textContent = `₩${money(data.purchase_value_krw)}`;
+    container.querySelector('#holdings-kr-value').textContent = `₩${money(data.book_cost?.KR?.amount)}`;
+    container.querySelector('#holdings-us-value').textContent = usd(data.book_cost?.US?.amount);
   };
   const renderValuation = (valuation) => {
     const profit = container.querySelector('#holdings-profit');
@@ -180,9 +208,15 @@ export function portfolioHoldingsView(container) {
       profit.className = '';
       const reasons = (valuation.excluded || []).slice(0, 2).map((item) => `${item.name || item.ticker}: ${item.reason}`).join(' · ');
       note.textContent = `일부 시세를 확인하지 못했습니다. ${valuation.priced_count}/${valuation.holding_count}개 종목만 평가되었습니다.${reasons ? ` ${reasons}` : ''}`;
+      const kr = valuation.market_totals?.KR;
+      const us = valuation.market_totals?.US;
+      if (kr) container.querySelector('#holdings-kr-value').textContent = `₩${money(kr.value_krw)}${kr.available ? '' : ' 일부'}`;
+      if (us) container.querySelector('#holdings-us-value').textContent = `₩${money(us.value_krw)}${us.available ? '' : ' 일부'}`;
       return;
     }
     container.querySelector('#holdings-book-value').textContent = `₩${money(valuation.value_krw)}`;
+    container.querySelector('#holdings-kr-value').textContent = `₩${money(valuation.market_totals?.KR?.value_krw)}`;
+    container.querySelector('#holdings-us-value').textContent = `₩${money(valuation.market_totals?.US?.value_krw)}`;
     profit.textContent = `${valuation.profit_krw >= 0 ? '+' : '-'}₩${money(Math.abs(valuation.profit_krw))} (${valuation.return_pct >= 0 ? '+' : ''}${valuation.return_pct.toFixed(2)}%)`;
     profit.className = valuation.profit_krw >= 0 ? 'is-profit' : 'is-loss';
     note.textContent = `${valuationSourceText(valuation)} · ${valuation.priced_count}개 종목 평가 완료 · USD 자산은 USD/KRW 환율로 원화 환산`;
@@ -209,6 +243,16 @@ export function portfolioHoldingsView(container) {
     root.innerHTML = `<header><div><span class="jy-section-label">PORTFOLIO INSIGHTS</span><h2>비중과 집중도</h2>${basis.partial ? `<small class="holdings-partial">시세 확인된 ${basis.priced}개 종목(+현금) 기준 · ${basis.excluded}개 제외</small>` : ''}</div><span class="holdings-concentration is-${insight.concentration === '높음' ? 'high' : insight.concentration === '보통' ? 'mid' : 'low'}">집중도 ${insight.concentration}</span></header><div class="holdings-insight-grid"><article><span>최대 비중</span><strong>${insight.max_position ? `${escapeHtml(insight.max_position.name || insight.max_position.ticker)} ${insight.max_position.weight_pct.toFixed(1)}%` : '-'}</strong><small>현금도 하나의 자산으로 포함합니다.</small></article><article><span>통화 노출</span><div class="holdings-currency">${currencies}</div><small>USD는 현재 환율 기준 원화 환산입니다.</small></article></div>${weightListHtml(insight.positions)}`;
     root.hidden = false;
   };
+  const loadUpdates = async () => {
+    const root = container.querySelector('#holdings-updates');
+    try {
+      const [news, disclosures] = await Promise.all([authRequest('/api/portfolio/news'), authRequest('/api/portfolio/disclosures')]);
+      root.innerHTML = portfolioUpdatesHtml(news, disclosures);
+    } catch (error) {
+      root.innerHTML = portfolioUpdatesHtml({ error: error.message }, { error: error.message });
+    }
+    root.hidden = false;
+  };
   const loadFactorExposure = async () => {
     const root = container.querySelector('#holdings-factor-exposure');
     const names = Object.fromEntries(readHoldings(container).map((holding) => [holding.ticker, holding.name]));
@@ -229,6 +273,7 @@ export function portfolioHoldingsView(container) {
       }
       await refreshValuation(data);
       await loadFactorExposure();
+      await loadUpdates();
     } catch (error) { status.textContent = error.message; status.classList.add('is-error'); append(); }
   };
   rows.addEventListener('click', (event) => { if (event.target.closest('.holdings-remove')) { event.target.closest('tr').remove(); if (!rows.children.length) append(); } });
@@ -325,7 +370,7 @@ export function portfolioHoldingsView(container) {
         throw new Error('각 종목의 종목명, 수량, 평균 단가를 올바르게 입력하세요.');
       }
       const data = await authRequest('/api/portfolio', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cash_krw: Number(container.querySelector('#holdings-cash').value) || 0, holdings }) });
-      renderSummary(data); await refreshValuation(data); await loadFactorExposure(); status.textContent = '내 포트폴리오를 저장했습니다.'; status.classList.add('is-success');
+      renderSummary(data); await refreshValuation(data); await loadFactorExposure(); await loadUpdates(); status.textContent = '내 포트폴리오를 저장했습니다.'; status.classList.add('is-success');
     } catch (error) { status.textContent = error.message; status.classList.add('is-error'); } finally { button.disabled = false; }
   });
   load();

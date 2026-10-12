@@ -26,9 +26,11 @@ import httpx
 try:
     from .db import get_db
     from .kis_quotes import KisError, domestic_code, kis_service
+    from .us_portfolio_updates import us_news_feed
 except ImportError:
     from db import get_db  # type: ignore
     from kis_quotes import KisError, domestic_code, kis_service  # type: ignore
+    from us_portfolio_updates import us_news_feed  # type: ignore
 
 logger = logging.getLogger(__name__)
 KST = timezone(timedelta(hours=9))
@@ -306,23 +308,47 @@ def schedule_missing(codes: dict[str, str]) -> None:
 # ── 5. 화면용 읽기(캐시만) ─────────────────────────────────────────
 
 async def holdings_news_feed(user_id) -> dict:
+    # Codex 수정: CODX-USPORT-001 (2026-10-12), 국내 캐시에 미국 보유종목 뉴스 캐시를 병합한다.
     holdings = await user_holding_codes(user_id)
-    if not holdings:
-        return {"holdings": [], "items": [], "fetched_at": None, "note": "내 자산에 국내 보유 종목이 없습니다."}
-    docs = {doc["_id"]: doc async for doc in get_db()[CACHE_COLLECTION].find({"_id": {"$in": [h["code"] for h in holdings]}})}
+    us_feed = await us_news_feed(user_id)
+    docs = {doc["_id"]: doc async for doc in get_db()[CACHE_COLLECTION].find(
+        {"_id": {"$in": [h["code"] for h in holdings]}}
+    )} if holdings else {}
     missing = {h["code"]: h["name"] for h in holdings if h["code"] not in docs}
     if missing:
         schedule_missing(missing)
-    items = []
+    domestic_items = []
     for holding in holdings:   # 비중 높은 종목부터, 종목 안에서는 최신순
         for item in (docs.get(holding["code"], {}).get("items") or [])[:ITEMS_PER_STOCK_SHOWN]:
-            items.append({**item, "name": holding["name"], "weight_pct": holding["weight_pct"]})
+            domestic_items.append({**item, "name": holding["name"], "weight_pct": holding["weight_pct"], "market": "KR"})
+    us_items = us_feed.get("items") or []
+    if domestic_items and us_items:
+        market_limit = MAX_ITEMS_SHOWN // 2
+        items = domestic_items[:market_limit] + us_items[:MAX_ITEMS_SHOWN - market_limit]
+    else:
+        items = (domestic_items or us_items)[:MAX_ITEMS_SHOWN]
     fetched = [doc["fetched_at"] for doc in docs.values() if doc.get("fetched_at")]
+    fetched_iso = [value.replace(tzinfo=timezone.utc).isoformat() for value in fetched]
+    if us_feed.get("fetched_at"):
+        fetched_iso.append(us_feed["fetched_at"])
+    combined_holdings = [
+        {**{k: h[k] for k in ("code", "name", "weight_pct", "basis")}, "ticker": h["ticker"], "market": "KR"}
+        for h in holdings
+    ] + [
+        {k: h[k] for k in ("ticker", "name", "weight_pct", "basis", "market")}
+        for h in us_feed.get("holdings") or []
+    ]
+    if not combined_holdings:
+        return {"holdings": [], "items": [], "fetched_at": None, "pending": [],
+                "note": "내 자산에 한국·미국 보유 종목이 없습니다."}
     return {
-        "holdings": [{k: h[k] for k in ("code", "name", "weight_pct", "basis")} for h in holdings],
+        "holdings": combined_holdings,
         "items": items[:MAX_ITEMS_SHOWN],
-        "fetched_at": max(fetched).replace(tzinfo=timezone.utc).isoformat() if fetched else None,
-        "pending": sorted(missing),
-        "errors": {code: doc["error"] for code, doc in docs.items() if doc.get("error")},
-        "note": "한국투자증권 뉴스 제목(10분 주기 수집). 원문은 네이버 뉴스 검색으로 찾고, 못 찾으면 네이버 증권 종목 뉴스로 연결합니다.",
+        "fetched_at": max(fetched_iso) if fetched_iso else None,
+        "pending": sorted(missing) + list(us_feed.get("pending") or []),
+        "errors": {
+            **{code: doc["error"] for code, doc in docs.items() if doc.get("error")},
+            **{f"US:{ticker}": error for ticker, error in (us_feed.get("errors") or {}).items()},
+        },
+        "note": "국내는 한국투자증권·네이버 뉴스, 미국은 Yahoo Finance 종목 뉴스 캐시를 사용합니다. 비중은 시장별 참고값입니다.",
     }

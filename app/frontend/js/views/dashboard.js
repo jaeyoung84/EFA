@@ -87,12 +87,13 @@ export function newsHtml(news, now = Date.now()) {
       ? `<a class="dash-news-title" href="${esc(url)}" target="_blank" rel="noopener noreferrer"${item.link_kind === 'original' ? '' : ' title="원문을 찾지 못해 네이버 증권 종목 뉴스로 연결합니다"'}>${esc(item.title)}</a>`
       : `<span class="dash-news-title">${esc(item.title)}</span>`;
     const when = item.published_at ? `<time datetime="${esc(item.published_at)}" title="${esc(kstTime(item.published_at, true))}">${esc(newsAge(item.published_at, now))}</time>` : '';
-    return `<li><span class="dash-news-tag" title="보유 비중 ${esc(item.weight_pct)}%">${esc(item.name)}</span>
+    const market = item.market === 'US' ? '미국' : '한국';
+    return `<li><span class="dash-news-tag" title="${market} 보유 비중 참고값 ${esc(item.weight_pct)}%">${market} · ${esc(item.name)}</span>
       <div class="dash-news-body">${title}<span class="dash-news-meta">${esc(item.source || '언론사 미상')}${when ? ' · ' : ''}${when}</span></div></li>`;
   }).join('');
   const fetched = news.fetched_at ? `수집 ${esc(kstTime(news.fetched_at))}` : '';
   return `<ol class="dash-news-list">${rows}</ol>
-    <p class="dash-note">보유 비중이 높은 종목 순 · 종목당 최근 3건 · ${fetched}. 한국투자증권 뉴스 제목, 원문은 네이버 뉴스 검색으로 연결합니다.</p>`;
+    <p class="dash-note">종목당 최근 3건 · ${fetched}. ${esc(news.note || '한국·미국 보유종목 뉴스 참고자료입니다.')}</p>`;
 }
 
 export function briefingHtml(tab, { board, outcomes, news, loggedIn }) {
