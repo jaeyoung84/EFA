@@ -48,7 +48,8 @@ ROTATIONS = "us_sector_rotation_snapshots"
 ALPACA_DATA_URL = "https://data.alpaca.markets/v2/stocks/bars"
 FEED = "sip"
 SOURCE = "alpaca-sip"
-HISTORY_DAYS = 1100          # 약 3년: 섹터 순환 예열(26주)과 이후 연구 단계용 여유
+# Alpaca SIP 일봉 시작일. SPY는 미국 연구(US-PB-v1)의 시장 게이트라 개별주(EINT-036)와 같은 기간이 필요하다.
+HISTORY_START = date(2016, 1, 4)
 CROSSCHECK_DAYS = 90
 SETTLE_MINUTES = 20          # 정규장 마감 뒤 이 시간이 지나야 그 세션을 완성된 일봉으로 본다
 NY = ZoneInfo("America/New_York")
@@ -173,7 +174,7 @@ async def collect_us_market_data(*, now: datetime | None = None, fetch=fetch_alp
         await db[RUNS].insert_one(run)
         return {"status": "skipped"}
     run["last_session"] = through
-    start = date.fromisoformat(through) - timedelta(days=HISTORY_DAYS)
+    start = HISTORY_START
     end = date.fromisoformat(through) + timedelta(days=1)
     try:
         raw = _normalize(await asyncio.to_thread(fetch, SYMBOLS, start, end, "raw"), through)
