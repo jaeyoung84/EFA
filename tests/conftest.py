@@ -30,6 +30,7 @@ TEST_COLLECTIONS = [
     "kqs_manual_write_locks", "holding_news_cache", "holding_news_links", "kqs_learning_consents", "kqs_training_experiments", "kqs_dataset_manifests", "kqs_dataset_holdout_openings", "kqs_dataset_access_log",
     "us_daily_bars", "us_market_runs", "us_sector_rotation_snapshots",
     "us_index_membership", "us_equity_bars", "us_equity_symbols", "us_equity_runs",
+    "us_holding_news_cache", "us_holding_sec_filings_cache",
 ]
 
 

@@ -199,7 +199,7 @@ class NaverNewsSearch:
         self._http = http
         self.disabled_reason: str | None = None if self.client_id and self.client_secret else "네이버 키 없음"
 
-    async def search(self, title: str) -> list[dict]:
+    async def search(self, title: str, display: int = 5, sort: str = "sim") -> list[dict]:
         if self.disabled_reason:
             return []
         query = re.sub(r"[\[\]【】<>“”\"'‘’…·]", " ", title)[:80]
@@ -211,7 +211,7 @@ class NaverNewsSearch:
             else:
                 url, headers = NAVER_LEGACY_NEWS_URL, {"X-Naver-Client-Id": self.client_id,
                                                        "X-Naver-Client-Secret": self.client_secret}
-            response = await client.get(url, params={"query": query, "display": 5, "sort": "sim"}, headers=headers)
+            response = await client.get(url, params={"query": query, "display": display, "sort": sort}, headers=headers)
         finally:
             if self._http is None:
                 await client.aclose()
