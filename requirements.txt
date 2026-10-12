@@ -15,3 +15,4 @@ pandas_market_calendars
 apscheduler
 httpx
 websockets
+beautifulsoup4

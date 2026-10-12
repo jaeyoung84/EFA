@@ -151,7 +151,9 @@ def _crosscheck(symbol: str, raw: dict[str, dict], through: str) -> dict:
     """Yahoo 무조정 종가와 같은 날짜 종가 비교(최근 CROSSCHECK_DAYS). 실패해도 수집은 막지 않는다."""
     end = date.fromisoformat(through) + timedelta(days=1)
     try:
-        reference = YahooDailyProvider().fetch_daily(symbol, end - timedelta(days=CROSSCHECK_DAYS), end, adjusted=False).bars
+        # Yahoo는 클래스 주식 구분자로 '-'를 쓴다(BRK.B -> BRK-B).
+        reference = YahooDailyProvider().fetch_daily(symbol.replace(".", "-"), end - timedelta(days=CROSSCHECK_DAYS), end,
+                                                     adjusted=False).bars
     except Exception as exc:   # 외부 공급자 장애는 교차검증 불가로만 기록한다
         return {"status": "unavailable", "error_type": type(exc).__name__}
     since = (end - timedelta(days=CROSSCHECK_DAYS)).isoformat()

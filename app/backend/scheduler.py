@@ -24,6 +24,7 @@ try:
     from .short_lending_reference import collect_short_lending_references  # Codex 수정: CODX-SL-001 (2026-10-08)
     from .holdings_news import collect_holdings_news
     from .us_market_data import collect_us_market_data
+    from .us_equity_data import collect_us_equity_data
     from .market_data import MarketDataError, capture_market_data_lineage_snapshot, get_daily_ohlcv, market_factor_snapshot, sync_market_data_alerts
     from .quote_cache import fetch_quote_cached
     from .routers.strategy import capture_paper_snapshot, refresh_paper_alerts, capture_monthly_operations_reports, capture_monthly_revalidation_evidence, run_leverage_dca_daily_cycle
@@ -35,6 +36,7 @@ except ImportError:
     from short_lending_reference import collect_short_lending_references  # Codex 수정: CODX-SL-001 (2026-10-08)
     from holdings_news import collect_holdings_news  # type: ignore
     from us_market_data import collect_us_market_data  # type: ignore
+    from us_equity_data import collect_us_equity_data  # type: ignore
     from market_data import MarketDataError, capture_market_data_lineage_snapshot, get_daily_ohlcv, market_factor_snapshot, sync_market_data_alerts
     from quote_cache import fetch_quote_cached
     from routers.strategy import capture_paper_snapshot, refresh_paper_alerts, capture_monthly_operations_reports, capture_monthly_revalidation_evidence, run_leverage_dca_daily_cycle
@@ -450,6 +452,19 @@ def start_scheduler() -> None:
         minute=30,
         timezone="Asia/Seoul",
         id="collect_us_market_data",
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=7200,
+    )
+    # EINT-036: S&P 500 개별주 일봉(구성 이력 포함). ETF 수집 뒤 07:45, 10:45 재시도. 첫 실행은 2016년부터 백필.
+    _scheduler.add_job(
+        collect_us_equity_data,
+        "cron",
+        day_of_week="tue-sat",
+        hour="7,10",
+        minute=45,
+        timezone="Asia/Seoul",
+        id="collect_us_equity_data",
         coalesce=True,
         max_instances=1,
         misfire_grace_time=7200,

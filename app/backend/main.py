@@ -519,12 +519,14 @@ async def market_us_sector_rotation() -> JSONResponse:
 
 @app.get("/api/market/us-data-status")
 async def market_us_data_status(user: dict = Depends(current_user)) -> dict:
-    """EINT-035: 미국 일봉 수집의 최근 실행 기록 요약(출처·완성 세션·교차검증·해시)."""
+    """EINT-035/036: 미국 섹터 ETF와 S&P 500 개별주 수집의 최근 실행 기록 요약(출처·완성 세션·교차검증·해시·coverage)."""
     try:
         from .us_market_data import us_market_data_status
+        from .us_equity_data import us_equity_status
     except ImportError:
         from us_market_data import us_market_data_status  # type: ignore
-    return await us_market_data_status()
+        from us_equity_data import us_equity_status  # type: ignore
+    return {**await us_market_data_status(), "equities": await us_equity_status()}
 
 
 @lru_cache(maxsize=10000)
