@@ -160,11 +160,21 @@ export function tableHtml(data) {
   </tbody></table></div>`;
 }
 
+// EINT-035: 한국(KODEX 200 대비)과 미국(SPY 대비) 섹터 순환을 같은 화면에서 전환한다.
+export const MARKETS = {
+  kr: { label: '한국', url: '/api/market/sector-rotation',
+    intro: '국내 섹터 ETF를 KODEX 200과 비교해, 지금 어느 섹터가 시장을 이끌고 주도권이 어디로 옮겨 가는지 보여 줍니다.' },
+  us: { label: '미국', url: '/api/market/us-sector-rotation',
+    intro: '미국 섹터 ETF(SPDR 11개 섹터와 반도체 SMH)를 SPY와 비교해, 지금 어느 섹터가 시장을 이끌고 주도권이 어디로 옮겨 가는지 보여 줍니다.' },
+};
+
 export function sectorRotationView(container) {
-  const state = { data: null, tail: 4, hidden: new Set(), focus: null };
+  const state = { data: null, tail: 4, hidden: new Set(), focus: null, market: 'kr' };
+  try { if (localStorage.getItem('efa.rrg.market') === 'us') state.market = 'us'; } catch { /* 저장소를 못 쓰면 한국 */ }
   container.innerHTML = `<div class="efa-page rrg-page">
     <header class="efa-page-head"><div><h1><i class="fa-solid fa-arrows-spin"></i> 섹터 순환 (RRG)</h1>
-      <p>국내 섹터 ETF를 KODEX 200과 비교해, 지금 어느 섹터가 시장을 이끌고 주도권이 어디로 옮겨 가는지 보여 줍니다. 섹터는 보통 <b>개선 → 주도 → 약화 → 부진</b> 순서로 시계방향으로 돕니다.</p></div></header>
+      <p><span data-rrg-intro></span> 섹터는 보통 <b>개선 → 주도 → 약화 → 부진</b> 순서로 시계방향으로 돕니다.</p></div>
+      <div class="dash-seg" role="tablist" aria-label="시장">${Object.entries(MARKETS).map(([key, m]) => `<button type="button" data-rrg-market="${key}">${m.label}</button>`).join('')}</div></header>
     <div data-rrg-body><section class="dash-card"><p class="rrg-muted">섹터 순환 자료를 불러오는 중…</p></section></div></div>`;
   const body = container.querySelector('[data-rrg-body]');
 
@@ -195,7 +205,7 @@ export function sectorRotationView(container) {
     }
     body.innerHTML = `
       <section class="dash-card rrg-summary">
-        <header class="dash-head"><h2>주도권 이동 요약</h2><span class="dash-sub">기준 ${esc(data.latest_week)} 주간 · 비교 대상 ${esc(data.benchmark.name)} · 최근 4주 변화</span></header>
+        <header class="dash-head"><h2>주도권 이동 요약</h2><span class="dash-sub">기준 ${esc(data.latest_week)} 주간 · 비교 대상 ${esc(data.benchmark.name)} · 최근 4주 변화${data.source ? ` · ${esc(data.source)}` : ''}</span></header>
         ${summaryHtml(data)}
       </section>
       <section class="dash-card">
@@ -213,7 +223,7 @@ export function sectorRotationView(container) {
       <section class="dash-card rrg-guide">
         <details><summary><i class="fa-solid fa-circle-question"></i> 그림 읽는 법</summary>
           <ul>
-            <li><b>가로축 상대강도</b>: 섹터 ETF ÷ KODEX 200 비율의 최근 ${esc(data.smoothing_weeks?.short)}주 흐름이 ${esc(data.smoothing_weeks?.long)}주 흐름보다 높으면 100보다 오른쪽입니다. 요즘 시장보다 강하다는 뜻입니다.</li>
+            <li><b>가로축 상대강도</b>: 섹터 ETF ÷ ${esc(data.benchmark.name)} 비율의 최근 ${esc(data.smoothing_weeks?.short)}주 흐름이 ${esc(data.smoothing_weeks?.long)}주 흐름보다 높으면 100보다 오른쪽입니다. 요즘 시장보다 강하다는 뜻입니다.</li>
             <li><b>세로축 모멘텀</b>: 그 상대강도가 계속 높아지는 중이면 100보다 위, 꺾이기 시작하면 아래입니다.</li>
             <li><b>네 구역</b>: 개선(왼쪽 위) → 주도(오른쪽 위) → 약화(오른쪽 아래) → 부진(왼쪽 아래). 꼬리가 시계방향으로 도는 것이 보통의 순환입니다.</li>
             <li><b>주도 후보</b>: 개선 구역에서 오른쪽 위로 향하는 섹터, <b>주의</b>: 주도에서 아래로 꺾여 약화로 가는 섹터.</li>
@@ -241,8 +251,22 @@ export function sectorRotationView(container) {
     drawChart();
   };
 
-  fetch('/api/market/sector-rotation')
-    .then((response) => response.json())
-    .then((data) => { state.data = data; render(); })
-    .catch((error) => { state.data = { available: false, detail: `섹터 순환 자료를 불러오지 못했습니다: ${error.message}` }; render(); });
+  const load = () => {
+    const market = MARKETS[state.market];
+    container.querySelector('[data-rrg-intro]').textContent = market.intro;
+    container.querySelectorAll('[data-rrg-market]').forEach((b) => b.classList.toggle('is-active', b.dataset.rrgMarket === state.market));
+    body.innerHTML = '<section class="dash-card"><p class="rrg-muted">섹터 순환 자료를 불러오는 중…</p></section>';
+    const requested = state.market;
+    fetch(market.url)
+      .then((response) => response.json())
+      .then((data) => { if (requested === state.market) { state.data = data; state.hidden.clear(); state.focus = null; render(); } })
+      .catch((error) => { state.data = { available: false, detail: `섹터 순환 자료를 불러오지 못했습니다: ${error.message}` }; render(); });
+  };
+  container.querySelectorAll('[data-rrg-market]').forEach((button) => button.addEventListener('click', () => {
+    if (button.dataset.rrgMarket === state.market) return;
+    state.market = button.dataset.rrgMarket;
+    try { localStorage.setItem('efa.rrg.market', state.market); } catch { /* 무시 */ }
+    load();
+  }));
+  load();
 }

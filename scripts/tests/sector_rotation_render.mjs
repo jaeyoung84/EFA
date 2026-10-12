@@ -39,4 +39,10 @@ assert.ok(!svg.includes('<img src=x>') && (svg.match(/marker-end="url\(#rrg-arro
 
 const table = m.tableHtml(data);
 assert.ok(table.indexOf('반도체') < table.indexOf('인터넷') && table.includes('+11.3%') && !table.includes('<img src=x>'));
-console.log('Sector rotation: domain, label nudging, summary, svg, table, escaping passed');
+// EINT-035: 한국·미국 전환은 서로 다른 저장 자료 API를 읽는다.
+assert.equal(m.MARKETS.kr.url, '/api/market/sector-rotation');
+assert.equal(m.MARKETS.us.url, '/api/market/us-sector-rotation');
+assert.ok(m.MARKETS.us.intro.includes('SPY') && m.MARKETS.kr.intro.includes('KODEX 200'));
+const us = m.summaryHtml({ ...data, benchmark: { name: 'S&P 500 (SPY)' } });
+assert.ok(us.includes('지금 시장을 이끄는 섹터는'));
+console.log('Sector rotation: domain, label nudging, summary, svg, table, escaping, KR/US markets passed');

@@ -23,6 +23,7 @@ try:
     from .dart_market_activity import collect_market_activity
     from .short_lending_reference import collect_short_lending_references  # Codex 수정: CODX-SL-001 (2026-10-08)
     from .holdings_news import collect_holdings_news
+    from .us_market_data import collect_us_market_data
     from .market_data import MarketDataError, capture_market_data_lineage_snapshot, get_daily_ohlcv, market_factor_snapshot, sync_market_data_alerts
     from .quote_cache import fetch_quote_cached
     from .routers.strategy import capture_paper_snapshot, refresh_paper_alerts, capture_monthly_operations_reports, capture_monthly_revalidation_evidence, run_leverage_dca_daily_cycle
@@ -33,6 +34,7 @@ except ImportError:
     from dart_market_activity import collect_market_activity
     from short_lending_reference import collect_short_lending_references  # Codex 수정: CODX-SL-001 (2026-10-08)
     from holdings_news import collect_holdings_news  # type: ignore
+    from us_market_data import collect_us_market_data  # type: ignore
     from market_data import MarketDataError, capture_market_data_lineage_snapshot, get_daily_ohlcv, market_factor_snapshot, sync_market_data_alerts
     from quote_cache import fetch_quote_cached
     from routers.strategy import capture_paper_snapshot, refresh_paper_alerts, capture_monthly_operations_reports, capture_monthly_revalidation_evidence, run_leverage_dca_daily_cycle
@@ -437,6 +439,20 @@ def start_scheduler() -> None:
         coalesce=True,
         max_instances=1,
         next_run_time=datetime.now(timezone.utc) + timedelta(seconds=60),
+    )
+    # EINT-035: 미국 섹터 ETF 일봉(Alpaca SIP)과 미국 섹터 순환. 미국 장 마감(KST 05~06시) 뒤 07:30, 10:30 재시도.
+    # 이미 저장된 원시 일봉은 다시 쓰지 않으므로 두 번 돌아도 결과가 바뀌지 않는다.
+    _scheduler.add_job(
+        collect_us_market_data,
+        "cron",
+        day_of_week="tue-sat",
+        hour="7,10",
+        minute=30,
+        timezone="Asia/Seoul",
+        id="collect_us_market_data",
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=7200,
     )
     _scheduler.start()
     logger.info("백그라운드 시세(%d분)·일봉 수집(평일 장 마감 후)·모의계좌 스냅샷 스케줄러 시작", QUOTE_REFRESH_INTERVAL_MINUTES)

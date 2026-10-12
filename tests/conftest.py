@@ -28,6 +28,7 @@ TEST_COLLECTIONS = [
     "kqs_native_candidate_reviews", "kqs_native_candidate_review_snapshots",
     "kqs_native_candidate_queue_snapshots", "kqs_native_candidate_outcomes",
     "kqs_manual_write_locks", "holding_news_cache", "holding_news_links", "kqs_learning_consents", "kqs_training_experiments", "kqs_dataset_manifests", "kqs_dataset_holdout_openings", "kqs_dataset_access_log",
+    "us_daily_bars", "us_market_runs", "us_sector_rotation_snapshots",
 ]
 
 

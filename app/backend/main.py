@@ -507,6 +507,26 @@ def market_sector_rotation() -> JSONResponse:
     return JSONResponse(content=read_sector_rotation(), headers={"Cache-Control": "no-cache"})
 
 
+@app.get("/api/market/us-sector-rotation")
+async def market_us_sector_rotation() -> JSONResponse:
+    """EINT-035: 미국 섹터 ETF를 SPY와 비교한 섹터 순환(RRG). 저장된 최신 스냅샷만 읽는다."""
+    try:
+        from .us_market_data import read_us_sector_rotation
+    except ImportError:
+        from us_market_data import read_us_sector_rotation  # type: ignore
+    return JSONResponse(content=await read_us_sector_rotation(), headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/api/market/us-data-status")
+async def market_us_data_status(user: dict = Depends(current_user)) -> dict:
+    """EINT-035: 미국 일봉 수집의 최근 실행 기록 요약(출처·완성 세션·교차검증·해시)."""
+    try:
+        from .us_market_data import us_market_data_status
+    except ImportError:
+        from us_market_data import us_market_data_status  # type: ignore
+    return await us_market_data_status()
+
+
 @lru_cache(maxsize=10000)
 def _stock_ksic(stock_code: str) -> str | None:
     """종목코드 → DART 업종코드(KSIC). 실패하면 None(다음 프로세스 재시작까지 캐시)."""
