@@ -50,17 +50,18 @@ def _num(value) -> float | None:
 
 
 def exit_plan(item: str, features: dict | None) -> dict | None:
-    """EINT-026: 각 아이템의 '검증된 청산 규칙'을 추천 시점 값으로 가격·수치화한다(참고 표시).
+    """EINT-026: 각 아이템의 현행 청산 규칙을 추천 시점 값으로 가격·수치화한다(참고 표시).
 
     규칙을 새로 만들지 않는다. 평균회귀 2종은 연구 결정대로 가격 손절·보유기간 상한이 없다(D-3·D-4, 청산 D-2).
     목표가·손익비는 어느 아이템에도 규칙이 없어 만들지 않는다. 엔진이 게시한 features만 쓰고, 없으면 None.
+    Codex 수정: CODX-EXIT-001 (2026-10-12) — v4 성과는 전향 검증 중이며 가격선은 체결가가 아니다.
     """
     features = features or {}
     close, rsi = _num(features.get("close")), _num(features.get("rsi14", features.get("rsi")))
     if not close or close <= 0:
         return None
     pct = lambda price: round((price / close - 1) * 100, 2)  # noqa: E731
-    no_stop = "가격 손절·보유기간 상한 없음(검증된 규칙)"
+    no_stop = "가격 손절·보유기간 상한 없음(현행 규칙)"
     if item == "swing":
         middle = _num(features.get("bb_middle20"))
         if middle is None or rsi is None:
@@ -87,8 +88,9 @@ def exit_plan(item: str, features: dict | None) -> dict | None:
              "pct": pct(trail)},
             {"kind": "time", "label": f"{V4_HOLDING_LIMIT}거래일 보유 상한"},
             {"kind": "market", "label": "시장 ETF가 50일선 이하이면 다음 날 시가"},
-        ], "atr": round(atr, 2), "note": "먼저 닿는 조건으로 청산",
-            "basis": "기준일 종가로 계산한 근사치입니다. 실제 손절가는 매수가 기준이고, 추적 기준선은 최고 종가가 오르면 함께 오릅니다."}
+        ], "atr": round(atr, 2), "note": "현행 규칙의 참고 가격·자동 매도 없음",
+            "basis": "기준일 종가로 계산한 근사치입니다. 실제 손절선은 매수가 기준, 추적선은 보유 중 최고 종가 기준입니다. "
+                     "종가가 선에 닿아도 다음 거래일 시가 체결이나 가격은 확정되지 않습니다. v4 성과는 전향 검증 중입니다."}
     return None
 
 
@@ -128,7 +130,8 @@ def v4_holding_exit(series: list[dict], regime_off: bool, entry_date: str, entry
     if not series:
         return {"state": "unavailable", "reason": None}
     since = [point for point in series if point["date"] >= entry_date]
-    holding_days = len(since) if series[0]["date"] < entry_date else None  # None: entry older than the series
+    # Codex 수정: CODX-EXIT-002 (2026-10-12) — 시작일과 진입일이 같으면 보유 1일로 센다.
+    holding_days = len(since) if series[0]["date"] <= entry_date else None  # None: entry older than the series
     before = [point for point in series if point["date"] < entry_date]
     stop_price = entry_price - V4_ATR_MULTIPLE * before[-1]["atr"] if before else None
     highest_close = max([entry_price] + [point["close"] for point in since])
@@ -180,6 +183,10 @@ def holding_signals(lot_book: dict, payload: dict | None, trade_day) -> list[dic
                                close=fact.get("close"))
             if row.get("reason"):
                 row["reason_label"] = EXIT_REASON_LABELS.get(row["reason"], row["reason"])
+            # Codex 수정: CODX-EXIT-001 (2026-10-12) — 기존 판정 계약은 유지하되 종가 경고를 구분한다.
+            if row.get("state") == "exit_signal":
+                row["signal_basis"] = ("close_warning" if item == "pullback_v4"
+                                       and row.get("reason") in ("stop", "trailing") else "rule_observed")
             rows.append(row)
     rows.sort(key=lambda row: (row["state"] != "exit_signal", row["symbol"], row["bought_on"]))
     return rows

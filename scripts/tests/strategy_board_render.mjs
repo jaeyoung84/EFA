@@ -28,6 +28,15 @@ assert.ok(html.includes('매도 신호') && html.includes('손절 96'));
 assert.ok(html.includes('class="sb-count is-alert">1건'));
 const down = render({ available: false, detail: '<i>gone</i>', items: [], sell_signals: [], disclaimer: '' });
 assert.ok(down.includes('검증된 추천을 사용할 수 없습니다') && !down.includes('<i>gone</i>'));
+// Codex 수정: CODX-EXIT-001 (2026-10-12) — 가격선 경고와 확정 관측 배지를 구분한다.
+const warning = render({ available: true, items: [], sell_signals: [
+  { state: 'exit_signal', signal_basis: 'close_warning', item: 'pullback_v4', symbol: '000660',
+    bought_on: '2026-10-02', fill_price: 100, remaining_quantity: 1, close: 95,
+    reason_label: '손절선 이하', stop_price: 97, trailing_level: 98, holding_days: 1, holding_limit: 15 },
+], disclaimer: '' });
+assert.ok(warning.includes('가격선 주의') && warning.includes('다음 시가 미확정'));
+assert.ok(warning.includes('class="sb-count ">0건'));
+assert.ok(!warning.includes('<tr class="is-alert">'));
 // EINT-020: 카드의 판단 버튼·내 기록 배지·엔진 경고 배너
 const withDecisions = render({
   available: true, as_of: '2026-09-30', items: [item('swing', [{ rank: 1, signal_id: 'sig-1', name: 'A', symbol: '005930', market: 'KOSPI', reasons: [] }])],
@@ -42,4 +51,14 @@ assert.ok(!withDecisions.includes('<b>x</b>'));
 const healthy = render({ available: true, as_of: '2026-09-30', items: [], sell_signals: [], disclaimer: '',
   health: { level: 'ok', alerts: [], last_run_finished_at: '2026-10-01T00:00:00+00:00' } });
 assert.ok(!healthy.includes('data-sb-health') && healthy.includes('엔진 정상'));
-console.log('Strategy board: three items, empty/unpublished items, sell badges, decisions, health banner, escaping passed');
+// Codex 수정: CODX-EXIT-001 (2026-10-12) — 대시보드도 종가 경고를 별도 표시한다.
+const dashboardSource = (await readFile(new URL('../../app/frontend/js/views/dashboard.js', import.meta.url), 'utf8'))
+  .replace(/^import .*$/gm, '');
+const { briefingHtml } = await import(`data:text/javascript;base64,${Buffer.from(dashboardSource).toString('base64')}`);
+const dashboardWarning = briefingHtml('sells', { loggedIn: true, board: { sell_signals: [
+  { state: 'exit_signal', signal_basis: 'close_warning', item: 'pullback_v4', symbol: '000660',
+    bought_on: '2026-10-02', fill_price: 100, remaining_quantity: 1, close: 95, reason_label: '손절선 이하' },
+] } });
+assert.ok(dashboardWarning.includes('가격선 주의') && dashboardWarning.includes('다음 시가 미확정'));
+assert.ok(!dashboardWarning.includes('<span class="dash-badge is-sell">매도 신호</span>'));
+console.log('Strategy board and dashboard: exit warning rendering passed');

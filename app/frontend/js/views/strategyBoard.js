@@ -73,7 +73,7 @@ function pickRow(pick, decisions) {
       <ul class="sb-reasons">${(pick.reasons || []).map((reason) => `<li>${esc(reason)}</li>`).join('')}</ul>
       ${riskSlot(pick.symbol, { full: true, hideClean: true })}
       ${contextSlot(pick.symbol)}
-      ${pick.exit_plan ? exitPlanHtml(pick.exit_plan) : pick.exit_reference ? `<p class="sb-note"><b>청산 기준</b> ${esc(pick.exit_reference)}</p>` : ''}
+      ${pick.exit_plan ? exitPlanHtml(pick.exit_plan) : pick.exit_reference ? `<p class="sb-note"><b>청산 참고 기준</b> ${esc(pick.exit_reference)}</p>` : ''}
       ${decisionBadges(decisions[pick.signal_id])}
       ${pick.signal_id ? decisionForm(pick) : ''}
     </details>
@@ -96,17 +96,19 @@ function itemCard(item, decisions) {
 }
 
 function sellRow(row) {
-  const [label, tone] = STATE_LABEL[row.state] || [row.state, 'is-muted'];
+  // Codex 수정: CODX-EXIT-001 (2026-10-12) — v4 종가 경고를 확정 매도 신호와 구분한다.
+  const closeWarning = row.signal_basis === 'close_warning';
+  const [label, tone] = closeWarning ? ['가격선 주의', 'is-muted'] : (STATE_LABEL[row.state] || [row.state, 'is-muted']);
   const levels = row.item === 'pullback_v4' && row.state !== 'no_item' && row.stop_price !== undefined
     ? `손절 ${price(row.stop_price)} · 트레일링 ${price(row.trailing_level)} · 보유 ${row.holding_days ?? '15일 초과'}/${row.holding_limit}일${row.market_regime_off ? ' · 시장 50일선 이탈' : ''}`
     : (row.detail || '');
-  return `<tr class="${row.state === 'exit_signal' ? 'is-alert' : ''}">
+  return `<tr class="${row.state === 'exit_signal' && !closeWarning ? 'is-alert' : ''}">
     <td><strong>${esc(row.name || row.symbol)}</strong><small>${esc(row.symbol)}</small></td>
     <td>${esc(ITEM_SHORT[row.item] || '-')}</td>
     <td>${esc(row.bought_on)}<small>${price(row.fill_price)}원 · ${esc(row.remaining_quantity)}주</small></td>
     <td>${row.close !== undefined ? price(row.close) : '-'}</td>
     <td><span class="sb-badge ${tone}">${esc(label)}</span>${row.reason_label ? `<small>${esc(row.reason_label)}</small>` : ''}</td>
-    <td class="sb-levels">${esc(levels)}</td>
+    <td class="sb-levels">${esc(levels)}${closeWarning ? '<small>기준일 종가 기반 사전 경고 · 다음 시가 미확정</small>' : ''}</td>
   </tr>`;
 }
 
@@ -119,7 +121,8 @@ export function boardHtml(data) {
   const health = data.health;
   const engineLine = health && health.level === 'ok'
     ? ` · 엔진 정상(최근 실행 ${kst(health.last_run_finished_at)})` : '';
-  const alerts = sells.filter((row) => row.state === 'exit_signal').length;
+  // Codex 수정: CODX-EXIT-001 (2026-10-12) — 종가 경고는 확정 매도 신호 수에 합산하지 않는다.
+  const alerts = sells.filter((row) => row.state === 'exit_signal' && row.signal_basis !== 'close_warning').length;
   return `
     <section class="sb-head">
       <div><h1><i class="fa-solid fa-bullseye"></i> 전략 추천</h1><p>${meta}${engineLine}</p></div>
@@ -134,7 +137,7 @@ export function boardHtml(data) {
       ${sells.length ? `<div class="sb-table"><table><thead><tr><th>종목</th><th>아이템</th><th>매수일·가격</th><th>기준 종가</th><th>신호</th><th>세부</th></tr></thead>
         <tbody>${sells.map(sellRow).join('')}</tbody></table></div>`
         : '<p class="sb-empty">기록된 보유 종목이 없습니다. 매수하면 "매수·매도 기록하기"에서 기록하세요.</p>'}
-      <p class="sb-note">매도 신호는 그 종목을 추천한 아이템의 청산 기준입니다. Pullback v4의 손절·트레일링은 다음 날 시가 대신 기준일 종가로 미리 알려 줍니다.</p>
+      <p class="sb-note">매도 신호는 기준일 종가로 관측한 조건이며 자동 매도가 아닙니다. Pullback v4의 손절·트레일링은 종가 기반 사전 경고입니다. 실제 다음 거래일 시가와 체결 여부·가격은 확정되지 않습니다.</p>
     </section>
     <p class="sb-disclaimer">${esc(data.disclaimer)}</p>`;
 }

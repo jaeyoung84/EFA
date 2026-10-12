@@ -1,4 +1,5 @@
-// EINT-026: 추천 카드의 '청산 기준'을 검증된 규칙 그대로 가격·수치로 보여 준다(참고 표시, 자동 매도 없음).
+// EINT-026: 추천 카드의 현행 청산 규칙을 가격·수치로 보여 준다(참고 표시, 자동 매도 없음).
+// Codex 수정: CODX-EXIT-001 (2026-10-12) — 성과 검증 완료·체결 확정처럼 읽히지 않도록 표현한다.
 // 목표가·손익비는 어느 전략에도 규칙이 없어 표시하지 않는다.
 const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
@@ -20,7 +21,7 @@ function ruleHtml(rule) {
 export function exitPlanHtml(plan) {
   if (!plan || !Array.isArray(plan.rules) || !plan.rules.length) return '';
   return `<div class="exit-plan" title="${esc(plan.basis || '')}">
-    <p class="exit-plan-head"><b>청산 기준</b><small>${esc(plan.note || '')}</small></p>
+    <p class="exit-plan-head"><b>청산 참고 기준</b><small>${esc(plan.note || '')}</small></p>
     <ul>${plan.rules.map(ruleHtml).join('')}</ul>
     ${plan.basis ? `<p class="exit-plan-basis">${esc(plan.basis)}</p>` : ''}
   </div>`;

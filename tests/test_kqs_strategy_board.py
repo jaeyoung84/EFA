@@ -53,11 +53,29 @@ def test_holding_signals_cover_item_less_unavailable_and_reversion_states():
     states = {(row["symbol"], row["item"]): row for row in rows}
     assert states[("005930", "swing")]["state"] == "exit_signal"
     assert states[("005930", "swing")]["reason_label"] == "청산 조건 충족"
+    # Codex 수정: CODX-EXIT-001 (2026-10-12) — 회귀 청산은 종가 관측 규칙이다.
+    assert states[("005930", "swing")]["signal_basis"] == "rule_observed"
     assert states[("005930", None)]["state"] == "no_item"
     assert states[("000660", "long_term")]["state"] == "unavailable"
     assert ("035420", "swing") not in states  # fully sold lots are not holdings
     assert rows[0]["state"] == "exit_signal"  # exit signals sort first
     assert {row["state"] for row in board.holding_signals(book, None, _trade_day)} == {"unavailable", "no_item"}
+
+
+def test_v4_price_line_is_warning_not_next_open_execution():
+    # Codex 수정: CODX-EXIT-001 (2026-10-12) — 합성 종가 경고와 시장 청산을 구분한다.
+    lot = _lot("pullback_v4", bought="2026-10-02", price=100.0)
+    book = {"lots": {"005930": [lot]}}
+    series = [{"date": "2026-10-01", "close": 100.0, "atr": 2.0},
+              {"date": "2026-10-02", "close": 95.0, "atr": 2.0}]
+    monitor = {"symbol": "005930", "signal_type": "pullback_v4", "state": "hold",
+               "series": series, "market_regime_off": False}
+    [warning] = board.holding_signals(book, {"exit_monitor": [monitor]}, _trade_day)
+    assert (warning["reason"], warning["signal_basis"], warning["stop_price"]) == ("stop", "close_warning", 97.0)
+    monitor["series"][-1]["close"] = 100.0
+    monitor["market_regime_off"] = True
+    [observed] = board.holding_signals(book, {"exit_monitor": [monitor]}, _trade_day)
+    assert (observed["reason"], observed["signal_basis"]) == ("market_regime", "rule_observed")
 
 
 def test_v4_holding_exit_matches_engine_holding_exit():
@@ -85,6 +103,15 @@ def test_v4_holding_exit_matches_engine_holding_exit():
                 assert web["trailing_level"] == pytest.approx(engine["trailing_level"], abs=0.01)
                 compared += 1
     assert compared == 54
+
+
+
+def test_v4_entry_on_first_published_bar_is_not_fifteen_days_old():
+    # Codex 수정: CODX-EXIT-002 (2026-10-12) — 공개 시계열 첫날 진입 경계.
+    series = [{"date": "2026-10-12", "close": 100.0, "atr": 2.0}]
+    result = board.v4_holding_exit(series, False, "2026-10-12", 100.0)
+    assert result["state"] == "hold" and result["reason"] is None
+    assert result["holding_days"] == 1 and result["stop_price"] is None
 
 
 def test_v4_entry_older_than_series_is_past_the_holding_limit():
@@ -171,6 +198,9 @@ def test_exit_plan_follows_each_items_tested_rules():
     assert (stop["price"], stop["pct"]) == (18800.0, -6.0)            # 20000 − 1.5×800
     assert (trail["price"], trail["pct"]) == (18400.0, -8.0)          # 20000 − 2×800
     assert [r["kind"] for r in v4["rules"]] == ["stop", "trailing", "time", "market"]
+    # Codex 수정: CODX-EXIT-001 (2026-10-12) — 근사치/미확정 체결·전향 상태가 보인다.
+    assert "다음 거래일 시가 체결이나 가격은 확정되지" in v4["basis"]
+    assert "전향 검증 중" in v4["basis"]
     for plan in (swing, long_term, v4):
         assert not any(word in str(plan) for word in ("목표가", "손익비", "R/R"))
     assert exit_plan("swing", {"close": 10000}) is None and exit_plan("pullback_v4", {"close": 0, "atr": 5}) is None

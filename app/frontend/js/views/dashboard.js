@@ -106,12 +106,13 @@ export function briefingHtml(tab, { board, outcomes, news, loggedIn }) {
     const sells = (board.sell_signals || []).filter((row) => row.state === 'exit_signal');
     if (!(board.sell_signals || []).length) return '<div class="dash-empty"><p>기록된 보유 종목이 없습니다. 매수하면 추천 카드에서 기록하세요.</p></div>';
     if (!sells.length) return `<div class="dash-empty"><p>보유 ${board.sell_signals.length}종목 모두 매도 신호가 없습니다.</p></div>`;
+    // Codex 수정: CODX-EXIT-001 (2026-10-12) — 종가 경고를 확정 매도 신호로 호칭하지 않는다.
     return `<ol class="dash-brief-list">${sells.map((row, index) => `<li>
       <span class="dash-rank is-sell">${index + 1}</span>
       <span class="dash-brief-name"><strong>${esc(row.name || row.symbol)}</strong><small>${esc(row.symbol)} · ${esc(ITEM_SHORT[row.item] || '-')}</small></span>
-      <span class="dash-badge is-sell">매도 신호</span>
+      <span class="dash-badge ${row.signal_basis === 'close_warning' ? '' : 'is-sell'}">${row.signal_basis === 'close_warning' ? '가격선 주의' : '매도 신호'}</span>
       <span class="dash-brief-price">${fmt(row.close)}<small>기준 종가</small></span>
-      <ul class="dash-brief-reasons"><li>${esc(row.reason_label || row.detail || '')}</li><li>매수 ${esc(row.bought_on)} · ${fmt(row.fill_price)}원 · ${esc(row.remaining_quantity)}주</li></ul>
+      <ul class="dash-brief-reasons"><li>${esc(row.reason_label || row.detail || '')}${row.signal_basis === 'close_warning' ? ' · 다음 시가 미확정' : ''}</li><li>매수 ${esc(row.bought_on)} · ${fmt(row.fill_price)}원 · ${esc(row.remaining_quantity)}주</li></ul>
     </li>`).join('')}</ol>`;
   }
   if (tab === 'outcomes') {
@@ -340,7 +341,8 @@ export function dashboardView(container) {
     fillRiskBadges(el);
     startLiveQuotes(el);
     $('[data-brief-count]').textContent = state.news?.items?.length ? `(${state.news.items.length})` : '';
-    const sells = (state.board?.sell_signals || []).filter((row) => row.state === 'exit_signal').length;
+    // Codex 수정: CODX-EXIT-001 (2026-10-12) — 확정 관측 신호만 배지에 집계한다.
+    const sells = (state.board?.sell_signals || []).filter((row) => row.state === 'exit_signal' && row.signal_basis !== 'close_warning').length;
     $('[data-sell-count]').textContent = sells ? `(${sells})` : '';
   };
   const renderAssets = () => {
