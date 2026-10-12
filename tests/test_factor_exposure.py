@@ -15,10 +15,10 @@ def _ohlcv(ticker: str, start_close: float) -> list[dict]:
 @pytest.mark.asyncio
 async def test_factor_exposure_uses_user_holdings_and_common_as_of(client, make_user):
     headers = await make_user("factor-exposure@example.com")
-    await get_db().market_ohlcv.insert_many(_ohlcv("AAA", 100) + _ohlcv("BBB", 200))
+    await get_db().market_ohlcv.insert_many(_ohlcv("000010.KS", 100) + _ohlcv("000020.KS", 200))
     saved = await client.put("/api/portfolio", headers=headers, json={"cash_krw": 0, "holdings": [
-        {"ticker": "AAA", "name": "Alpha", "quantity": 10, "average_price": 100, "currency": "KRW", "sector": "테스트"},
-        {"ticker": "BBB", "name": "Beta", "quantity": 5, "average_price": 200, "currency": "KRW", "sector": "테스트"},
+        {"ticker": "000010.KS", "name": "Alpha", "quantity": 10, "average_price": 100, "currency": "KRW", "sector": "테스트"},
+        {"ticker": "000020.KS", "name": "Beta", "quantity": 5, "average_price": 200, "currency": "KRW", "sector": "테스트"},
     ]})
     assert saved.status_code == 200, saved.text
     response = await client.get("/api/portfolio/factor-exposure", headers=headers)

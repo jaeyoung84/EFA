@@ -19,7 +19,7 @@ async def test_valuation_excludes_unpriceable_ticker_instead_of_faking_it(client
         json={
             "cash_krw": 100_000,
             "holdings": [
-                {"ticker": BOGUS_TICKER, "name": "존재하지 않는 종목", "quantity": 1, "average_price": 1000, "currency": "KRW"},
+                {"ticker": BOGUS_TICKER, "name": "존재하지 않는 종목", "quantity": 1, "average_price": 1000, "currency": "USD"},
             ],
         },
         headers=headers,
@@ -47,7 +47,7 @@ async def test_risk_reports_unavailable_when_only_holding_has_no_price_history(c
         json={
             "cash_krw": 0,
             "holdings": [
-                {"ticker": BOGUS_TICKER, "name": "존재하지 않는 종목", "quantity": 1, "average_price": 1000, "currency": "KRW"},
+                {"ticker": BOGUS_TICKER, "name": "존재하지 않는 종목", "quantity": 1, "average_price": 1000, "currency": "USD"},
             ],
         },
         headers=headers,
