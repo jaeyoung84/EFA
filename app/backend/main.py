@@ -192,17 +192,20 @@ try:
     from .routers.strategy import router as strategy_router
     from .routers.kqs import router as kqs_router
     from .routers.research import router as research_router
+    from .routers.external_picks import router as external_picks_router
 except ImportError:  # Allows `uvicorn main:app` from app/backend.
     from routers.auth import router as auth_router, current_user  # type: ignore
     from routers.portfolio import router as portfolio_router  # type: ignore
     from routers.strategy import router as strategy_router  # type: ignore
     from routers.kqs import router as kqs_router  # type: ignore
     from routers.research import router as research_router  # type: ignore
+    from routers.external_picks import router as external_picks_router  # type: ignore
 app.include_router(auth_router)
 app.include_router(portfolio_router)
 app.include_router(strategy_router)
 app.include_router(kqs_router)
 app.include_router(research_router)
+app.include_router(external_picks_router)
 # Routers registered below are also included before the schema is first requested;
 # the OpenAPI factory is installed at the bottom of this module.
 

@@ -3474,3 +3474,29 @@ a.dash-news-title:hover { color: var(--primary); text-decoration: underline; }
   .efa-ticker { overflow-x: auto; }
   .efa-ticker-track { animation: none; }
 }
+
+/* 외부 추천 기록. 모든 efa-page는 한 열 그리드라 표 최소 폭이 열을 넓히지 않게 고정한다(섹터 순환에서 확인한 모바일 넘침 예방). */
+.efa-page { grid-template-columns: minmax(0, 1fr); }
+.efa-page > * { min-width: 0; }
+.xp-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
+.xp-form label { display: grid; gap: 5px; color: var(--text-muted); font-size: .74rem; font-weight: 700; }
+.xp-form input, .xp-input textarea { width: 100%; padding: 9px; color: var(--text); background: var(--surface-soft); border: 1px solid var(--border); border-radius: 7px; font-size: .8rem; }
+.xp-input textarea { resize: vertical; font-family: inherit; }
+.xp-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.xp-actions label.dash-btn { cursor: pointer; }
+.xp-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.xp-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; background: var(--surface-soft); border: 1px solid var(--border-strong); border-radius: 99px; font-size: .76rem; cursor: pointer; }
+.xp-chip small { color: var(--text-muted); }
+.xp-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 6px 0 10px; }
+.xp-summary div { padding: 10px 12px; background: var(--surface-soft); border-radius: 8px; }
+.xp-summary span, .xp-summary small { display: block; color: var(--text-muted); font-size: .7rem; }
+.xp-summary strong { font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+.xp-summary .is-up, .xp-table .is-up { color: var(--up); } .xp-summary .is-down, .xp-table .is-down { color: var(--down); }
+.xp-list details summary { cursor: pointer; color: var(--text-muted); font-size: .78rem; margin-bottom: 6px; }
+.xp-table td small { display: block; color: var(--text-muted); font-size: .68rem; }
+.dash-note.is-error { color: var(--red); }
+@media (max-width: 640px) {
+  .xp-form { grid-template-columns: 1fr; }
+  .xp-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .xp-table .xp-opt { display: none; }
+}

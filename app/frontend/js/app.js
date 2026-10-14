@@ -5,6 +5,7 @@ import { initShell }           from './shell.js';
 import { serverResourcesView } from './views/serverResources.js';
 import { worldMarketsView }   from './views/worldMarkets.js';
 import { sectorRotationView } from './views/sectorRotation.js';
+import { externalPicksView } from './views/externalPicks.js';
 import { assetClassesView }   from './views/assetClasses.js';
 import { todayGainersView }   from './views/todayGainers.js';
 import { todaySobujangView }  from './views/todaySobujang.js';
@@ -47,6 +48,7 @@ const routes = {
   'my-strategies':           { label: '매매 기록·연구',             render: () => strategyListView(app) },
   'strategy-backtest':       { label: '실제 가격 백테스트',         render: () => strategyBacktestView(app) },
   'leverage-dca':            { label: '레버리지 DCA 자동매매(모의)', render: () => leverageDcaView(app) },
+  'external-picks':          { label: '외부 추천 기록',             render: () => externalPicksView(app) },
   'portfolio-holdings':      { label: '내 보유자산',                render: () => portfolioHoldingsView(app) },
   'portfolio-risk':          { label: '실제 보유자산 리스크 분석',   render: () => portfolioRiskView(app) },
   'portfolio-combination':   { label: '자산 조합 (상관관계)',        render: () => portfolioCombinationView(app) },
@@ -67,7 +69,7 @@ const routes = {
 const NAV_SECTIONS = {
   analysis: ['company-financial', 'dart-company-search', 'dart-financial-analysis', 'dart-market-activity', 'industry-analysis'],
   portfolio: ['portfolio-holdings', 'portfolio-risk', 'portfolio-combination'],
-  kqs: ['strategy-board', 'my-strategies', 'strategy-backtest', 'leverage-dca'],
+  kqs: ['strategy-board', 'my-strategies', 'strategy-backtest', 'leverage-dca', 'external-picks'],
   market: ['world-markets', 'sector-rotation', 'asset-classes', 'today-gainers', 'today-sobujang', 'macro-realtime'],
   watchlist: ['watchlist'],
   notes: ['research-notes'],

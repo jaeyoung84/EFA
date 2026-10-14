@@ -26,6 +26,7 @@ try:
     from .us_portfolio_updates import collect_us_portfolio_updates
     from .us_market_data import collect_us_market_data
     from .us_equity_data import collect_us_equity_data
+    from .external_picks import collect_prices as collect_external_pick_prices
     from .market_data import MarketDataError, capture_market_data_lineage_snapshot, get_daily_ohlcv, market_factor_snapshot, sync_market_data_alerts
     from .quote_cache import fetch_quote_cached
     from .routers.strategy import capture_paper_snapshot, refresh_paper_alerts, capture_monthly_operations_reports, capture_monthly_revalidation_evidence, run_leverage_dca_daily_cycle
@@ -39,6 +40,7 @@ except ImportError:
     from us_portfolio_updates import collect_us_portfolio_updates  # type: ignore
     from us_market_data import collect_us_market_data  # type: ignore
     from us_equity_data import collect_us_equity_data  # type: ignore
+    from external_picks import collect_prices as collect_external_pick_prices  # type: ignore
     from market_data import MarketDataError, capture_market_data_lineage_snapshot, get_daily_ohlcv, market_factor_snapshot, sync_market_data_alerts
     from quote_cache import fetch_quote_cached
     from routers.strategy import capture_paper_snapshot, refresh_paper_alerts, capture_monthly_operations_reports, capture_monthly_revalidation_evidence, run_leverage_dca_daily_cycle
@@ -477,6 +479,18 @@ def start_scheduler() -> None:
         minute=45,
         timezone="Asia/Seoul",
         id="collect_us_equity_data",
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=7200,
+    )
+    # 외부 추천 기록: 명단 종목 시세(미국 Alpaca·국내 검증 일봉). 미국 마감 뒤 08:40, 국내 마감 뒤 16:40.
+    _scheduler.add_job(
+        collect_external_pick_prices,
+        "cron",
+        hour="8,16",
+        minute=40,
+        timezone="Asia/Seoul",
+        id="collect_external_pick_prices",
         coalesce=True,
         max_instances=1,
         misfire_grace_time=7200,
