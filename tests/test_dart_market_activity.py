@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -34,16 +34,21 @@ def test_ownership_activity_shows_change_not_unverified_trade_type():
 @pytest.mark.asyncio
 async def test_daily_snapshot_is_idempotent_and_public_api_reads_stored_data(monkeypatch, client):
     calls = []
+    # Claude Code 수정 (2026-10-14, 사용자 승인): 고정 날짜(2026-10-02)는 읽기 API의 최근 7일 창(실제 오늘 기준)을
+    # 벗어나 2026-10-10부터 실패했다. 수집 시각을 '어제 20:00 KST'로 둔다: 7일 창 안이고, 저장 시각(실제 오늘)과
+    # 날짜가 달라 같은 날 20시 전 저장분을 다시 받는 정기 재확인 규칙이 실행 시각에 따라 끼어들지 않는다.
+    now = (datetime.now(timezone.utc) - timedelta(days=1)).replace(hour=11, minute=0, second=0, microsecond=0)  # 20:00 KST
+    day = now.astimezone(activity.KST).strftime("%Y%m%d")
 
     def fake_list(snapshot_date, disclosure_type):
         calls.append(disclosure_type)
         return [{
             "corp_code": "00126380", "corp_name": "테스트", "stock_code": "123456",
-            "rcept_dt": "20261002", "rcept_no": "20261002000001",
+            "rcept_dt": day, "rcept_no": f"{day}000001",
             "report_nm": "임원ㆍ주요주주 특정증권등 소유상황보고서", "flr_nm": "홍길동",
         }] if disclosure_type == "D" else [{
             "corp_code": "00126380", "corp_name": "테스트", "stock_code": "123456",
-            "rcept_dt": "20261002", "rcept_no": "20261002000002",
+            "rcept_dt": day, "rcept_no": f"{day}000002",
             "report_nm": "주요사항보고서(자기주식 취득 결정)", "flr_nm": "테스트",
         }]
 
@@ -52,7 +57,6 @@ async def test_daily_snapshot_is_idempotent_and_public_api_reads_stored_data(mon
         "repror": "홍길동", "sp_stock_lmp_cnt": "1000", "sp_stock_lmp_irds_cnt": "10",
         "sp_stock_lmp_rate": "1.0", "sp_stock_lmp_irds_rate": "0.1",
     })
-    now = datetime(2026, 10, 2, 11, tzinfo=timezone.utc)  # 20:00 KST
     first = await activity.collect_market_activity(now)
     second = await activity.collect_market_activity(now)
 
@@ -61,7 +65,7 @@ async def test_daily_snapshot_is_idempotent_and_public_api_reads_stored_data(mon
     assert first["counts"] == {"treasury": 1, "insider_increase": 1, "insider_decrease": 0, "major": 0}
     response = await client.get("/api/dart/market-activity")
     assert response.status_code == 200
-    assert response.json()["snapshot_date"] == "2026-10-02"
+    assert response.json()["snapshot_date"] == now.astimezone(activity.KST).date().isoformat()
     assert len(response.json()["items"]) == 2
 
 
