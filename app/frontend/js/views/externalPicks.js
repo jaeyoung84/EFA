@@ -34,7 +34,7 @@ function positionsTable(positions, pending) {
 export function listCardHtml(list) {
   const s = list.summary;
   return `<article class="dash-card xp-list" data-xp-list="${esc(list.id)}">
-    <header class="dash-head"><h2>${esc(list.list_name)}</h2><span class="dash-sub">${esc(list.source)} · 기록 ${esc(list.as_of)} · ${list.count}종목</span>
+    <header class="dash-head"><h2>${esc(list.list_name)}${list.backfilled ? ' <span class="xp-badge">소급 입력</span>' : ''}</h2><span class="dash-sub">${esc(list.source)} · 기록 ${esc(list.as_of)} · ${list.count}종목</span>
       <button type="button" class="dash-link" data-xp-delete="${esc(list.id)}">삭제</button></header>
     ${s ? `<div class="xp-summary">
       <div><span>동일 비중 수익률</span><strong class="${tone(s.return_pct)}">${signed(s.return_pct)}</strong></div>
@@ -56,6 +56,7 @@ export function trackHtml(source, track) {
       <div><span>초과 수익</span><strong class="${tone(track.excess_pct)}">${signed(track.excess_pct)}</strong></div>
     </div>
     ${track.months < 12 ? `<p class="dash-note">명단 ${track.months}개로는 우연과 실력을 가르기 어렵습니다. 12개월 이상 쌓인 뒤 판단하세요.</p>` : ''}
+    ${source.endsWith('(소급 입력)') ? '<p class="dash-note">과거 날짜로 넣은 명단입니다. 그 당시 실제로 발표된 명단인지 확인할 수 없으므로 매달 직접 기록한 성과와 따로 봅니다.</p>' : ''}
   </article>`;
 }
 
@@ -78,7 +79,7 @@ export function externalPicksView(container) {
         <label>출처<input data-xp-source list="xp-sources" value="${esc(SOURCE_PRESETS[0])}" maxlength="60"></label>
         <datalist id="xp-sources">${SOURCE_PRESETS.map((s) => `<option value="${esc(s)}">`).join('')}</datalist>
         <label>명단 이름<input data-xp-name placeholder="예: 10월 Tech Titans" maxlength="80"></label>
-        <label>기록 날짜<input type="date" data-xp-date value="${todayKst()}" max="${todayKst()}"></label>
+        <label>기록 날짜 <small>(다음 거래일 시가 진입 · 1일 리밸런싱이면 전월 말일)</small><input type="date" data-xp-date value="${todayKst()}" max="${todayKst()}"></label>
       </div>
       <textarea data-xp-text rows="6" placeholder="InvestingPro 화면의 표를 복사해 붙여 넣거나 아래에서 CSV 파일을 고르세요."></textarea>
       <div class="xp-actions"><label class="dash-btn"><i class="fa-solid fa-file-csv"></i> CSV 파일<input type="file" accept=".csv,.txt,.tsv" data-xp-file hidden></label>

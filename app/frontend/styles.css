@@ -3500,3 +3500,5 @@ a.dash-news-title:hover { color: var(--primary); text-decoration: underline; }
   .xp-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .xp-table .xp-opt { display: none; }
 }
+.xp-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; color: #111; background: #f5b800; border-radius: 5px; font-size: .68rem; font-weight: 800; vertical-align: 2px; }
+.xp-form label small { font-weight: 400; color: var(--text-subtle); }

@@ -107,7 +107,15 @@ def parse_candidates(text: str, directory: dict[str, str], krx=_krx_lookup) -> d
     """붙여 넣은 글·CSV에서 종목 후보를 뽑아 인식/미인식으로 나눈다(저장 전 미리보기용)."""
     column = _column_values(text)
     mode = "column" if column is not None else "tokens"
-    raw_tokens = column if column is not None else [m.group(1) for m in US_TOKEN.finditer(text)] + KR_TOKEN.findall(text)
+    if column is not None:
+        raw_tokens = column
+    else:
+        kr_codes, us_tokens = KR_TOKEN.findall(text), [m.group(1) for m in US_TOKEN.finditer(text)]
+        # 국내 코드가 3개 이상이고 더 많으면 국내 명단으로 본다: 'HL만도'의 HL, 'LG'처럼 회사명 속 영문을
+        # 미국 티커(HL = Hecla Mining)로 잘못 잡지 않게 미국 후보를 버린다.
+        if len(kr_codes) >= 3 and len(kr_codes) >= len(us_tokens) / 2:
+            us_tokens = []
+        raw_tokens = us_tokens + kr_codes
     recognized, unrecognized, seen = [], [], set()
     for token in raw_tokens:
         token = re.sub(r"^(NASDAQ|NYSE|AMEX|KRX|KOSPI|KOSDAQ)[:\s]+", "", token.strip().upper())
@@ -316,6 +324,17 @@ def source_track(docs: list[dict], prices: dict[str, dict]) -> dict:
             "excess_pct": round((growth - bench_growth) * 100, 2), "months": len(periods)}
 
 
+BACKFILL_DAYS = 7
+
+
+def is_backfilled(doc: dict) -> bool:
+    """기록 날짜가 입력한 날보다 7일 넘게 앞서면 '소급 입력'(그 당시 발표 명단인지 확인 불가)으로 따로 본다."""
+    created = doc["created_at"]
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    return date.fromisoformat(doc["as_of"]) < created.astimezone(KST).date() - timedelta(days=BACKFILL_DAYS)
+
+
 async def user_report(user_id) -> dict:
     docs = await get_db()[LISTS].find({"user_id": user_id}).sort([("as_of", -1), ("created_at", -1)]).to_list(500)
     tickers = {item["ticker"] for doc in docs for item in doc["items"]} | {BENCHMARK[i["market"]] for d in docs for i in d["items"]}
@@ -327,10 +346,10 @@ async def user_report(user_id) -> dict:
     for doc in docs:
         perf = list_performance(doc, prices)
         lists.append({"id": str(doc["_id"]), "source": doc["source"], "list_name": doc["list_name"], "as_of": doc["as_of"],
-                      "count": len(doc["items"]), "created_at": doc["created_at"].replace(tzinfo=timezone.utc).isoformat(), **perf})
+                      "count": len(doc["items"]), "backfilled": is_backfilled(doc), "created_at": doc["created_at"].replace(tzinfo=timezone.utc).isoformat(), **perf})
     by_source: dict[str, list[dict]] = {}
-    for doc in docs:
-        by_source.setdefault(doc["source"], []).append(doc)
+    for doc in docs:   # 소급 입력과 매달 직접 기록한 명단은 섞지 않고 따로 연결한다
+        by_source.setdefault(doc["source"] + (" (소급 입력)" if is_backfilled(doc) else ""), []).append(doc)
     updated = [doc.get("updated_at") for doc in prices.values() if doc.get("updated_at")]
     return {"lists": lists, "tracks": {source: source_track(items, prices) for source, items in by_source.items()},
             "prices_updated_at": max(updated).replace(tzinfo=timezone.utc).isoformat() if updated else None,

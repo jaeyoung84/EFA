@@ -96,3 +96,16 @@ async def test_collect_prices_stores_bars_for_tickers_and_benchmarks():
     result = await picks.collect_prices(fetch_us=fake_us, fetch_kr=fake_kr)
     assert seen["us"] == (["AAPL", "SPY"], date(2026, 9, 21)) and sorted(seen["kr"]) == ["005930.KS", "069500.KS"]
     assert result["stored"] == 4 and await get_db()[picks.PRICES].count_documents({}) == 4
+
+
+def test_korean_list_ignores_english_fragments_inside_company_names():
+    text = ("| **A204320 HL만도** | 42,650 | 저평가 | 1,969.9 B |\n| **A003550 LG** | 106,300 |\n| **A000270 기아** | 108,600 |\n"
+            "| **A035420 NAVER** | 179,400 |\n")
+    result = picks.parse_candidates(text, {"HL": "Hecla Mining", "LG": "?", "B": "?"}, lambda c: {"ticker": f"{c}.KS", "name": c})
+    assert [r["ticker"] for r in result["recognized"]] == ["204320.KS", "003550.KS", "000270.KS", "035420.KS"]
+
+
+def test_backfilled_lists_are_marked_and_tracked_separately():
+    created = datetime(2026, 10, 14, 3, tzinfo=timezone.utc)
+    assert picks.is_backfilled({"as_of": "2024-10-31", "created_at": created})
+    assert not picks.is_backfilled({"as_of": "2026-10-10", "created_at": created})     # 7일 이내 = 직접 기록
