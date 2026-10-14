@@ -124,5 +124,7 @@ export function companyFinancialView(container) {
   // 상단 종목 검색에서 고른 종목이 있으면 그 종목으로 바로 조회한다.
   const pending = takePendingStock();
   if (pending) { tickerInput.value = pending.name; tickerInput.dataset.ticker = pending.ticker; }
-  fetchData();
+  // 처음 열 때 입력이 비어 있으면 오류 대신 안내만 보인다(빈 칸으로 조회하지 않는다).
+  if ((tickerInput.dataset.ticker || tickerInput.value).trim()) fetchData();
+  else result.innerHTML = '<p style="color:var(--text-muted);padding:20px 0;">종목명을 입력하고 조회를 누르세요.</p>';
 }

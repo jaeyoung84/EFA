@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { authRequest } from '../auth.js';
+import { authRequest, isAuthenticated } from '../auth.js';
 import { dataSourceNote } from './dataSourceNote.js';
 
 function escapeAttr(value) {
@@ -234,7 +234,8 @@ relationship = float(daily_moves.corr().iloc[0, 1])</code></pre>
 
   // 고정 예시 대신 내 보유종목을 눌러 빈 칸부터 채운다.
   const holdingsBox = container.querySelector('#combination-holdings');
-  authRequest('/api/portfolio').then((portfolio) => {
+  // 로그아웃 상태에서는 보유종목을 요청하지 않는다(401 콘솔 오류 방지).
+  (isAuthenticated() ? authRequest('/api/portfolio') : Promise.reject(new Error('login'))).then((portfolio) => {
     const tickers = [...new Set((portfolio.holdings || []).map((holding) => holding.ticker).filter(Boolean))];
     if (!tickers.length) { holdingsBox.textContent = '등록된 보유종목이 없습니다. 티커를 직접 입력하세요.'; return; }
     holdingsBox.innerHTML = `내 보유종목: ${tickers.map((ticker) => `<button type="button" data-ticker="${escapeAttr(ticker)}">${escapeAttr(ticker)}</button>`).join('')}`;
