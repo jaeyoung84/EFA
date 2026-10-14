@@ -35,6 +35,7 @@ def fake_fetch(raw_override=None, total_scale=None):
             if symbol in NO_BARS or symbol.startswith("P"):
                 continue
             bars, day = [], max(start, date(2016, 1, 4))
+            end = end.date() if isinstance(end, datetime) else end   # 조회 끝은 datetime(지금−20분 상한)일 수 있다
             last = date.fromisoformat(LAST_BAR.get(symbol, "2099-01-01"))
             while day < end and day <= last:
                 if day.weekday() < 5:

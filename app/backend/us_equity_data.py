@@ -21,6 +21,7 @@ from pymongo import UpdateOne
 from .db import get_db
 from .us_market_data import (
     ALPACA_DATA_URL, SOURCE, UsMarketDataError, _bar, _crosscheck, _headers, fetch_alpaca_bars, last_completed_session,
+    query_end,
 )
 from . import us_universe as universe
 
@@ -244,7 +245,7 @@ async def collect_us_equity_data(*, now: datetime | None = None, fetch=fetch_alp
     symbols = membership["symbols"]
     known = {doc["_id"] async for doc in db[SYMBOLS].find({}, {"_id": 1})}
     new = [s for s in symbols if s not in known]
-    end = date.fromisoformat(through) + timedelta(days=1)
+    end = query_end(through, now)   # 최근 15분 SIP 조회 403 방지(us_market_data.query_end)
     try:
         backfill = await _fetch_and_store(db, run, now, fetch, new, date.fromisoformat(universe.START), end, through, BACKFILL_BATCH)
         recent_start = date.fromisoformat(through) - timedelta(days=RECENT_DAYS)

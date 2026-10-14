@@ -124,3 +124,12 @@ async def test_api_is_read_only_and_status_requires_login(client):
     await us.collect_us_market_data(now=AFTER_CLOSE, fetch=fake_fetch(), crosscheck=verified)
     body = (await client.get("/api/market/us-sector-rotation")).json()
     assert body["available"] and body["as_of"] == "2026-10-09" and "generated_at" in body
+
+
+def test_query_end_never_reaches_the_last_15_minutes():
+    """2026-10-12~14 아침 자동 수집이 403으로 실패한 원인: 다음 날 0시가 아직 미래였다."""
+    morning = datetime(2026, 10, 13, 22, 30, tzinfo=timezone.utc)          # KST 07:30, 마지막 세션 10/13
+    assert us.query_end("2026-10-13", morning) == morning - timedelta(minutes=20)
+    later = datetime(2026, 10, 14, 5, 0, tzinfo=timezone.utc)
+    assert us.query_end("2026-10-13", later) == datetime(2026, 10, 14, tzinfo=timezone.utc)
+    assert us._alpaca_time(morning - timedelta(minutes=20)) == "2026-10-13T22:10:00Z"

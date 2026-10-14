@@ -90,9 +90,25 @@ def _headers() -> dict:
     return {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
 
 
-def fetch_alpaca_bars(symbols: tuple[str, ...], start: date, end: date, adjustment: str) -> dict[str, list[dict]]:
+def query_end(through: str, now: datetime) -> datetime:
+    """조회 끝 시각: 마지막 완성 세션 다음 날 0시(UTC)와 '지금 − 20분' 중 이른 쪽.
+
+    무료 플랜은 최근 15분 SIP 조회를 403으로 막는다. 아침 자동 수집 때는 다음 날 0시가 아직 미래라
+    2026-10-12~14 자동 실행이 모두 403으로 실패했다(손으로 돌린 첫 수집은 그 시각이 지나 성공).
+    """
+    next_day = datetime.combine(date.fromisoformat(through) + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+    return min(next_day, now.astimezone(timezone.utc) - timedelta(minutes=20))
+
+
+def _alpaca_time(value: date | datetime) -> str:
+    if isinstance(value, datetime):
+        return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return value.isoformat()
+
+
+def fetch_alpaca_bars(symbols: tuple[str, ...], start: date, end: date | datetime, adjustment: str) -> dict[str, list[dict]]:
     """Alpaca 일봉(여러 종목, 페이지 끝까지). 키 값은 오류 문구에도 넣지 않는다."""
-    params = {"symbols": ",".join(symbols), "timeframe": "1Day", "start": start.isoformat(), "end": end.isoformat(),
+    params = {"symbols": ",".join(symbols), "timeframe": "1Day", "start": start.isoformat(), "end": _alpaca_time(end),
               "adjustment": adjustment, "feed": FEED, "limit": 10000}
     out: dict[str, list[dict]] = {}
     headers = _headers()
@@ -175,7 +191,7 @@ async def collect_us_market_data(*, now: datetime | None = None, fetch=fetch_alp
         return {"status": "skipped"}
     run["last_session"] = through
     start = HISTORY_START
-    end = date.fromisoformat(through) + timedelta(days=1)
+    end = query_end(through, now)
     try:
         raw = _normalize(await asyncio.to_thread(fetch, SYMBOLS, start, end, "raw"), through)
         adjusted = _normalize(await asyncio.to_thread(fetch, SYMBOLS, start, end, "all"), through)
