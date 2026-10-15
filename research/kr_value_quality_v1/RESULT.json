@@ -1,0 +1,976 @@
+{
+ "splits_adjusted": 739,
+ "months": [
+  {
+   "formation": "2017-09-29",
+   "universe": 196,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.929,
+   "coverage_mcap": 0.96
+  },
+  {
+   "formation": "2017-10-31",
+   "universe": 210,
+   "coverage_link_mcap": 0.998,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.933,
+   "coverage_mcap": 0.956
+  },
+  {
+   "formation": "2017-11-30",
+   "universe": 239,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.926,
+   "coverage_mcap": 0.956
+  },
+  {
+   "formation": "2017-12-28",
+   "universe": 233,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.932,
+   "coverage_mcap": 0.956
+  },
+  {
+   "formation": "2018-01-31",
+   "universe": 265,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.92,
+   "coverage_mcap": 0.95
+  },
+  {
+   "formation": "2018-02-28",
+   "universe": 249,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.929,
+   "coverage_mcap": 0.95
+  },
+  {
+   "formation": "2018-03-30",
+   "universe": 235,
+   "coverage_link_mcap": 0.995,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.914,
+   "coverage_mcap": 0.931
+  },
+  {
+   "formation": "2018-04-30",
+   "universe": 256,
+   "coverage_link_mcap": 0.995,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.928,
+   "coverage_mcap": 0.956
+  },
+  {
+   "formation": "2018-05-31",
+   "universe": 254,
+   "coverage_link_mcap": 0.995,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.91,
+   "coverage_mcap": 0.941
+  },
+  {
+   "formation": "2018-06-29",
+   "universe": 243,
+   "coverage_link_mcap": 0.995,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.917,
+   "coverage_mcap": 0.94
+  },
+  {
+   "formation": "2018-07-31",
+   "universe": 213,
+   "coverage_link_mcap": 0.995,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.91,
+   "coverage_mcap": 0.941
+  },
+  {
+   "formation": "2018-08-31",
+   "universe": 229,
+   "coverage_link_mcap": 0.995,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.902,
+   "coverage_mcap": 0.943
+  },
+  {
+   "formation": "2018-09-28",
+   "universe": 229,
+   "coverage_link_mcap": 0.995,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.902,
+   "coverage_mcap": 0.939
+  },
+  {
+   "formation": "2018-10-31",
+   "universe": 198,
+   "coverage_link_mcap": 0.99,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.88,
+   "coverage_mcap": 0.935
+  },
+  {
+   "formation": "2018-11-30",
+   "universe": 206,
+   "coverage_link_mcap": 0.99,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.892,
+   "coverage_mcap": 0.932
+  },
+  {
+   "formation": "2018-12-28",
+   "universe": 196,
+   "coverage_link_mcap": 0.99,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.887,
+   "coverage_mcap": 0.93
+  },
+  {
+   "formation": "2019-01-31",
+   "universe": 204,
+   "coverage_link_mcap": 0.991,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.872,
+   "coverage_mcap": 0.933
+  },
+  {
+   "formation": "2019-02-28",
+   "universe": 220,
+   "coverage_link_mcap": 0.99,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.876,
+   "coverage_mcap": 0.931
+  },
+  {
+   "formation": "2019-03-29",
+   "universe": 219,
+   "coverage_link_mcap": 0.99,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.88,
+   "coverage_mcap": 0.931
+  },
+  {
+   "formation": "2019-04-30",
+   "universe": 240,
+   "coverage_link_mcap": 0.99,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.964,
+   "coverage_mcap": 0.978
+  },
+  {
+   "formation": "2019-05-31",
+   "universe": 231,
+   "coverage_link_mcap": 0.99,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.963,
+   "coverage_mcap": 0.981
+  },
+  {
+   "formation": "2019-06-28",
+   "universe": 222,
+   "coverage_link_mcap": 0.99,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.957,
+   "coverage_mcap": 0.982
+  },
+  {
+   "formation": "2019-07-31",
+   "universe": 200,
+   "coverage_link_mcap": 0.991,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.952,
+   "coverage_mcap": 0.982
+  },
+  {
+   "formation": "2019-08-30",
+   "universe": 201,
+   "coverage_link_mcap": 0.994,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.953,
+   "coverage_mcap": 0.981
+  },
+  {
+   "formation": "2019-09-30",
+   "universe": 190,
+   "coverage_link_mcap": 0.994,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.955,
+   "coverage_mcap": 0.984
+  },
+  {
+   "formation": "2019-10-31",
+   "universe": 205,
+   "coverage_link_mcap": 0.994,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.958,
+   "coverage_mcap": 0.984
+  },
+  {
+   "formation": "2019-11-29",
+   "universe": 208,
+   "coverage_link_mcap": 0.994,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.945,
+   "coverage_mcap": 0.982
+  },
+  {
+   "formation": "2019-12-30",
+   "universe": 208,
+   "coverage_link_mcap": 0.995,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.95,
+   "coverage_mcap": 0.983
+  },
+  {
+   "formation": "2020-01-31",
+   "universe": 216,
+   "coverage_link_mcap": 0.995,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.952,
+   "coverage_mcap": 0.984
+  },
+  {
+   "formation": "2020-02-28",
+   "universe": 208,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.95,
+   "coverage_mcap": 0.985
+  },
+  {
+   "formation": "2020-03-31",
+   "universe": 222,
+   "coverage_link_mcap": 0.996,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.982,
+   "coverage_mcap": 0.991
+  },
+  {
+   "formation": "2020-04-29",
+   "universe": 248,
+   "coverage_link_mcap": 0.996,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.976,
+   "coverage_mcap": 0.989
+  },
+  {
+   "formation": "2020-05-29",
+   "universe": 260,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.977,
+   "coverage_mcap": 0.985
+  },
+  {
+   "formation": "2020-06-30",
+   "universe": 272,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.975,
+   "coverage_mcap": 0.986
+  },
+  {
+   "formation": "2020-07-31",
+   "universe": 288,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.97,
+   "coverage_mcap": 0.986
+  },
+  {
+   "formation": "2020-08-31",
+   "universe": 314,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.963,
+   "coverage_mcap": 0.988
+  },
+  {
+   "formation": "2020-09-29",
+   "universe": 309,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.96,
+   "coverage_mcap": 0.987
+  },
+  {
+   "formation": "2020-10-30",
+   "universe": 278,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.949,
+   "coverage_mcap": 0.985
+  },
+  {
+   "formation": "2020-11-30",
+   "universe": 312,
+   "coverage_link_mcap": 0.998,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.945,
+   "coverage_mcap": 0.984
+  },
+  {
+   "formation": "2020-12-30",
+   "universe": 336,
+   "coverage_link_mcap": 0.998,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.939,
+   "coverage_mcap": 0.984
+  },
+  {
+   "formation": "2021-01-29",
+   "universe": 342,
+   "coverage_link_mcap": 0.998,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.942,
+   "coverage_mcap": 0.985
+  },
+  {
+   "formation": "2021-02-26",
+   "universe": 347,
+   "coverage_link_mcap": 0.998,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.935,
+   "coverage_mcap": 0.984
+  },
+  {
+   "formation": "2021-03-31",
+   "universe": 349,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.956,
+   "coverage_mcap": 0.99
+  },
+  {
+   "formation": "2021-04-30",
+   "universe": 378,
+   "coverage_link_mcap": 0.996,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.945,
+   "coverage_mcap": 0.985
+  },
+  {
+   "formation": "2021-05-31",
+   "universe": 379,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.948,
+   "coverage_mcap": 0.972
+  },
+  {
+   "formation": "2021-06-30",
+   "universe": 379,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.945,
+   "coverage_mcap": 0.971
+  },
+  {
+   "formation": "2021-07-30",
+   "universe": 367,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.927,
+   "coverage_mcap": 0.967
+  },
+  {
+   "formation": "2021-08-31",
+   "universe": 368,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.929,
+   "coverage_mcap": 0.962
+  },
+  {
+   "formation": "2021-09-30",
+   "universe": 363,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.921,
+   "coverage_mcap": 0.96
+  },
+  {
+   "formation": "2021-10-29",
+   "universe": 351,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.924,
+   "coverage_mcap": 0.959
+  },
+  {
+   "formation": "2021-11-30",
+   "universe": 331,
+   "coverage_link_mcap": 0.996,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.914,
+   "coverage_mcap": 0.957
+  },
+  {
+   "formation": "2021-12-30",
+   "universe": 338,
+   "coverage_link_mcap": 0.996,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.911,
+   "coverage_mcap": 0.956
+  },
+  {
+   "formation": "2022-01-28",
+   "universe": 313,
+   "coverage_link_mcap": 0.996,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.907,
+   "coverage_mcap": 0.951
+  },
+  {
+   "formation": "2022-02-28",
+   "universe": 318,
+   "coverage_link_mcap": 0.996,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.909,
+   "coverage_mcap": 0.951
+  },
+  {
+   "formation": "2022-03-31",
+   "universe": 344,
+   "coverage_link_mcap": 0.996,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.956,
+   "coverage_mcap": 0.971
+  },
+  {
+   "formation": "2022-04-29",
+   "universe": 330,
+   "coverage_link_mcap": 0.996,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.957,
+   "coverage_mcap": 0.972
+  },
+  {
+   "formation": "2022-05-31",
+   "universe": 321,
+   "coverage_link_mcap": 0.996,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.95,
+   "coverage_mcap": 0.968
+  },
+  {
+   "formation": "2022-06-30",
+   "universe": 285,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.947,
+   "coverage_mcap": 0.96
+  },
+  {
+   "formation": "2022-07-29",
+   "universe": 281,
+   "coverage_link_mcap": 0.996,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.946,
+   "coverage_mcap": 0.963
+  },
+  {
+   "formation": "2022-08-31",
+   "universe": 300,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.929,
+   "coverage_mcap": 0.955
+  },
+  {
+   "formation": "2022-09-30",
+   "universe": 272,
+   "coverage_link_mcap": 0.993,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.925,
+   "coverage_mcap": 0.955
+  },
+  {
+   "formation": "2022-10-31",
+   "universe": 260,
+   "coverage_link_mcap": 0.993,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.935,
+   "coverage_mcap": 0.959
+  },
+  {
+   "formation": "2022-11-30",
+   "universe": 285,
+   "coverage_link_mcap": 0.994,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.925,
+   "coverage_mcap": 0.959
+  },
+  {
+   "formation": "2022-12-29",
+   "universe": 275,
+   "coverage_link_mcap": 0.994,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.932,
+   "coverage_mcap": 0.96
+  },
+  {
+   "formation": "2023-01-31",
+   "universe": 280,
+   "coverage_link_mcap": 0.994,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.933,
+   "coverage_mcap": 0.96
+  },
+  {
+   "formation": "2023-02-28",
+   "universe": 296,
+   "coverage_link_mcap": 0.994,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.925,
+   "coverage_mcap": 0.96
+  },
+  {
+   "formation": "2023-03-31",
+   "universe": 322,
+   "coverage_link_mcap": 0.994,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.973,
+   "coverage_mcap": 0.989
+  },
+  {
+   "formation": "2023-04-28",
+   "universe": 319,
+   "coverage_link_mcap": 0.994,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.967,
+   "coverage_mcap": 0.988
+  },
+  {
+   "formation": "2023-05-31",
+   "universe": 313,
+   "coverage_link_mcap": 0.994,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.963,
+   "coverage_mcap": 0.986
+  },
+  {
+   "formation": "2023-06-30",
+   "universe": 320,
+   "coverage_link_mcap": 0.994,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.967,
+   "coverage_mcap": 0.987
+  },
+  {
+   "formation": "2023-07-31",
+   "universe": 322,
+   "coverage_link_mcap": 0.994,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.953,
+   "coverage_mcap": 0.984
+  },
+  {
+   "formation": "2023-08-31",
+   "universe": 321,
+   "coverage_link_mcap": 0.994,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.939,
+   "coverage_mcap": 0.973
+  },
+  {
+   "formation": "2023-09-27",
+   "universe": 306,
+   "coverage_link_mcap": 0.994,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.953,
+   "coverage_mcap": 0.975
+  },
+  {
+   "formation": "2023-10-31",
+   "universe": 286,
+   "coverage_link_mcap": 0.993,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.95,
+   "coverage_mcap": 0.976
+  },
+  {
+   "formation": "2023-11-30",
+   "universe": 309,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.948,
+   "coverage_mcap": 0.98
+  },
+  {
+   "formation": "2023-12-28",
+   "universe": 323,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.944,
+   "coverage_mcap": 0.98
+  },
+  {
+   "formation": "2024-01-31",
+   "universe": 303,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.95,
+   "coverage_mcap": 0.98
+  },
+  {
+   "formation": "2024-02-29",
+   "universe": 326,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.942,
+   "coverage_mcap": 0.978
+  },
+  {
+   "formation": "2024-03-29",
+   "universe": 328,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.932,
+   "coverage_mcap": 0.975
+  },
+  {
+   "formation": "2024-04-30",
+   "universe": 314,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.952,
+   "coverage_mcap": 0.975
+  },
+  {
+   "formation": "2024-05-31",
+   "universe": 327,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.959,
+   "coverage_mcap": 0.978
+  },
+  {
+   "formation": "2024-06-28",
+   "universe": 337,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.957,
+   "coverage_mcap": 0.978
+  },
+  {
+   "formation": "2024-07-31",
+   "universe": 309,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.951,
+   "coverage_mcap": 0.977
+  },
+  {
+   "formation": "2024-08-30",
+   "universe": 299,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.952,
+   "coverage_mcap": 0.977
+  },
+  {
+   "formation": "2024-09-30",
+   "universe": 290,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.951,
+   "coverage_mcap": 0.976
+  },
+  {
+   "formation": "2024-10-31",
+   "universe": 278,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.939,
+   "coverage_mcap": 0.973
+  },
+  {
+   "formation": "2024-11-29",
+   "universe": 271,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.938,
+   "coverage_mcap": 0.974
+  },
+  {
+   "formation": "2024-12-30",
+   "universe": 266,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.94,
+   "coverage_mcap": 0.974
+  },
+  {
+   "formation": "2025-01-31",
+   "universe": 276,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.939,
+   "coverage_mcap": 0.97
+  },
+  {
+   "formation": "2025-02-28",
+   "universe": 297,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.931,
+   "coverage_mcap": 0.968
+  },
+  {
+   "formation": "2025-03-31",
+   "universe": 287,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.973,
+   "coverage_mcap": 0.987
+  },
+  {
+   "formation": "2025-04-30",
+   "universe": 274,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.961,
+   "coverage_mcap": 0.985
+  },
+  {
+   "formation": "2025-05-30",
+   "universe": 311,
+   "coverage_link_mcap": 0.997,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.963,
+   "coverage_mcap": 0.983
+  },
+  {
+   "formation": "2025-06-30",
+   "universe": 362,
+   "coverage_link_mcap": 0.998,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.963,
+   "coverage_mcap": 0.982
+  },
+  {
+   "formation": "2025-07-31",
+   "universe": 348,
+   "coverage_link_mcap": 0.998,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.956,
+   "coverage_mcap": 0.982
+  },
+  {
+   "formation": "2025-08-29",
+   "universe": 319,
+   "coverage_link_mcap": 0.998,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.941,
+   "coverage_mcap": 0.98
+  },
+  {
+   "formation": "2025-09-30",
+   "universe": 337,
+   "coverage_link_mcap": 0.998,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.947,
+   "coverage_mcap": 0.982
+  },
+  {
+   "formation": "2025-10-31",
+   "universe": 358,
+   "coverage_link_mcap": 0.998,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.942,
+   "coverage_mcap": 0.981
+  },
+  {
+   "formation": "2025-11-28",
+   "universe": 362,
+   "coverage_link_mcap": 0.998,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.933,
+   "coverage_mcap": 0.981
+  },
+  {
+   "formation": "2025-12-30",
+   "universe": 365,
+   "coverage_link_mcap": 0.998,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.926,
+   "coverage_mcap": 0.98
+  },
+  {
+   "formation": "2026-01-30",
+   "universe": 406,
+   "coverage_link_mcap": 0.999,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.931,
+   "coverage_mcap": 0.981
+  },
+  {
+   "formation": "2026-02-27",
+   "universe": 441,
+   "coverage_link_mcap": 0.999,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.934,
+   "coverage_mcap": 0.982
+  },
+  {
+   "formation": "2026-03-31",
+   "universe": 432,
+   "coverage_link_mcap": 0.999,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.973,
+   "coverage_mcap": 0.992
+  },
+  {
+   "formation": "2026-04-30",
+   "universe": 457,
+   "coverage_link_mcap": 0.999,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.979,
+   "coverage_mcap": 0.993
+  },
+  {
+   "formation": "2026-05-29",
+   "universe": 437,
+   "coverage_link_mcap": 0.999,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.984,
+   "coverage_mcap": 0.996
+  },
+  {
+   "formation": "2026-06-30",
+   "universe": 389,
+   "coverage_link_mcap": 0.999,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.985,
+   "coverage_mcap": 0.997
+  },
+  {
+   "formation": "2026-07-31",
+   "universe": 333,
+   "coverage_link_mcap": 0.999,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.982,
+   "coverage_mcap": 0.996
+  },
+  {
+   "formation": "2026-08-31",
+   "universe": 357,
+   "coverage_link_mcap": 0.999,
+   "no_revenue_mcap": 0.0,
+   "coverage_n": 0.978,
+   "coverage_mcap": 0.996
+  }
+ ],
+ "extreme_holdings": [
+  {
+   "month": "2018-01",
+   "symbol": "038540",
+   "ret": 0.924
+  },
+  {
+   "month": "2019-04",
+   "symbol": "020560",
+   "ret": 0.8359
+  },
+  {
+   "month": "2025-06",
+   "symbol": "103140",
+   "ret": 1.0909
+  }
+ ],
+ "verdict": "REJECT",
+ "months_link_below_80": "0",
+ "months_evaluated": 108,
+ "mean_excess_pct": -0.635,
+ "t": -1.84,
+ "bootstrap95": [
+  -1.059,
+  0.005
+ ],
+ "yearly_excess_pct": {
+  "2018": -4.2,
+  "2019": 10.04,
+  "2020": -25.08,
+  "2021": -6.02,
+  "2022": 1.47,
+  "2023": -17.79,
+  "2024": -1.65,
+  "2025": 6.64,
+  "2026": -22.32
+ },
+ "positive_years": "3/9",
+ "avg_turnover": 0.324,
+ "series": {
+  "VQM": {
+   "total_pct": -20.32,
+   "ann_pct": -2.49,
+   "vol_pct": 23.37,
+   "mdd_pct": -50.33
+  },
+  "EW": {
+   "total_pct": 56.71,
+   "ann_pct": 5.12,
+   "vol_pct": 23.9,
+   "mdd_pct": -39.76
+  },
+  "CW": {
+   "total_pct": 174.98,
+   "ann_pct": 11.9,
+   "vol_pct": 27.61,
+   "mdd_pct": -34.33
+  },
+  "KODEX200": {
+   "total_pct": 237.78,
+   "ann_pct": 14.48,
+   "vol_pct": 28.36,
+   "mdd_pct": -34.68
+  },
+  "V": {
+   "total_pct": 81.27,
+   "ann_pct": 6.83,
+   "vol_pct": 23.91,
+   "mdd_pct": -50.78
+  },
+  "Q": {
+   "total_pct": 64.66,
+   "ann_pct": 5.7,
+   "vol_pct": 27.58,
+   "mdd_pct": -44.26
+  },
+  "VQ": {
+   "total_pct": -5.33,
+   "ann_pct": -0.61,
+   "vol_pct": 23.84,
+   "mdd_pct": -45.83
+  },
+  "M": {
+   "total_pct": -32.25,
+   "ann_pct": -4.23,
+   "vol_pct": 41.32,
+   "mdd_pct": -76.6
+  }
+ },
+ "ablation_mean_excess_vs_EW": {
+  "V": 0.133,
+  "Q": 0.124,
+  "VQ": -0.468,
+  "M": -0.275
+ },
+ "up_down": {
+  "EW_up": -1.151,
+  "EW_down": 0.034
+ },
+ "lock": {
+  "prereg": "e9e0e77c3521c61d9a9512522085dafadfcc24d5da99fb91248d48f4a60d70f2",
+  "run": "176dcfb15e789614f757b4a3532d5264e91c7d04261ee1976a38b1ca2cdb1a44",
+  "krx_daily": "1037737ef17104d0faed0ad5cba8e32bf44f6dfa5801b20227936444fc341b98",
+  "kr_fund": "4110ca027bfcc2c945a90047f3dd2e5cbbe9b1683fad40a19c160456fc1affb8",
+  "kr_fill": "6712927ca300f50ad71976474434396524d6f22c9f187915547ab1fb83b5e4ce"
+ },
+ "executed_at": "2026-10-14T14:54:00.182398+00:00"
+}

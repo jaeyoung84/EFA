@@ -1,0 +1,45 @@
+{
+ "note": "오염된 참고치 — 같은 기간을 v1에서 이미 봄. 판정에 쓰지 않는다(사전등록 §6).",
+ "months": 108,
+ "mean_excess_vs_KODEX200_pct": -0.843,
+ "t": -1.53,
+ "mean_excess_vs_EW_pct": -0.214,
+ "yearly_excess_vs_KODEX200_pctp": {
+  "2017": -1.59,
+  "2018": 3.15,
+  "2019": -12.61,
+  "2020": -22.39,
+  "2021": 10.61,
+  "2022": 6.56,
+  "2023": -20.65,
+  "2024": 0.5,
+  "2025": -23.98,
+  "2026": -56.35
+ },
+ "series": {
+  "model": {
+   "total_pct": 52.9,
+   "mdd_pct": -48.1
+  },
+  "KODEX200": {
+   "total_pct": 237.78,
+   "mdd_pct": -34.68
+  },
+  "EW": {
+   "total_pct": 89.23,
+   "mdd_pct": -36.87
+  },
+  "CW": {
+   "total_pct": 182.23,
+   "mdd_pct": -34.66
+  }
+ },
+ "avg_turnover": 0.177,
+ "avg_financial_picks": 0.83,
+ "universe_size_median": 149.0,
+ "lock": {
+  "prereg": "a22cee371bc007613ef7bf18c1a152d71560eb33b093a08ff4655661215b8d36",
+  "forward": "9093d0973506f436f4285783b6f4df63282d311168f349f10d62f798fb0c3222"
+ },
+ "executed_at": "2026-10-15T09:57:15.431473+00:00"
+}
