@@ -17,6 +17,7 @@ import { strategyBoardView } from './views/strategyBoard.js';
 import { leverageDcaView } from './views/leverageDca.js';
 import { portfolioCombinationView } from './views/portfolioCombination.js';
 import { macroRealtimeView }    from './views/macroRealtime.js';
+import { futuresFlowsView }    from './views/futuresFlows.js';
 import { industryAnalysisView } from './views/industryAnalysis.js';
 import { dartCompanySearchView } from './views/dartCompanySearch.js';
 import { companyFinancialView } from './views/companyFinancial.js';
@@ -58,6 +59,7 @@ const routes = {
   'today-gainers':           { label: '오늘의 상승 종목',            render: () => todayGainersView(app) },
   'today-sobujang':          { label: '소부장 종목',                render: () => todaySobujangView(app) },
   'macro-realtime':          { label: '거시경제 (일별)',           render: () => macroRealtimeView(app) },
+  'futures-flows':           { label: '선물·수급 (일별)',          render: () => futuresFlowsView(app) },
   'company-financial':       { label: '기업 재무',                  render: () => companyFinancialView(app) },
   'dart-company-search':     { label: 'DART 기업 검색',             render: () => dartCompanySearchView(app) },
   'dart-financial-analysis': { label: 'DART 재무 분석',             render: () => dartFinancialAnalysisView(app) },
@@ -70,7 +72,7 @@ const NAV_SECTIONS = {
   analysis: ['company-financial', 'dart-company-search', 'dart-financial-analysis', 'dart-market-activity', 'industry-analysis'],
   portfolio: ['portfolio-holdings', 'portfolio-risk', 'portfolio-combination'],
   kqs: ['strategy-board', 'my-strategies', 'strategy-backtest', 'leverage-dca', 'external-picks'],
-  market: ['world-markets', 'sector-rotation', 'asset-classes', 'today-gainers', 'today-sobujang', 'macro-realtime'],
+  market: ['world-markets', 'sector-rotation', 'asset-classes', 'today-gainers', 'today-sobujang', 'macro-realtime', 'futures-flows'],
   watchlist: ['watchlist'],
   notes: ['research-notes'],
   settings: ['server-resources'],

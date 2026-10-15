@@ -32,6 +32,7 @@ TEST_COLLECTIONS = [
     "us_index_membership", "us_equity_bars", "us_equity_symbols", "us_equity_runs",
     "us_holding_news_cache", "us_holding_sec_filings_cache",
     "external_pick_lists", "external_pick_prices", "us_asset_directory",
+    "market_futures_daily", "market_futures_runs",
 ]
 
 

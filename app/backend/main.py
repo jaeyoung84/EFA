@@ -1108,6 +1108,16 @@ async def market_krx_futures() -> dict:
     return await kospi200_futures(kis_service())
 
 
+@app.get("/api/market/futures-flows")
+async def market_futures_flows() -> dict:
+    """EINT-040: 저장된 최근 3개월 코스피200 선물·현물 투자자별 일별 수급, 선물 일봉, 장 마감 미결제약정(한투 원자료)."""
+    try:
+        from .futures_flows import read_futures_flows
+    except ImportError:
+        from futures_flows import read_futures_flows  # type: ignore
+    return await read_futures_flows()
+
+
 def futures_session_quote(closes, last_price: float | None = None) -> dict:
     """CME 선물: 마지막 체결가와 직전 세션 마감가(매일 18:00 ET에 새 세션 시작) 대비 등락률.
 

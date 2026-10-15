@@ -3502,3 +3502,10 @@ a.dash-news-title:hover { color: var(--primary); text-decoration: underline; }
 }
 .xp-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; color: #111; background: #f5b800; border-radius: 5px; font-size: .68rem; font-weight: 800; vertical-align: 2px; }
 .xp-form label small { font-weight: 400; color: var(--text-subtle); }
+
+/* EINT-040 선물·수급(일별) */
+.ff-table td small { display: block; font-size: .66rem; }
+.ff-table .is-up, .ff-tiles .is-up { color: var(--up); } .ff-table .is-down, .ff-tiles .is-down { color: var(--down); }
+.ff-table th.ff-group { text-align: center; border-bottom: 1px solid var(--border); }
+.ff-table td, .ff-table th { white-space: nowrap; font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) { .ff-table .ff-opt { display: none; } }

@@ -25,6 +25,7 @@ try:
     from .holdings_news import collect_holdings_news
     from .us_portfolio_updates import collect_us_portfolio_updates
     from .us_market_data import collect_us_market_data
+    from .futures_flows import collect_futures_flows
     from .us_equity_data import collect_us_equity_data
     from .external_picks import collect_prices as collect_external_pick_prices
     from .market_data import MarketDataError, capture_market_data_lineage_snapshot, get_daily_ohlcv, market_factor_snapshot, sync_market_data_alerts
@@ -39,6 +40,7 @@ except ImportError:
     from holdings_news import collect_holdings_news  # type: ignore
     from us_portfolio_updates import collect_us_portfolio_updates  # type: ignore
     from us_market_data import collect_us_market_data  # type: ignore
+    from futures_flows import collect_futures_flows  # type: ignore
     from us_equity_data import collect_us_equity_data  # type: ignore
     from external_picks import collect_prices as collect_external_pick_prices  # type: ignore
     from market_data import MarketDataError, capture_market_data_lineage_snapshot, get_daily_ohlcv, market_factor_snapshot, sync_market_data_alerts
@@ -494,6 +496,21 @@ def start_scheduler() -> None:
         coalesce=True,
         max_instances=1,
         misfire_grace_time=7200,
+    )
+    # EINT-040: 코스피200 선물·코스피 현물 투자자별 일별 수급과 선물 일봉·미결제약정(최근 3개월 보관).
+    # 16:20·16:40·18:20·18:40 재확인(호출 4건씩). 서버 시작 2분 뒤 한 번(빈 저장소 백필, 같은 날짜는 덮어도 결과 동일).
+    _scheduler.add_job(
+        collect_futures_flows,
+        "cron",
+        day_of_week="mon-fri",
+        hour="16,18",
+        minute="20,40",
+        timezone="Asia/Seoul",
+        id="collect_futures_flows",
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=7200,
+        next_run_time=datetime.now(timezone.utc) + timedelta(seconds=120),
     )
     _scheduler.start()
     logger.info("백그라운드 시세(%d분)·일봉 수집(평일 장 마감 후)·모의계좌 스냅샷 스케줄러 시작", QUOTE_REFRESH_INTERVAL_MINUTES)
