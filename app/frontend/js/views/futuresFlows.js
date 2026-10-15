@@ -75,6 +75,25 @@ export function tableHtml(rows) {
   </thead><tbody>${body}</tbody></table></div>`;
 }
 
+const pct = (v) => (v === null || v === undefined ? '대기' : `${v > 0 ? '+' : ''}${Number(v).toFixed(2)}%`);
+
+/** 사전등록 KR-CRASH-REBOUND-v1 급락 관측: 사건(당일 −4%·5일 −8% 이하, A는 당일 −6% 이하)과 이후 결과. */
+export function crashTableHtml(events) {
+  const rows = (events || []).map((e) => `<tr><td>${esc(e.date)}</td><td>${e.tier === 'A' ? '폭락(A)' : '급락(B)'}</td>
+    <td class="is-num">${e.kospi?.toLocaleString('ko-KR') ?? '-'}</td><td class="is-num ${tone(e.r1)}">${pct(e.r1)}</td>
+    <td class="is-num ff-opt ${tone(e.r5)}">${pct(e.r5)}</td><td class="is-num ${tone(e.foreign_futures_qty)}">${fmtQty(e.foreign_futures_qty)}</td>
+    <td class="is-num ff-opt ${tone(e.foreign_spot_mn)}">${fmtEok(eok(e.foreign_spot_mn))}</td>
+    <td>${e.bounce5_20 === undefined ? '대기' : e.bounce5_20 ? '예' : '아니오'}</td>
+    <td class="is-num ${tone(e.f20)}">${pct(e.f20)}</td><td class="is-num ff-opt ${tone(e.f60)}">${pct(e.f60)}</td></tr>`).join('');
+  return `<section class="dash-card"><header class="dash-head"><h2>급락 관측</h2><span class="dash-sub">사전등록 KR-CRASH-REBOUND-v1 · 2026-10-15부터</span></header>
+    <p class="dash-note">미리 적은 예측(2000~2026 자료): 당일 −6% 이하 폭락 뒤 20거래일 안 +5% 반등 70% 이상, 20·60거래일 뒤 상승 50~70%,
+      외국인 선물 순매수·순매도는 이후 상승을 구분하지 못함. 판정은 독립 구간 10개 또는 2028-10-15에. 매매 신호가 아닙니다.</p>
+    ${rows ? `<div class="efa-table-wrap"><table class="efa-table ff-table"><thead><tr><th>날짜</th><th>구분</th><th class="is-num">코스피</th>
+      <th class="is-num">당일</th><th class="is-num ff-opt">5일</th><th class="is-num">외국인 선물(계약)</th><th class="is-num ff-opt">외국인 현물</th>
+      <th>20일 안 +5%</th><th class="is-num">20일 뒤</th><th class="is-num ff-opt">60일 뒤</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    : '<p class="dash-note">관측 시작 뒤 아직 급락 사건이 없습니다.</p>'}</section>`;
+}
+
 function drawCharts(root, rows) {
   if (typeof ApexCharts === 'undefined') return;
   const flows = rows.filter((r) => r.futures_flows);
@@ -129,6 +148,7 @@ export async function futuresFlowsView(container) {
   body.innerHTML = `<section class="dash-card">${tilesHtml(s)}</section>
     <section class="dash-card"><header class="dash-head"><h2>외국인 선물 일별 순매수</h2><span class="dash-sub">억 원 · 빨강 순매수 / 파랑 순매도</span></header><div data-ff-daily></div></section>
     <section class="dash-card"><header class="dash-head"><h2>3개월 누적 순매수 — 외국인 선물 vs 현물</h2><span class="dash-sub">억 원 · 보관 기간 첫날부터 누적</span></header><div data-ff-cum></div></section>
+    ${crashTableHtml(data.crash_events)}
     <section class="dash-card"><header class="dash-head"><h2>일별 표</h2><span class="dash-sub">선물 수량은 계약, 금액은 억 원</span></header>${tableHtml(rows)}</section>
     <p class="dash-note">출처 ${esc(data.source)} · 보관 ${data.retain_days}일 · 선물 종가는 ${esc(contract?.name || '현재 최근월물')} 기준(월물이 바뀌기 전 날짜도 같은 월물) ·
       미결제약정은 장 마감 뒤 수집한 날부터 기록${lastRun ? ` · 마지막 수집 ${esc(new Date(lastRun.at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }))} (${esc(lastRun.status)})` : ''}</p>`;

@@ -1,0 +1,99 @@
+{
+ "lock_ok": true,
+ "data_through": "2026-10-15",
+ "events_A": [
+  "2026-10-15"
+ ],
+ "events_B": [
+  "2026-10-15"
+ ],
+ "independent_episodes_B": [
+  "2026-10-15"
+ ],
+ "final_point_reached": false,
+ "P1": {
+  "k": 0,
+  "n": 0,
+  "pct": null,
+  "ci95": null,
+  "predicted": [
+   70,
+   100
+  ],
+  "verdict": "보류"
+ },
+ "P2": {
+  "k": 0,
+  "n": 0,
+  "pct": null,
+  "ci95": null,
+  "predicted": [
+   50,
+   70
+  ],
+  "verdict": "보류"
+ },
+ "P3": {
+  "k": 0,
+  "n": 0,
+  "pct": null,
+  "ci95": null,
+  "predicted": [
+   50,
+   70
+  ],
+  "verdict": "보류"
+ },
+ "P4": {
+  "buy": {
+   "k": 0,
+   "n": 0,
+   "pct": null,
+   "ci95": null,
+   "predicted": [
+    0,
+    100
+   ],
+   "verdict": "보류"
+  },
+  "sell": {
+   "k": 0,
+   "n": 0,
+   "pct": null,
+   "ci95": null,
+   "predicted": [
+    0,
+    100
+   ],
+   "verdict": "보류"
+  },
+  "verdict": "보류"
+ },
+ "P5": {
+  "k": 0,
+  "n": 0,
+  "pct": null,
+  "ci95": null,
+  "predicted": [
+   60,
+   100
+  ],
+  "verdict": "보류"
+ },
+ "events": [
+  {
+   "date": "2026-10-15",
+   "kospi": 5554.22,
+   "r1": -7.565,
+   "r5_past": -18.367,
+   "fut_z": 1.217,
+   "spot_z": -1.437,
+   "f1": NaN,
+   "f5": NaN,
+   "f20": NaN,
+   "f60": NaN,
+   "bounce5_20": NaN
+  }
+ ],
+ "evaluated_at": "2026-10-15T18:13:23.431610+00:00"
+}

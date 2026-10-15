@@ -159,12 +159,68 @@ async def collect_futures_flows(now: datetime | None = None, service=None, db=No
             doc.update(_id=day, date=day, source=SOURCE, updated_at=now.astimezone(timezone.utc))
             await coll.replace_one({"_id": day}, doc, upsert=True)
             written += 1
+    events = await update_crash_events(db, now)        # 보관 기간 삭제 전에(사건일 종가가 아직 있을 때) 기록
     pruned = (await coll.delete_many({"_id": {"$lt": cutoff}})).deleted_count
     result = {"status": "ok" if not errors else ("partial" if days else "error"), "days": len(days), "written": written,
-              "pruned": pruned, "errors": errors, "open_interest_recorded": bool(close_snapshot), "at": now.isoformat()}
+              "pruned": pruned, "errors": errors, "open_interest_recorded": bool(close_snapshot), "crash_events": events,
+              "at": now.isoformat()}
     await db["market_futures_runs"].insert_one({**result, "created_at": datetime.now(timezone.utc)})
     (logger.warning if errors else logger.info)("선물·수급 수집 %s", result)
     return result
+
+
+# ── 급락 관측(사전등록 KR-CRASH-REBOUND-v1, research/futures_flows_kr) ──────────────────────
+# 사건 B: 당일 −4% 이하 또는 5거래일 −8% 이하(A: 당일 −6% 이하). 관측 시작 2026-10-15. 영구 보관(보관 기간 없음).
+# 결과: 20거래일 안 종가 +5% 반등, 20·60거래일 뒤 수익률. 판정은 이 기록이 아니라 observe.py로 한다(확인·화면용).
+CRASH_COLLECTION = "market_crash_events"
+CRASH_START = "2026-10-15"
+
+
+def crash_events(rows: list[dict]) -> tuple[list[dict], dict[str, float]]:
+    """날짜순 행 → (사건 목록, 날짜별 코스피 종가). 당일 등락률은 응답의 공식 값, 5일 등락률은 저장된 종가로 계산."""
+    days = [r for r in rows if (r.get("futures_flows") or {}).get("index")]
+    closes = {r["date"]: r["futures_flows"]["index"] for r in days}
+    out = []
+    for i, r in enumerate(days):
+        if r["date"] < CRASH_START:
+            continue
+        r1 = r["futures_flows"].get("index_change_pct")
+        r5 = (r["futures_flows"]["index"] / days[i - 5]["futures_flows"]["index"] - 1) * 100 if i >= 5 else None
+        if (r1 is not None and r1 <= -4) or (r5 is not None and r5 <= -8):
+            fut = (r["futures_flows"].get("investors") or {}).get("foreign") or {}
+            spot = ((r.get("spot_flows") or {}).get("investors") or {}).get("foreign") or {}
+            out.append({"date": r["date"], "tier": "A" if r1 is not None and r1 <= -6 else "B", "kospi": r["futures_flows"]["index"],
+                        "r1": r1, "r5": round(r5, 2) if r5 is not None else None, "foreign_futures_qty": fut.get("qty"),
+                        "foreign_futures_mn": fut.get("amount_mn"), "foreign_spot_mn": spot.get("amount_mn")})
+    return out, closes
+
+
+def crash_outcome(base: float, after: list) -> dict:
+    """after = 사건 다음 거래일부터의 [날짜, 종가] 목록(사건 문서에 쌓아 둔 것 — 92일 보관 삭제와 무관)."""
+    later, out = [c for _, c in after], {}
+    if len(later) >= 20:
+        out["bounce5_20"] = max(later[:20]) / base - 1 >= 0.05
+        out["f20"] = round((later[19] / base - 1) * 100, 2)
+    if len(later) >= 60:
+        out["f60"] = round((later[59] / base - 1) * 100, 2)
+    return out
+
+
+async def update_crash_events(db, now: datetime) -> int:
+    rows = [doc async for doc in db[COLLECTION].find({}, {"date": 1, "futures_flows": 1, "spot_flows": 1}).sort("_id", 1)]
+    found, closes = crash_events(rows)
+    coll = db[CRASH_COLLECTION]
+    for event in found:      # 처음 기록한 값은 바꾸지 않는다
+        await coll.update_one({"_id": event["date"]}, {"$setOnInsert": {**event, "after": [], "recorded_at": now.astimezone(timezone.utc)}},
+                              upsert=True)
+    async for event in coll.find({"f60": {"$exists": False}}):
+        after = list(event.get("after") or [])
+        last = after[-1][0] if after else event["date"]
+        after += [[d, closes[d]] for d in sorted(closes) if d > last][: 60 - len(after)]
+        update = {"after": after, **crash_outcome(event["kospi"], after)}
+        if update != {k: event.get(k) for k in update}:
+            await coll.update_one({"_id": event["_id"]}, {"$set": update})
+    return len(found)
 
 
 async def read_futures_flows(db=None) -> dict:
@@ -173,5 +229,6 @@ async def read_futures_flows(db=None) -> dict:
     for row in rows:
         row.pop("_id", None)
     last_run = await db["market_futures_runs"].find_one({}, {"_id": 0}, sort=[("created_at", -1)])
-    return {"rows": rows, "retain_days": RETAIN_DAYS, "source": SOURCE, "last_run": last_run,
+    events = [doc async for doc in db[CRASH_COLLECTION].find({}, {"_id": 0, "recorded_at": 0, "after": 0}).sort("date", -1)]
+    return {"rows": rows, "retain_days": RETAIN_DAYS, "source": SOURCE, "last_run": last_run, "crash_events": events,
             "units": {"futures_qty": "계약", "amount": "백만 원"}}   # 현물 수량 단위는 미확인이라 표시하지 않음

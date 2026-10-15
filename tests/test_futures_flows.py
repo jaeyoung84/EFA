@@ -94,3 +94,42 @@ async def test_public_api_returns_sorted_rows(client):
     body = res.json()
     assert res.status_code == 200 and [r["date"] for r in body["rows"]] == ["2026-10-13", "2026-10-14"]
     assert body["retain_days"] == 92 and body["units"]["futures_qty"] == "계약"
+
+
+def _day_doc(day, close, change):
+    return {"_id": day, "date": day, "futures_flows": {"index": close, "index_change_pct": change,
+            "investors": {"foreign": {"qty": 5544, "amount_mn": 1210112}}},
+            "spot_flows": {"investors": {"foreign": {"amount_mn": -3758224}}}}
+
+
+def test_crash_event_rules_and_outcomes():
+    rows = [_day_doc(f"2026-10-{d:02d}", c, ch) for d, c, ch in
+            ((6, 6941, -0.9), (7, 6804, -2.0), (8, 6626, -2.6), (12, 6384, -3.65), (13, 6035, -5.46), (14, 6009, -0.44), (15, 5554, -7.57))]
+    events, closes = ff.crash_events(rows)
+    assert [(e["date"], e["tier"]) for e in events] == [("2026-10-15", "A")]       # 10/13은 관측 시작(10/15) 전
+    assert events[0]["r5"] == round((5554 / 6804 - 1) * 100, 2) and events[0]["foreign_futures_qty"] == 5544
+    after = [[f"d{i}", 5554 * (1.06 if i == 3 else 1.01)] for i in range(60)]
+    out = ff.crash_outcome(5554, after)
+    assert out["bounce5_20"] is True and out["f20"] == 1.0 and out["f60"] == 1.0
+    assert ff.crash_outcome(5554, after[:10]) == {}
+
+
+@pytest.mark.asyncio
+async def test_crash_events_recorded_once_and_filled_over_runs():
+    db = get_db()
+    base = [_day_doc("2026-10-14", 6009, -0.44), _day_doc("2026-10-15", 5554, -7.57)]
+    for doc in base:
+        await db[ff.COLLECTION].insert_one(doc)
+    now = datetime(2026, 10, 15, 16, 20, tzinfo=KST)
+    assert await ff.update_crash_events(db, now) == 1
+    for i in range(1, 21):
+        day = f"2026-11-{i:02d}"
+        await db[ff.COLLECTION].insert_one(_day_doc(day, 5554 * 1.02, 0.1))
+    await ff.update_crash_events(db, now)
+    event = await db[ff.CRASH_COLLECTION].find_one({"_id": "2026-10-15"})
+    assert event["kospi"] == 5554 and len(event["after"]) == 20 and event["f20"] == 2.0 and event["bounce5_20"] is False
+    await db[ff.COLLECTION].delete_many({"_id": {"$lt": "2026-11-15"}})               # 보관 기간 삭제 뒤에도
+    await db[ff.COLLECTION].insert_one(_day_doc("2026-11-25", 6000, 0.1))
+    await ff.update_crash_events(db, now)
+    event = await db[ff.CRASH_COLLECTION].find_one({"_id": "2026-10-15"})
+    assert len(event["after"]) == 21 and event["after"][-1] == ["2026-11-25", 6000] and event["f20"] == 2.0
