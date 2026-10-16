@@ -1,0 +1,160 @@
+{
+  "change_id": "CODX-MA-001",
+  "status": "exploratory_only_consumed_historical_window",
+  "rule": "RSI-OBV baseline versus baseline AND signal-close>SMA60; market SMA200 gate OFF",
+  "database": {
+    "path": "\\\\wsl.localhost\\Ubuntu\\home\\gram\\IV-TEST\\research\\kr_value_quality_v1\\data\\krx_daily.sqlite3",
+    "min_date": "2016-08-29",
+    "max_date": "2026-10-13",
+    "rows": 7577245,
+    "symbols": 4656,
+    "database_sha256": "1037737ef17104d0faed0ad5cba8e32bf44f6dfa5801b20227936444fc341b98",
+    "preregistration_sha256": "eabf1a535b2ee1919c3fbaed25cb9bec7176f978c9955c211c8d4480db1f4577",
+    "runner_sha256": "6541200198ed093cea873f3fe3094f034ff7c7c3ecfe46186f248200cd59c7f5"
+  },
+  "measured_start": "2017-09-05",
+  "measured_end": "2026-10-13",
+  "costs": {
+    "buy_total": 0.00065,
+    "sell_total": 0.00245
+  },
+  "eligibility": {
+    "KOSPI_rank": 200,
+    "KOSDAQ_rank": 150,
+    "average_trading_value_20_min": 5000000000,
+    "minimum_history_sessions": 260,
+    "outlier_threshold": 0.5,
+    "cooldown_sessions": 60
+  },
+  "results": {
+    "baseline": {
+      "all": {
+        "closed_trades": 1002,
+        "open_trades": 4,
+        "win_rate": 0.688622754491018,
+        "mean_net_return": 0.019733234458514357,
+        "median_net_return": 0.03686951367995461,
+        "profit_factor": 1.569745259890549,
+        "payoff_ratio": 0.7097978566461612,
+        "q05_net_return": -0.22016192196396053,
+        "q95_net_return": 0.18659929627675817,
+        "average_holding_sessions": 17.823353293413174,
+        "profitable_window_share": 0.75,
+        "window_count": 36
+      },
+      "KOSPI": {
+        "closed_trades": 642,
+        "open_trades": 3,
+        "win_rate": 0.719626168224299,
+        "mean_net_return": 0.020224217969908375,
+        "median_net_return": 0.03544489460084854,
+        "profit_factor": 1.709110142955151,
+        "payoff_ratio": 0.6658870686838251,
+        "q05_net_return": -0.19282181936478388,
+        "q95_net_return": 0.1628107372615981,
+        "average_holding_sessions": 16.702492211838006,
+        "profitable_window_share": 0.8285714285714286,
+        "window_count": 35
+      },
+      "KOSDAQ": {
+        "closed_trades": 360,
+        "open_trades": 1,
+        "win_rate": 0.6333333333333333,
+        "mean_net_return": 0.01885764719652836,
+        "median_net_return": 0.040205732919698534,
+        "profit_factor": 1.4140932932924617,
+        "payoff_ratio": 0.8186855908535304,
+        "q05_net_return": -0.26657969818545496,
+        "q95_net_return": 0.21471818636655174,
+        "average_holding_sessions": 19.822222222222223,
+        "profitable_window_share": 0.6388888888888888,
+        "window_count": 36
+      },
+      "deployment": {
+        "cagr": 0.029519140811741895,
+        "realized_event_mdd": -0.28194137161058574,
+        "ending_equity_multiple": 1.303220813377596,
+        "deployed_trades": 680,
+        "skipped_daily_cap": 80,
+        "skipped_no_slot": 246,
+        "skipped_duplicate": 0,
+        "calendar_exposure_share": 0.9290438965724594,
+        "note": "MDD is measured at entry/exit cash events and understates intrahold drawdown."
+      },
+      "diagnostics": {
+        "entry_events_after_eligibility": 1006,
+        "signal_close_above_sma60_count": 6
+      }
+    },
+    "sma60": {
+      "all": {
+        "closed_trades": 6,
+        "open_trades": 0,
+        "win_rate": 0.3333333333333333,
+        "mean_net_return": -0.04631004880601327,
+        "median_net_return": -0.07203727356572392,
+        "profit_factor": 0.5433448545826336,
+        "payoff_ratio": 1.0866897091652672,
+        "q05_net_return": -0.272855911525831,
+        "q95_net_return": 0.2159551167170704,
+        "average_holding_sessions": 22.833333333333332,
+        "profitable_window_share": 0.4,
+        "window_count": 5
+      },
+      "KOSPI": {
+        "closed_trades": 4,
+        "open_trades": 0,
+        "win_rate": 0.0,
+        "mean_net_return": -0.1521171367630848,
+        "median_net_return": -0.11244062388655457,
+        "profit_factor": 0.0,
+        "payoff_ratio": null,
+        "q05_net_return": -0.28911947615198513,
+        "q95_net_return": -0.07066191540132677,
+        "average_holding_sessions": 32.5,
+        "profitable_window_share": 0.0,
+        "window_count": 3
+      },
+      "KOSDAQ": {
+        "closed_trades": 2,
+        "open_trades": 0,
+        "win_rate": 1.0,
+        "mean_net_return": 0.1653041271081298,
+        "median_net_return": 0.1653041271081298,
+        "profit_factor": null,
+        "payoff_ratio": null,
+        "q05_net_return": 0.07413234581203673,
+        "q95_net_return": 0.25647590840422285,
+        "average_holding_sessions": 3.5,
+        "profitable_window_share": 1.0,
+        "window_count": 2
+      },
+      "deployment": {
+        "cagr": -0.002085808695284408,
+        "realized_event_mdd": -0.03030520465415154,
+        "ending_equity_multiple": 0.9811714391950008,
+        "deployed_trades": 6,
+        "skipped_daily_cap": 0,
+        "skipped_no_slot": 0,
+        "skipped_duplicate": 0,
+        "calendar_exposure_share": 0.04359591100420926,
+        "note": "MDD is measured at entry/exit cash events and understates intrahold drawdown."
+      },
+      "diagnostics": {
+        "entry_events_after_eligibility": 6,
+        "signal_close_above_sma60_count": 6
+      }
+    },
+    "entry_overlap": {
+      "same_entries": 6,
+      "baseline_only": 1000,
+      "sma60_only_later_state_entries": 0
+    }
+  },
+  "limitations": [
+    "The historical window was already consumed by prior mean-reversion research; this is not an independent validation.",
+    "Universe membership is reconstructed by point-in-time market-cap rank, not historical KOSPI200/KOSDAQ150 constituent files.",
+    "Portfolio MDD is based on realized entry/exit cash events and understates intrahold drawdown.",
+    "No recommendation, order, live rule, or existing forward counter was changed."
+  ]
+}
