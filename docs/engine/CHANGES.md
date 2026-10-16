@@ -1305,3 +1305,15 @@
 - 화면: 기본 상위 20개 + "전체 N종목 보기" 버튼, 상승·하락·보합 수와 등락률 중간값(테마별) 요약. 공용 순위 컴포넌트의 종목명·티커를 escape(외부 데이터). 예전 Yahoo 표본 코드(`SOBUJANG_COMPONENTS`, `_market_top_ranked_components`, 60초 순위 캐시)는 삭제.
 - 한계: 테마 분류는 네이버 기준(공식 업종 아님), 네이버 공개 API가 아님(금일 상승종목과 같은 출처).
 - 검증: `tests/test_sobujang.py` 3개(병합·거래소 등락률·정렬·요약, 상위/전체·캐시·지연, API 200/503), `scripts/tests/sobujang_render.mjs`, 실제 자료로 PC·모바일(넘침 0)·전체 보기 20→173행 확인.
+
+## CODX-KRLC-001 — 2026-10-16: 대장주 가치주 기존 백테스트 누락 보완·저평가주 비교 (Codex 수정)
+
+<!-- Codex 수정: CODX-KRLC-001 (2026-10-16), 이 절 전체. -->
+
+- 요청: 대장주만 백테스트하고 완료된 저평가 자료를 찾아 비교. 기존 `research/external_picks_kr/out/monthly_performance.csv`·`stock_month_returns.csv`와 조사 중 발견한 `compare_*` 산출물을 재사용했다. 새 저평가 백테스트·전략 스윕·holdout·운영 파이프라인은 실행하지 않았다. 관련 근거 검색은 무결성 정상·직접 일치 0건. 기존 KR-VQM-v1 기각 및 KR-LV-v2 전향 잠금은 보존한다.
+- 범위: `research/kr_leaders_value_comparison/`에 독립 PDF 명단 대조, 개별 수익 재집계, 산술 회귀 테스트, 방법·보고서·결과 지문. 기존 사용자 파일·원본 PDF·기존 산출물·엔진·DCA·AWS는 수정하지 않았다. 엔진 개정 불필요(엔진 코드 변경 없음).
+- 결함: 기존 대장주 2026-02가 더존비즈온(012510) 누락으로 19종목 평균이었다. 기존 KRX 스냅샷 읽기 전용 조회에서 2026-02-02 시가 94,500원→02-27 종가 118,400원(+25.2910%)으로 보완. 월중 17세션 전부 존재, 상장주식 수 일정. 이 1건은 현금배당 조정 미확인 가격수익률이며 Yahoo 조정수익과 출처 차이를 공시했다. 대장주 480/480·저평가 360/360건 완전성 및 기존 저평가 월별 평균 일치 검증.
+- 결과: 2024-10~2026-09 완결 24개월, 월초 시가→월말 종가·월별 동일 비중·비용 세금 제외. 대장주 누적 +129.43%(보완 전 +128.73%), 저평가 기존 +97.22%, KODEX200 +249.01%, 200동일가중 +56.99%. 원금 포함 월말 MDD -8.60% / -15.29%. 대장주가 저평가를 이긴 달 13/24, 월차이 t≈0.70(설명 통계).
+- 한계: PDF 실제 발표시각·시점정합 미확인, 월 경계 야간 수익 제외, 월말 MDD는 일별 MDD 아님. 2026-10 수집시각 차이로 제외. 소급 탐색 비교이며 운영 채택·기존 잠금 변경에 쓰지 않는다.
+- 검증: `PYTHONPATH=/tmp/codex_pdf_lib python3 research/kr_leaders_value_comparison/audit.py` 전수 대조 통과; `python3 -m unittest discover -s research/kr_leaders_value_comparison -p 'test_*.py' -v` 3개 통과; `python3 scripts/check_engine_evidence.py --topic "외부 추천 한국 가치주 월별 백테스트"` 통과. 코드·방법·설정·입력 파일/조회행 지문, 비용 가정·기준일·Python 버전은 RESULT.json에 분리 기록.
+- 인계: [비교 보고서](../../research/kr_leaders_value_comparison/REPORT.md). 보완 배당 처리와 PDF 공개시각 확인은 미해결이며 새 전향 연구와 별도다. 원본 시장 DB·유료 PDF는 새 Git 산출물에 복사하지 않았다.

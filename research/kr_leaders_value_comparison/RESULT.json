@@ -1,0 +1,107 @@
+{
+  "leaders_pct": {
+    "total_pct": 129.4304012130388,
+    "cagr_pct": 51.46960131096894,
+    "annualized_monthly_vol_pct": 25.326690873616204,
+    "month_end_mdd_pct": -8.603075240989567,
+    "positive_months": 15,
+    "worst_month_pct": -6.44583895427862,
+    "best_month_pct": 18.39236099548876
+  },
+  "value_existing_pct": {
+    "total_pct": 97.22373878838934,
+    "cagr_pct": 40.43636950177447,
+    "annualized_monthly_vol_pct": 26.35647059857613,
+    "month_end_mdd_pct": -15.291738992131398,
+    "positive_months": 17,
+    "worst_month_pct": -15.291738992131396,
+    "best_month_pct": 22.296019473651487
+  },
+  "leaders_before_supplement_pct": {
+    "total_pct": 128.72678241301077,
+    "cagr_pct": 51.237158930274404,
+    "annualized_monthly_vol_pct": 25.218339135306433,
+    "month_end_mdd_pct": -8.603075240989588,
+    "positive_months": 15,
+    "worst_month_pct": -6.44583895427862,
+    "best_month_pct": 18.029274453619472
+  },
+  "KODEX200": {
+    "total_pct": 249.01086058676464,
+    "cagr_pct": 86.81832366948501,
+    "annualized_monthly_vol_pct": 45.59023584124214,
+    "month_end_mdd_pct": -21.928336076379708,
+    "positive_months": 18,
+    "worst_month_pct": -21.928336076379708,
+    "best_month_pct": 31.488352945429597
+  },
+  "KODEX200_EW": {
+    "total_pct": 56.99319463081374,
+    "cagr_pct": 25.296925194042075,
+    "annualized_monthly_vol_pct": 28.52666448474064,
+    "month_end_mdd_pct": -22.593478551886182,
+    "positive_months": 14,
+    "worst_month_pct": -11.816242902343676,
+    "best_month_pct": 17.282617048500114
+  },
+  "KOSDAQ150": {
+    "total_pct": 18.876662280989986,
+    "cagr_pct": 9.030574739836151,
+    "annualized_monthly_vol_pct": 40.956172390122724,
+    "month_end_mdd_pct": -44.66303940888364,
+    "positive_months": 15,
+    "worst_month_pct": -27.108433734939762,
+    "best_month_pct": 32.471728618474074
+  },
+  "paired_comparison": {
+    "leaders_win_months": 13,
+    "mean_monthly_difference_pp": 0.6223629755569953,
+    "monthly_difference_t_stat_descriptive_only": 0.6996614583934687
+  },
+  "supplement": {
+    "symbol": "012510",
+    "name": "더존비즈온",
+    "month": "2026-02",
+    "first_date": "2026-02-02",
+    "open": 94500,
+    "last_date": "2026-02-27",
+    "close": 118400,
+    "return_pct": 25.2910052910053,
+    "dividend_adjustment_verified": false,
+    "source_db": "research/kr_value_quality_v1/data/krx_daily.sqlite3"
+  },
+  "source_sha256": {
+    "research/external_picks_kr/out/monthly_performance.csv": "0d406beeda26c091bfcc0290fa57c35c2a8cd6b4945a7695e3da33a3144f4f38",
+    "research/external_picks_kr/out/stock_month_returns.csv": "f0faaceabb20a8b5e6286fde55a93412a0a382e614ac57e45cbf0eea7fabd27c",
+    "research/external_picks_kr/out/compare_stock_months.csv": "2364c858e3a807a471d29ffdec7cb0d8d2b76032d7d638c9b7aec40c9e205edb",
+    "research/external_picks_kr/out/compare_monthly.csv": "77b192602684f2a091711cbe6c55054fa0b43194115e75061cbc620fd52ba7b0",
+    "한국 대장주 가치 투자주.pdf": "7b7106d049d9b6e1289aaa3b98ecb47563e2aa9189e878c812411ec0f3fc38f3",
+    "한국 저평가 가치 투자주 (1).pdf": "bc3794d19581443369b22e06fde25118b61b3e17740de6db817cecaffb669f81"
+  },
+  "supplement_rows_sha256": "4ba28d41a1c25dc3958a02bf821837148c4eac4eef6b2aca41a87610810cee11",
+  "code_sha256": "f1a3e34f62461bcffe997d69abfff087352e2df65aeaafb92310f7a7d29a54b7",
+  "config": {
+    "period_start_month": "2024-10",
+    "period_end_month": "2026-09",
+    "completed_months": 24,
+    "leaders_count": 20,
+    "value_count": 15,
+    "weighting": "equal at each month first open",
+    "exit": "same month last close",
+    "month_boundary_overnight_return": "excluded",
+    "supplement": [
+      "2026-02",
+      "012510"
+    ]
+  },
+  "config_sha256": "2cde69429f050a96b0386e18cf113bce854a415bfa6dd1b7c669ccf69aa13f50",
+  "cost_assumption": {
+    "commission_bps": 0,
+    "tax_bps": 0,
+    "slippage_bps": 0
+  },
+  "method_sha256": "864fa15aba638e6c7e6134d3c4fa78ae685a2ae26f03946155b8db727905b47b",
+  "audit_at_kst": "2026-10-16T17:30:22.747715+09:00",
+  "python_version": "3.14.4 (main, Aug 20 2026, 10:41:58) [GCC 15.2.0]",
+  "status": "retrospective_descriptive_comparison_not_independent_validation"
+}
