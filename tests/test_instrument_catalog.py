@@ -153,17 +153,6 @@ def test_peer_rows_resolve_names_and_report_unknown(kqs_catalog, monkeypatch):
     assert rows["엔비디아"]["ticker"] == "NVDA"
 
 
-def test_ranking_endpoints_reuse_results_for_a_minute(monkeypatch):
-    calls = []
-    monkeypatch.setattr(main, "_market_top_ranked_components",
-                        lambda comps, limit, universe: calls.append(universe) or {"items": [], "universe": universe})
-    main._ranking_cache.clear()
-    # 금일 상승종목은 전 종목 순위(market_movers, 30초 캐시)로 바뀌었고 test_market_movers가 검사한다.
-    first, second = main.market_top_sobujang(20), main.market_top_sobujang(20)
-    assert (first["cached"], second["cached"], len(calls)) == (False, True, 1)
-    main._ranking_cache.clear()
-
-
 def test_dart_corp_codes_download_once_under_concurrent_first_use(monkeypatch):
     """2026-10-02 장애 회귀: 첫 사용 때 동시 요청이 와도 대용량 회사코드 목록은 한 번만 받고 해석한다."""
     import threading, time, zipfile

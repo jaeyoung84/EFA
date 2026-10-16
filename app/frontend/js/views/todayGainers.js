@@ -1,3 +1,15 @@
+const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
+const signedPct = (v) => (Number.isFinite(v) ? `${v > 0 ? '+' : ''}${v.toFixed(2)}%` : '-');
+
+/** EINT-049: 전체 종목의 상승·하락 수와 등락률 중간값(테마별). 응답에 summary가 없으면 빈 문자열. */
+export function summaryMarkup(data) {
+  const s = data.summary;
+  if (!s) return '';
+  const themes = Object.entries(s.by_theme || {}).map(([name, t]) => `<span>${esc(name)} ${t.count}종목 중간값 <b class="${t.median_change_pct >= 0 ? 'is-up' : 'is-down'}">${signedPct(t.median_change_pct)}</b></span>`).join('');
+  return `<div class="gainers-summary"><span>상승 <b class="is-up">${s.up}</b> · 하락 <b class="is-down">${s.down}</b> · 보합 ${s.flat}</span>
+    <span>등락률 중간값 <b class="${s.median_change_pct >= 0 ? 'is-up' : 'is-down'}">${signedPct(s.median_change_pct)}</b></span>${themes}</div>`;
+}
+
 function formatPrice(value) {
   if (!Number.isFinite(value)) return '--';
   return `${Math.round(value).toLocaleString()}원`;
@@ -7,11 +19,11 @@ function rowMarkup(item) {
   const isUp = item.change_pct >= 0;
   const rankClass = item.rank <= 3 ? ` is-top${item.rank}` : '';
   return `
-    <button type="button" class="gainers-row${rankClass}" data-quote-ticker="${item.ticker}" aria-haspopup="dialog" aria-label="${item.name} 시세 보기">
+    <button type="button" class="gainers-row${rankClass}" data-quote-ticker="${esc(item.ticker)}" aria-haspopup="dialog" aria-label="${esc(item.name)} 시세 보기">
       <span class="gainers-rank">${item.rank}</span>
       <div class="gainers-name">
-        <strong>${item.name}</strong>
-        <span class="gainers-meta">${item.ticker} · ${item.sector}</span>
+        <strong>${esc(item.name)}</strong>
+        <span class="gainers-meta">${esc(item.ticker)} · ${esc(item.sector)}</span>
         <span class="gainers-quote-action"><i class="fa-solid fa-chart-line" aria-hidden="true"></i> 시세 보기</span>
       </div>
       <span class="gainers-price">${formatPrice(item.price)}</span>
@@ -149,6 +161,8 @@ export function marketRankingsView(container, {
   endpoint,
   loadingText,
   note,
+  allToggle = false,
+  pageSize = 20,
 }) {
   container.innerHTML = `
     <section class="gainers-page">
@@ -159,9 +173,11 @@ export function marketRankingsView(container, {
         </div>
         <div class="gainers-actions">
           <span id="${id}-stamp">조회 전</span>
+          ${allToggle ? `<button type="button" id="${id}-all" aria-pressed="false"><i class="fa-solid fa-list"></i> <span>전체 보기</span></button>` : ''}
           <button type="button" id="${id}-refresh"><i class="fa-solid fa-rotate-right"></i> 새로고침</button>
         </div>
       </header>
+      <div id="${id}-summary"></div>
       <div class="gainers-list" id="${id}-list">
         <div class="gainers-loading"><i class="fa-solid fa-spinner fa-spin"></i> ${loadingText}</div>
       </div>
@@ -169,6 +185,7 @@ export function marketRankingsView(container, {
     </section>`;
 
   let disposed = false;
+  let showAll = false;
   const quoteModal = installQuoteModal(container);
   const itemsByTicker = new Map();
 
@@ -181,7 +198,7 @@ export function marketRankingsView(container, {
     stamp.textContent = '조회 중…';
 
     try {
-      const response = await fetch(`${endpoint}?limit=20`);
+      const response = await fetch(`${endpoint}?limit=${showAll ? 0 : pageSize}`);
       if (!response.ok) throw new Error((await response.json().catch(() => ({}))).detail || `HTTP ${response.status}`);
       const data = await response.json();
       if (disposed) return;
@@ -195,12 +212,19 @@ export function marketRankingsView(container, {
       itemsByTicker.clear();
       items.forEach((item) => itemsByTicker.set(item.ticker, item));
       list.innerHTML = items.map(rowMarkup).join('');
+      const summary = container.querySelector(`#${id}-summary`);
+      if (summary) summary.innerHTML = summaryMarkup(data);
+      const allButton = container.querySelector(`#${id}-all`);
+      if (allButton) {
+        allButton.querySelector('span').textContent = showAll ? `상위 ${pageSize}개만` : `전체 ${data.universe_size ?? ''}종목 보기`;
+        allButton.setAttribute('aria-pressed', String(showAll));
+      }
       const fetchedAt = data.fetched_at ? new Date(data.fetched_at) : null;
       const stampText = fetchedAt && !Number.isNaN(fetchedAt.valueOf())
         ? `조회 ${fetchedAt.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`
         : '조회 완료';
-      const basis = `표본 ${data.universe_size ?? '-'}종목 기준${data.cached ? ' · 1분 캐시' : ''}`;
-      stamp.textContent = [stampText, basis, excluded.length ? `${excluded.length}종목 제외` : ''].filter(Boolean).join(' · ');
+      const basis = `${data.summary ? '전체' : '표본'} ${data.universe_size ?? '-'}종목 기준`;
+      stamp.textContent = [stampText, basis, data.stale ? '지연(최근 값)' : '', excluded.length ? `${excluded.length}종목 제외` : ''].filter(Boolean).join(' · ');
     } catch (error) {
       if (disposed) return;
       list.innerHTML = `<div class="gainers-error"><i class="fa-solid fa-triangle-exclamation"></i> 데이터를 불러오지 못했습니다: ${error.message}</div>`;
@@ -214,6 +238,7 @@ export function marketRankingsView(container, {
   }
 
   container.querySelector(`#${id}-refresh`).addEventListener('click', loadGainers);
+  container.querySelector(`#${id}-all`)?.addEventListener('click', () => { showAll = !showAll; loadGainers(); });
   container.querySelector(`#${id}-list`).addEventListener('click', (event) => {
     const trigger = event.target.closest('[data-quote-ticker]');
     const item = trigger && itemsByTicker.get(trigger.dataset.quoteTicker);

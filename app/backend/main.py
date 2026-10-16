@@ -49,6 +49,7 @@ try:
     from .stock_sector import sector_status
     from .stock_risk import DISCLOSURE_WINDOW_DAYS, risk_summary
     from . import market_movers
+    from . import sobujang
     from .kis_quotes import kis_service
     from .live_quotes import provider_status as live_quote_provider_status, resolve_quotes as resolve_live_quotes
     from .instrument_catalog import SEARCH_ALIASES, get_krx_catalog, resolve_krx_name, search_krx_instruments
@@ -59,6 +60,7 @@ except ImportError:
     from stock_sector import sector_status  # type: ignore
     from stock_risk import DISCLOSURE_WINDOW_DAYS, risk_summary  # type: ignore
     import market_movers  # type: ignore
+    import sobujang  # type: ignore
     from instrument_catalog import SEARCH_ALIASES, get_krx_catalog, resolve_krx_name, search_krx_instruments  # type: ignore
 
 try:
@@ -1496,100 +1498,6 @@ KOSPI_COMPONENTS = [
     {"ticker": "000120.KS", "name": "CJ대한통운",      "sector": "물류",      "weight": 0.003},
 ]
 
-# 반도체 가치사슬의 소재·부품·장비를 대표하는 국내 상장 종목이다. 전체 소부장
-# 시장을 포괄하는 스크리너가 아니라, 같은 기준으로 매일 비교하는 학습용 표본이다.
-SOBUJANG_COMPONENTS = [
-    {"ticker": "042700.KS", "name": "한미반도체", "sector": "반도체 장비"},
-    {"ticker": "240810.KQ", "name": "원익IPS", "sector": "반도체 장비"},
-    {"ticker": "036930.KQ", "name": "주성엔지니어링", "sector": "반도체 장비"},
-    {"ticker": "084370.KQ", "name": "유진테크", "sector": "반도체 장비"},
-    {"ticker": "095610.KQ", "name": "테스", "sector": "반도체 장비"},
-    {"ticker": "403870.KQ", "name": "HPSP", "sector": "반도체 장비"},
-    {"ticker": "319660.KQ", "name": "피에스케이", "sector": "반도체 장비"},
-    {"ticker": "281820.KS", "name": "케이씨텍", "sector": "반도체 장비"},
-    {"ticker": "005290.KQ", "name": "동진쎄미켐", "sector": "반도체 소재"},
-    {"ticker": "357780.KQ", "name": "솔브레인", "sector": "반도체 소재"},
-    {"ticker": "074600.KQ", "name": "원익QnC", "sector": "반도체 소재"},
-    {"ticker": "102710.KQ", "name": "이엔에프테크놀로지", "sector": "반도체 소재"},
-    {"ticker": "093370.KS", "name": "후성", "sector": "반도체 소재"},
-    {"ticker": "011790.KS", "name": "SKC", "sector": "반도체 소재"},
-    {"ticker": "095340.KQ", "name": "ISC", "sector": "반도체 부품"},
-    {"ticker": "067310.KQ", "name": "하나마이크론", "sector": "반도체 부품"},
-    {"ticker": "222800.KQ", "name": "심텍", "sector": "반도체 부품"},
-    {"ticker": "353200.KS", "name": "대덕전자", "sector": "반도체 부품"},
-    {"ticker": "195870.KS", "name": "해성디에스", "sector": "반도체 부품"},
-    {"ticker": "058470.KQ", "name": "리노공업", "sector": "반도체 부품"},
-]
-
-# 거래소 전체 업종지수 대신, 매일 같은 기준으로 조회할 수 있는 대표 종목 표본을
-# 섹터별로 묶는다. 타일의 면적은 해당 표본의 당일 거래대금 합계다.
-def _market_top_ranked_components(
-    components: list[dict[str, object]], limit: int, universe: str,
-) -> dict[str, object]:
-    """대표 종목 표본의 당일 등락률 순위를 반환한다."""
-    import pandas as pd
-    import yfinance as yf
-
-    limit = max(1, min(limit, len(components)))
-    fetched_at = pd.Timestamp.utcnow()
-    valid: list[dict[str, object]] = []
-    excluded: list[dict[str, object]] = []
-
-    for stock in components:
-        ticker = str(stock["ticker"])
-        try:
-            fi = yf.Ticker(ticker).fast_info
-            current = float(fi.last_price)
-            previous = float(fi.previous_close) if fi.previous_close else current
-            change_pct = ((current / previous) - 1) * 100 if previous else 0.0
-            valid.append({
-                "ticker": ticker, "name": stock["name"], "sector": stock["sector"],
-                "price": round(current, 2), "change_pct": round(change_pct, 2),
-            })
-        except Exception as exc:
-            excluded.append({
-                "ticker": ticker, "name": stock["name"],
-                "reason": f"시세 조회 실패: {exc}",
-            })
-
-    # 예전에는 유효 종목이 5개 미만이면 선형합동생성기로 가격과 등락률을 지어내
-    # 순위표를 채웠다(고정 시드라 매번 같은 가짜 순위가 나왔다). is_simulated 플래그를
-    # 붙이긴 했지만, 존재하지 않는 시세로 "오늘의 상승 종목"을 만드는 것 자체가
-    # portfolio.py가 지키는 "데이터가 부족하면 수치를 만들지 않는다" 규율과 정면으로
-    # 어긋난다. 이제는 받은 만큼만 보여주고 실패한 종목은 사유와 함께 표면화한다.
-    ranked = sorted(valid, key=lambda item: item["change_pct"], reverse=True)[:limit]
-    for i, item in enumerate(ranked, start=1):
-        item["rank"] = i
-
-    return {
-        "items": ranked,
-        "universe": universe,
-        "universe_size": len(components),
-        "fetched_at": fetched_at.isoformat(),
-        "available": bool(ranked),
-        "excluded": excluded,
-        "is_simulated": False,
-    }
-
-
-# 같은 표본을 매 요청마다 30여 종목씩 다시 조회하면 9~12초가 걸린다. 60초 동안은 직전 결과를 재사용한다.
-RANKING_CACHE_SECONDS = 60
-_ranking_cache: dict[tuple[str, int], tuple[float, dict]] = {}
-_ranking_cache_lock = Lock()
-
-
-def _cached_ranking(key: str, limit: int, build) -> dict[str, object]:
-    now = monotonic()
-    with _ranking_cache_lock:
-        hit = _ranking_cache.get((key, limit))
-        if hit and now - hit[0] < RANKING_CACHE_SECONDS:
-            return {**hit[1], "cached": True}
-    result = build()
-    with _ranking_cache_lock:
-        _ranking_cache[(key, limit)] = (monotonic(), result)
-    return {**result, "cached": False}
-
-
 @app.get("/api/market/quote-provider-status")
 def market_quote_provider_status() -> dict:
     """한투 시세 연결 상태(키·오류 내용 없음). 운영 확인용."""
@@ -1629,10 +1537,13 @@ def market_top_gainers(market: str = "KOSPI", limit: int = 20, min_trading_value
 
 
 @app.get("/api/market/top-sobujang")
-def market_top_sobujang(limit: int = 20) -> dict[str, object]:
-    """반도체 소부장 대표 종목 표본 중 금일 등락률 상위 종목(전체 소부장 시장 아님)."""
-    return _cached_ranking("sobujang", limit, lambda: _market_top_ranked_components(
-        SOBUJANG_COMPONENTS, limit, "국내 반도체 소부장 대표 종목"))
+def market_top_sobujang(limit: int = 20) -> JSONResponse:
+    """EINT-049: 반도체 소부장 전 종목(네이버 테마 장비·재료/부품·기판 합집합)의 금일 등락률 순위. limit=0이면 전체."""
+    try:
+        data = sobujang.sobujang_ranking(max(0, min(limit, 500)))
+    except sobujang.SobujangError as exc:
+        raise HTTPException(status_code=503, detail=_no_market_data_detail("금일 소부장", str(exc))) from exc
+    return JSONResponse(content=data, headers={"Cache-Control": "no-cache"})
 
 # ── 거시경제현황 2: GBM 시뮬레이션 대시보드 ──────────────────────────────────
 

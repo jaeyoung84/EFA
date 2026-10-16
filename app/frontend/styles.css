@@ -3521,3 +3521,6 @@ a.dash-news-title:hover { color: var(--primary); text-decoration: underline; }
 .rrg-reference summary { cursor: pointer; font-weight: 700; color: var(--text-muted); }
 .rrg-ref-count { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
 .rrg-table td.rrg-abs, .rrg-table th.rrg-abs { color: var(--text-muted); font-size: .76rem; }
+/* EINT-049 소부장 전체: 상승·하락 요약 */
+.gainers-summary { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0 0 10px; padding: 10px 12px; background: var(--surface-soft); border-radius: 8px; font-size: .8rem; color: var(--text-muted); }
+.gainers-summary b.is-up { color: var(--up); } .gainers-summary b.is-down { color: var(--down); }
