@@ -1,0 +1,7 @@
+# 유료 서비스(InvestingPro) 명단 원문·파생자료는 저장소에 넣지 않는다(공개 저장소). 코드·사전등록·잠금만 추적.
+*.txt
+*.csv
+*.pdf
+out/
+private/
+__pycache__/

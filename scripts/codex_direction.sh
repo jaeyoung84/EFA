@@ -2,7 +2,8 @@
 # Codex에게 '방향 문서'를 받는다(읽기 전용 — Codex는 코드를 바꾸지 않음). Claude Code가 이 문서를 읽고 구현한다.
 # usage: scripts/codex_direction.sh <짧은-이름> "<요청 내용>"   (요청 대신 파일 경로를 주면 그 내용을 쓴다)
 # 결과: docs/handoff/codex/<YYYY-MM-DD>-<짧은-이름>.md
-# 엔진: 기본은 Windows 데스크톱 Codex 앱의 codex.exe(앱과 같은 계정·설정·기록). CODEX_ENGINE=wsl이면 WSL CLI.
+# 엔진: 기본은 WSL Codex CLI(~/.local/node/bin/codex; 2026-10-16 사용자 지시로 고정 — 데스크톱 앱은 샌드박스·백신 오류가 잦음).
+# CODEX_ENGINE=desktop이면 Windows 데스크톱 Codex 앱의 codex.exe(예비).
 # 데스크톱 Codex의 Windows 샌드박스는 \\wsl.localhost 경로에 접근하지 못하므로, 추적·미무시 파일을
 # C:\Users\gram\.codex-mirror\IV-TEST로 동기화한 사본에서 읽기 전용으로 실행한다(원본은 건드릴 수 없음).
 set -euo pipefail
@@ -27,8 +28,9 @@ AGENTS.md, docs/CODEX_CHANGES.md, docs/engine/README.md의 규칙(사전등록·
 
 요청:
 $request"
-if [ "${CODEX_ENGINE:-desktop}" = "wsl" ]; then
-  codex exec -s read-only -C "$root" -c model_reasoning_effort='"high"' -o "$tmp" "$prompt" > "$tmp.log" 2>&1 || { tail -20 "$tmp.log" >&2; exit 1; }
+if [ "${CODEX_ENGINE:-wsl}" = "wsl" ]; then
+  # stdin을 닫는다: 백그라운드에서 열려 있으면 codex exec가 "Reading additional input from stdin"에서 무한 대기한다.
+  codex exec -s read-only -C "$root" -c model_reasoning_effort='"high"' -o "$tmp" "$prompt" < /dev/null > "$tmp.log" 2>&1 || { tail -20 "$tmp.log" >&2; exit 1; }
 else
   exe="$(ls -t /mnt/c/Users/*/AppData/Local/OpenAI/Codex/bin/*/codex.exe 2>/dev/null | head -1)"
   [ -n "$exe" ] || { echo "데스크톱 Codex(codex.exe)를 찾지 못함 — CODEX_ENGINE=wsl로 다시 실행" >&2; exit 1; }
@@ -37,10 +39,10 @@ else
   (cd "$root" && git ls-files -co --exclude-standard -z | rsync -a --from0 --files-from=- ./ "$mirror/")
   wout="$user_home/AppData/Local/Temp/codex_direction_$$.md"
   (cd "$user_home" && "$exe" exec -s read-only --skip-git-repo-check -C "$(wslpath -w "$mirror")" -c model_reasoning_effort='"high"' \
-      -o "$(wslpath -w "$wout")" "$prompt") > "$tmp.log" 2>&1 || { tail -20 "$tmp.log" >&2; exit 1; }
+      -o "$(wslpath -w "$wout")" "$prompt" < /dev/null) > "$tmp.log" 2>&1 || { tail -20 "$tmp.log" >&2; exit 1; }
   mv "$wout" "$tmp"
 fi
-{ echo "<!-- Codex 방향 문서 · 요청 $(TZ=Asia/Seoul date '+%F %T KST') · ${CODEX_ENGINE:-desktop} Codex 읽기 전용 · 구현: Claude Code -->"
+{ echo "<!-- Codex 방향 문서 · 요청 $(TZ=Asia/Seoul date '+%F %T KST') · ${CODEX_ENGINE:-wsl} Codex 읽기 전용 · 구현: Claude Code -->"
   echo "<!-- 요청: $(printf '%s' "$request" | tr '\n' ' ' | cut -c1-300) -->"; echo; cat "$tmp"; } > "$out"
 rm -f "$tmp" "$tmp.log"
 echo "$out"
