@@ -14,7 +14,6 @@ os.environ["MONGODB_URL"] = _TEST_DATABASE_TARGET.url
 os.environ["MONGODB_DB"] = _TEST_DATABASE_TARGET.database
 os.environ["LEGACY_EMAIL_SIGNUP_ENABLED"] = "true"
 
-import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
@@ -37,7 +36,7 @@ TEST_COLLECTIONS = [
 ]
 
 
-@pytest.fixture(autouse=True)
+@pytest_asyncio.fixture(autouse=True)   # pytest 직접 import 금지: CI 안전 검사가 pytest 없이 이 파일을 연다
 def _no_observation_alerts(monkeypatch):
     """EINT-044: 실제 관측 등록부의 기한 알림이 엔진 상태 테스트에 끼어들지 않게 기본으로 끈다(관련 테스트는 원래 함수를 다시 넣는다)."""
     from app.backend import observation_registry
