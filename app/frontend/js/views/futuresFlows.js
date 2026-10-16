@@ -60,20 +60,20 @@ export function tableHtml(rows) {
     return `<tr><td>${dateCell(r.date)}</td>
       <td class="is-num">${r.futures_flows?.index?.toLocaleString('ko-KR') ?? '-'}<small class="${tone(r.futures_flows?.index_change_pct)}">${r.futures_flows?.index_change_pct ?? ''}%</small></td>
       <td class="is-num ff-opt">${bar ? bar.close.toFixed(2) : '-'}</td>
-      <td class="is-num ${tone(inv(r, 'futures', 'foreign').qty)}">${fmtQty(inv(r, 'futures', 'foreign').qty)}</td>
+      <td class="is-num ff-opt ${tone(inv(r, 'futures', 'foreign').qty)}">${fmtQty(inv(r, 'futures', 'foreign').qty)}</td>
       <td class="is-num ff-opt ${tone(inv(r, 'futures', 'institution').qty)}">${fmtQty(inv(r, 'futures', 'institution').qty)}</td>
       <td class="is-num ff-opt ${tone(inv(r, 'futures', 'individual').qty)}">${fmtQty(inv(r, 'futures', 'individual').qty)}</td>
-      <td class="is-num ff-opt ${tone(inv(r, 'futures', 'foreign').amount_mn)}">${fmtEok(eok(inv(r, 'futures', 'foreign').amount_mn))}</td>
+      <td class="is-num ${tone(inv(r, 'futures', 'foreign').amount_mn)}">${fmtEok(eok(inv(r, 'futures', 'foreign').amount_mn))}</td>
       <td class="is-num ${tone(inv(r, 'spot', 'foreign').amount_mn)}">${fmtEok(eok(inv(r, 'spot', 'foreign').amount_mn))}</td>
       <td class="is-num ff-opt ${tone(inv(r, 'spot', 'institution').amount_mn)}">${fmtEok(eok(inv(r, 'spot', 'institution').amount_mn))}</td>
       <td class="is-num ff-opt ${tone(inv(r, 'spot', 'individual').amount_mn)}">${fmtEok(eok(inv(r, 'spot', 'individual').amount_mn))}</td>
       <td class="is-num ff-opt">${r.close_snapshot?.open_interest ? Math.round(r.close_snapshot.open_interest).toLocaleString('ko-KR') : '-'}</td></tr>`;
   }).join('');
-  // 한 줄 머리글(모바일에서 열을 숨겨도 어긋나지 않게). 모바일: 날짜·코스피·외국인 선물(계약)·외국인 현물(억)만.
+  // 한 줄 머리글(모바일에서 열을 숨겨도 어긋나지 않게). 모바일: 날짜·코스피·외국인 선물(억)·외국인 현물(억) — 같은 단위로 비교.
   return `<div class="efa-table-wrap"><table class="efa-table ff-table"><thead><tr>
     <th>날짜</th><th class="is-num">코스피</th><th class="is-num ff-opt">선물 종가</th>
-    <th class="is-num">외국인 선물<small>계약</small></th><th class="is-num ff-opt">기관 선물<small>계약</small></th><th class="is-num ff-opt">개인 선물<small>계약</small></th>
-    <th class="is-num ff-opt">외국인 선물<small>억 원</small></th><th class="is-num">외국인 현물<small>억 원</small></th>
+    <th class="is-num ff-opt">외국인 선물<small>계약</small></th><th class="is-num ff-opt">기관 선물<small>계약</small></th><th class="is-num ff-opt">개인 선물<small>계약</small></th>
+    <th class="is-num">외국인 선물<small>억 원</small></th><th class="is-num">외국인 현물<small>억 원</small></th>
     <th class="is-num ff-opt">기관 현물<small>억 원</small></th><th class="is-num ff-opt">개인 현물<small>억 원</small></th><th class="is-num ff-opt">미결제약정</th>
   </tr></thead><tbody>${body}</tbody></table></div>`;
 }
