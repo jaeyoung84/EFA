@@ -1317,3 +1317,14 @@
 - 한계: PDF 실제 발표시각·시점정합 미확인, 월 경계 야간 수익 제외, 월말 MDD는 일별 MDD 아님. 2026-10 수집시각 차이로 제외. 소급 탐색 비교이며 운영 채택·기존 잠금 변경에 쓰지 않는다.
 - 검증: `PYTHONPATH=/tmp/codex_pdf_lib python3 research/kr_leaders_value_comparison/audit.py` 전수 대조 통과; `python3 -m unittest discover -s research/kr_leaders_value_comparison -p 'test_*.py' -v` 3개 통과; `python3 scripts/check_engine_evidence.py --topic "외부 추천 한국 가치주 월별 백테스트"` 통과. 코드·방법·설정·입력 파일/조회행 지문, 비용 가정·기준일·Python 버전은 RESULT.json에 분리 기록.
 - 인계: [비교 보고서](../../research/kr_leaders_value_comparison/REPORT.md). 보완 배당 처리와 PDF 공개시각 확인은 미해결이며 새 전향 연구와 별도다. 원본 시장 DB·유료 PDF는 새 Git 산출물에 복사하지 않았다.
+
+## EINT-050 — 2026-10-16: KR-PRO-CONSENSUS-v1 사전등록·잠금 — InvestingPro 두 한국 명단 공통 종목 전향 검증
+
+- 사용자: "기준은 매달 1일 리밸런싱, 11월에 두 명단 올려줄게, 커밋 다 하고 잠글 거 잠그고 기반 공사까지, 그전에 두 가설과 추출 가능한 조건 재점검".
+  방향은 Codex `docs/handoff/codex/2026-10-16-kr-value-compare.md`. Claude Code 의견(대장주 2개월 연속)은 사후 선택 위험 때문에 보조 기록으로만.
+- 재점검: 두 명단은 시총 ≥ 약 0.7조원·일평균 거래대금 ≥ $10만에서 출발. V(저평가)는 흑자·PER ≤ 약 40배·ROE>0·FCF>0 필터, L(대장주)은 적자 13%·금융 22% 포함.
+  Codex가 지적한 "L 7월 지표 = V 5월 지표"는 분기 재무가 같은 정상 현상으로 확인(같은 달 공통 133건 재무값 전부 일치, 다른 달 일치는 ±1~3개월).
+  우리가 직접 계산 가능한 조건: 시총·거래대금·PER·P/S·ROE·영업이익률·52주 고점 대비·FCF 수익률·현금비율(마지막 둘은 DART 현금흐름·재무상태표 필요). 재현 불가: InvestingPro 적정가치·목표가·라벨.
+- 규칙(잠금): S = V∩L 동일 비중, 매월 첫 KRX 거래일 시가 진입(두 명단 모두 그날 09:00 KST 전 서버 수신, 늦으면 다음 거래일), 비용 매수 6.5bp·매도 24.5bp, 비교 V·L·KODEX200·200동일가중, 보유 2026-11~2028-10. 판정: 비용 후 S−V·S−L 단측 Newey–West(3) t·Holm 5% + S 누적 ≥ KODEX200 + 일별 MDD 비악화 → PASS_REVIEW_ONLY, 결측 월은 INVALID. 연속 편입은 기록만.
+- 구현: `research/external_picks_kr/forward.py`(freeze·evaluate·judge, KRX 일봉 분할 보정, 일별 평가), `test_forward.py` 5개, `OPERATIONS.md`, `LOCK.json`. 명단 원문·확정 스냅샷은 비공개(`private/`, Git 제외), 확정 해시만 `ledger_hashes.json`으로 진입 전 커밋. 명단 입력은 기존 사이트 '외부 추천 기록'(서버 수신 시각 기록)을 사용 — Codex 문서의 새 API·화면은 이번에 만들지 않음.
+- 관측 등록부: `KR-PRO-CONSENSUS-v1` 1건 추가(CODX-OBS-001 범위, 사용자 승인 "잠글 거 잠그고"). 기존 항목 불변. 첫 점검 2026-11-10.

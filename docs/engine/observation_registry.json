@@ -133,6 +133,22 @@
         "research/kr_value_v2/OPERATIONS.md"
       ],
       "application_policy": "PASS means small-live-use review is allowed, not automatic portfolio adoption."
+    },
+    {
+      "id": "KR-PRO-CONSENSUS-v1",
+      "title": "InvestingPro Korea value ∩ leaders lists, monthly prospective",
+      "status": "locked_awaiting_first_month",
+      "started_on": null,
+      "activation_event": "First freeze of 2026-11 (both lists received before the 2026-11-02 09:00 KST open); ledger hash committed before entry",
+      "maturity": "24 holding months 2026-11 through 2028-10",
+      "interim_report_on": "2027-11-15",
+      "decision_deadline_on": "2028-11-15",
+      "deadline_result_if_immature": "Any missing month or unresolved price gap makes the result INVALID; no backfill or substitution",
+      "decision_rule": "One-sided Newey-West(3) t on monthly S-V and S-L after costs, Holm 5%; plus S cumulative >= KODEX200 and S daily MDD not worse; PASS_REVIEW_ONLY / REJECT / INCONCLUSIVE / INVALID",
+      "next_required_review_on": "2026-11-10",
+      "review_scope": "Confirm both lists were received before the entry open, the snapshot hash was committed before entry, codes parsed, and private files are backed up.",
+      "source_paths": ["research/external_picks_kr/PREREGISTRATION_KR_PRO_CONSENSUS_v1.md", "research/external_picks_kr/LOCK.json", "research/external_picks_kr/OPERATIONS.md"],
+      "application_policy": "PASS permits review only; no recommendation, order or ledger change without user approval, a change record and deployment."
     }
   ],
   "descriptive_observations": [
