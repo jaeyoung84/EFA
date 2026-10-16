@@ -81,6 +81,11 @@ class PipelineTests(unittest.TestCase):
         slope = json.loads(self.paths["rsi_obv_sma60_slope_shadow"].read_text())
         self.assertEqual(slope["schema"], "kqs-rsi-obv-sma60-slope-shadow/v1")
         self.assertFalse(slope["recommendations_changed"])
+        # EINT-045: signal-density shadow starts its own sample (D0 = first run) and never changes recommendations.
+        self.assertEqual(run["steps"]["signal_density_shadow"]["status"], "written", run["steps"]["signal_density_shadow"])
+        density = json.loads(self.paths["signal_density_shadow"].read_text())
+        self.assertEqual((density["schema"], density["d0"], density["status"]), ("kqs-signal-density-shadow/v1", self.as_of, "not_due"))
+        self.assertFalse(density["recommendations_changed"] or density["orders_enabled"])
         # EINT-021: the fixture market has no sector-ETF history, so the step fails closed and is only recorded
         self.assertIn(run["steps"]["sector_rotation"]["status"], {"written", "failed"})
         self.assertTrue(all(KEY not in path.read_bytes().decode("latin-1") for path in self.state.rglob("*")

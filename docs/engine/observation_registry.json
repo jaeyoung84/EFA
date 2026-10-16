@@ -205,12 +205,14 @@
     {
       "id": "CODX-DIR-002-DENSITY",
       "title": "Market-wide mean-reversion signal-density shadow",
-      "status": "planned_not_started",
-      "activation_requirement": "A separate preregistration, code, revision record, validation, explicit user approval, and deployment define D0.",
+      "status": "approved_awaiting_deployment",
+      "activation_requirement": "D0 is written by the module on its first production run after deployment (EINT-045). Move this entry to active_hypotheses with started_on = D0 at the first integrity review after deployment.",
       "earliest_decision": "First KRX month-end after both D0+24 months and B closed 100.",
       "relative_deadline": "First KRX month-end after D0+36 months; sparse result is REJECT_TOO_SPARSE.",
-      "source_paths": ["docs/handoff/codex/2026-10-16-rsi-obv-next-hypothesis.md"],
-      "application_policy": "Not collecting and not part of recommendations."
+      "source_paths": ["docs/handoff/codex/2026-10-16-rsi-obv-next-hypothesis.md", "docs/engine/PREREGISTRATION_SIGNAL_DENSITY_v1.md", "docs/engine/verification/EINT-045.json"],
+      "application_policy": "Not part of recommendations. PASS_CANDIDATE permits a proposal only; user approval, a new engine revision and deployment are required, then new recommendations only.",
+      "approved_on": "2026-10-16",
+      "implementation": "EINT-045: engine/kqs/src/kqs_runtime/signal_density_shadow.py, pipeline step signal_density_shadow, state file signal-density-shadow.json"
     }
   ],
   "explicitly_not_active": [

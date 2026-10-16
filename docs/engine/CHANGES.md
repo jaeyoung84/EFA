@@ -1265,3 +1265,12 @@
 - 구현: `app/backend/observation_registry.py` — 형식 검증(필수 항목·날짜·id 중복·근거 파일 존재), 다음 무결성 점검일·중간 보고일·판정 시한이 45일 안이면 주의, 지나면 오류. 홈페이지 상단 알림(`kqs_pipeline_health`)에 연결해 화면을 열 때마다 검사(월 1회 작업보다 누락이 적음). `scripts/check_observation_registry.py`는 같은 검사를 명령줄로, 형식 오류·근거 누락·기한 지남이면 종료 코드 1.
 - 대조: D-33 2028-08-28, Pullback v2/v4 2028-09-08은 evidence_registry와 일치. 현재 임박: D-33·Pullback v2·v4 무결성 점검 2026-10-31, KR-LV-v2 첫 명단 점검 2026-11-10.
 - 테스트: `tests/test_observation_registry.py` 5개(실제 등록부 형식·근거, 45일·지남 판정, 형식 오류, 알림 수준·파일 없음, 엔진 상태 연결). 엔진 상태 기존 테스트가 실제 날짜 알림에 흔들리지 않도록 `tests/conftest.py`에서 관측 알림을 기본으로 끔.
+
+## EINT-045 — 2026-10-16: 시장 전체 평균회귀 신호 밀도(≥9) 전향 그림자 관측 (Codex CODX-DIR-001/002 방향, 사용자 시작 승인)
+
+- 승인: 사용자 "둘다 승인할고 푸시해"(밀도 관측 시작 + CODX-OBS-001 등록). 방향은 Codex 문서 그대로 구현.
+- 사전등록: `docs/engine/PREREGISTRATION_SIGNAL_DENSITY_v1.md`(해시를 모듈 상수로 고정). 밀도 = 엔진 스캔 기록의 swing·long_term `entry_due_next_session` 행 수(게시 상한 전, 날짜별 첫 기록 고정), 임계값 9 하나.
+- 구현: `kqs_runtime/signal_density_shadow.py` — A = 게시된 두 항목 선정 진입 전부(다음 시가, 항목별 현행 청산), B = 밀도 ≥ 9인 날의 A만. 두 팔 같은 15슬롯·하루 신규 3개·종가 평가 포트폴리오. D0 = 운영 첫 실행일(파일에 한 번 기록). 판정은 D0+24개월·B 완결 100건을 모두 채운 뒤 첫 월말 자료로 한 번(36개월 시한 → REJECT_TOO_SPARSE) 후 고정. PASS_CANDIDATE = B CAGR > A, 일별 MDD 비악화, 보존율 ≥ 20%, 월수익 6개월 블록 부트스트랩 CAGR 차이 95% 하한 > 0. 판정 전에는 건수만 기록(중간 수익률 미계산). 일일 파이프라인 마지막 참고 단계(실패해도 게시 무관).
+- 엔진 개정: EINT-045(`engine/kqs/revisions/EINT-045.json`). Codex 표시 구역(CODX-MA-002 import·단계·경로)은 그대로 두고 아래에 별도 단계로 추가.
+- 등록부: `observation_registry.json`의 밀도 항목을 `approved_awaiting_deployment`로(배포 뒤 첫 무결성 점검에서 D0와 함께 활성 목록으로 이동). `docs/CODEX_CHANGES.md`에 CODX-OBS-001 행 등록(사용자 승인).
+- 검증: `engine/kqs/tests/test_signal_density_shadow.py` 7개(사전등록 해시, 밀도 정의, 판정 시점·시한, 판정 문장, 포트폴리오 슬롯·상한·평가, D0·청산·행 구성, 첫 기록 밀도 고정), `test_pipeline.py`에 단계 기록 확인 추가.

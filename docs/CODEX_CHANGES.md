@@ -23,3 +23,4 @@ Claude Code가 수정하기 전에 사용자의 명시적 승인이 필요하다
 | COLLAB-002 | 2026-10-16 | AGENTS.md의 “Codex·Claude Code 협업 변경 잠금” 절 내 엔진 개정 등록·인계 규칙; 이 행 | Codex가 엔진 코드를 변경할 때 후속 개정 manifest·검증 기록 등록과 인계 시 개정 ID 명시를 의무화 |
 | CODX-DIR-001 | 2026-10-16 | docs/handoff/codex/2026-10-16-rsi-obv-next-hypothesis.md 전체; 이 행 | EINT-043 이후 세 번째 SMA 필터는 중단하고, 다음 단일 후보를 시장 전체 평균회귀 신호 밀도 전향 그림자로 한정. 엔진·추천·기존 전향 관측은 변경하지 않음 |
 | CODX-DIR-002 | 2026-10-16 | docs/handoff/codex/2026-10-16-rsi-obv-next-hypothesis.md의 “관측 종료와 실제 적용 시점” 절; 이 행 | 밀도 관측의 최소 24개월·B 완결 100건·월말 1회 판정·36개월 표본 시한과 사용자 승인 후 신규 추천부터 적용하는 절차를 사전 고정 |
+| CODX-OBS-001 | 2026-10-16 | docs/engine/observation_registry.json 전체(초안 Codex 작성, 사용량 한도로 미등록 → 사용자 승인으로 Claude Code가 이 행 등록; 2026-10-16 Claude Code가 사용자 승인에 따라 밀도 항목 상태·구현·근거 경로 갱신); 이 행 | 모든 전향 관측의 시작·성숙·판정 시한·미성숙 처리·적용 정책·다음 무결성 점검일을 한 등록부로 고정해 판정 누락 방지(기한 점검은 EINT-044) |

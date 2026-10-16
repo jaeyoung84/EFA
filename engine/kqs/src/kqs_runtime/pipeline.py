@@ -32,6 +32,12 @@ from kqs_runtime.rsi_obv_sma60_slope_shadow import (
     write_sma_slope_shadow,
 )
 from kqs_runtime.signal_funnel import SignalFunnelError, build_signal_funnel, read_previous, write_signal_funnel
+from kqs_runtime.signal_density_shadow import (  # EINT-045
+    SignalDensityShadowError,
+    build_signal_density_shadow,
+    write_signal_density_shadow,
+)
+from kqs_runtime.signal_density_shadow import read_previous as read_density_previous
 from kqs_runtime.worker import require_separate_paths, run_publication
 
 HISTORY_DAYS = 730
@@ -158,6 +164,15 @@ def run_daily_pipeline(*, state_dir: Path, market_db: Path, client: KrxOpenApiCl
                                          "long_term_both": funnel["today"]["long_term"]["both"], "sha256": funnel["sha256"]}
     except (SignalFunnelError, OSError, sqlite3.Error, KeyError, ValueError, IndexError) as exc:
         run["steps"]["signal_funnel"] = {"status": "failed", "error": str(exc)}
+    # EINT-045: market-wide signal-density (>= 9) shadow of the published reversion picks. Observation only.
+    try:
+        density = build_signal_density_shadow(paths["snapshot_db"], market_db, as_of,
+                                              read_density_previous(paths["signal_density_shadow"]))
+        write_signal_density_shadow(paths["signal_density_shadow"], density)
+        run["steps"]["signal_density_shadow"] = {"status": "written", "d0": density["d0"], "rows": len(density["rows"]),
+                                                 "rows_sha256": density["rows_sha256"], "verdict": density["status"]}
+    except (SignalDensityShadowError, OSError, sqlite3.Error, KeyError, ValueError, IndexError, TypeError) as exc:
+        run["steps"]["signal_density_shadow"] = {"status": "failed", "error": str(exc)}
     return finish(PUBLICATION_STATUS[attempt["status"]], attempt.get("error"))
 
 
