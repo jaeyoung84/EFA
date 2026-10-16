@@ -3509,3 +3509,10 @@ a.dash-news-title:hover { color: var(--primary); text-decoration: underline; }
 .ff-table th.ff-group { text-align: center; border-bottom: 1px solid var(--border); }
 .ff-table td, .ff-table th { white-space: nowrap; font-variant-numeric: tabular-nums; }
 @media (max-width: 640px) { .ff-table .ff-opt { display: none; } }
+/* EINT-047 섹터 순환: 대형주 쏠림 안내·참고 보기·실제 등락 열 */
+.rrg-notice { border-color: rgba(245,184,0,.45); background: rgba(245,184,0,.07); }
+.rrg-notice p { margin: 0; font-size: .82rem; line-height: 1.6; }
+.rrg-notice i { color: var(--yellow); margin-right: 4px; }
+.rrg-reference summary { cursor: pointer; font-weight: 700; color: var(--text-muted); }
+.rrg-ref-count { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.rrg-table td.rrg-abs, .rrg-table th.rrg-abs { color: var(--text-muted); font-size: .76rem; }

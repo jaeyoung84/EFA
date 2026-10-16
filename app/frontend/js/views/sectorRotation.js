@@ -1,4 +1,4 @@
-// 섹터 순환(RRG, EINT-021): 국내 섹터 ETF를 KODEX 200과 비교해 지금 어느 섹터가 주도하고, 주도권이 어디로 옮겨 가는지
+// 섹터 순환(RRG, EINT-021·047): 국내 섹터 ETF를 KODEX 200 동일가중과 비교해(KODEX 200은 참고) 지금 어느 섹터가 주도하고, 주도권이 어디로 옮겨 가는지
 // 한눈에 보여 주는 참고 화면. 엔진이 매 거래일 계산한 값만 그린다(매수·매도 신호가 아님).
 const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
@@ -7,9 +7,9 @@ const num = (value) => value !== null && value !== undefined && Number.isFinite(
 const signed = (value) => (num(value) ? `${Number(value) > 0 ? '+' : ''}${Number(value).toFixed(1)}%` : '-');
 
 export const QUADRANT = {
-  leading: { label: '주도', en: 'Leading', color: '#22c55e', fill: 'rgba(34,197,94,.10)', note: '시장보다 강하고 더 강해지는 중' },
+  leading: { label: '주도', en: 'Leading', color: '#22c55e', fill: 'rgba(34,197,94,.10)', note: '기준보다 강하고 더 강해지는 중' },
   weakening: { label: '약화', en: 'Weakening', color: '#f5b800', fill: 'rgba(245,184,0,.09)', note: '아직 강하지만 힘이 빠지는 중' },
-  lagging: { label: '부진', en: 'Lagging', color: '#ff4d5e', fill: 'rgba(255,77,94,.09)', note: '시장보다 약하고 더 약해지는 중' },
+  lagging: { label: '부진', en: 'Lagging', color: '#ff4d5e', fill: 'rgba(255,77,94,.09)', note: '기준보다 약하고 더 약해지는 중' },
   improving: { label: '개선', en: 'Improving', color: '#3b8bff', fill: 'rgba(59,139,255,.10)', note: '아직 약하지만 힘이 붙는 중' },
 };
 const ORDER = ['leading', 'improving', 'weakening', 'lagging'];
@@ -146,11 +146,43 @@ export function rrgSvg(data, { tail = 8, hidden = new Set(), focus = null, compa
   </svg>`;
 }
 
+/** EINT-047: 대형주 몇 종목이 시총가중 기준을 크게 움직였을 때의 안내(폭락·폭등 모두). 자료에 없으면 빈 문자열. */
+export function concentrationHtml(data) {
+  const c = data.concentration;
+  if (!c || !c.notice) return '';
+  const weaker = c.direction === 'mega_caps_weaker';
+  return `<section class="dash-card rrg-notice" role="note"><p><i class="fa-solid fa-triangle-exclamation"></i>
+    <b>대형주 쏠림 주의</b> — 최근 4주 ${esc(data.reference_benchmark?.name || 'KODEX 200')} ${signed(c.cap_weighted_4w_pct)}, ${esc(data.benchmark.name)} ${signed(c.equal_weight_4w_pct)}
+    (차이 ${signed(c.gap_pctp).replace('%', '%p')}). 삼성전자·SK하이닉스 같은 대형주가 ${weaker ? '시장보다 훨씬 많이 빠져' : '시장보다 훨씬 많이 올라'}
+    시총가중 기준으로 보면 섹터들이 한쪽으로 ${weaker ? '강해' : '약해'} 보입니다. 이 화면은 그래서 동일가중을 기준으로 씁니다.
+    분면은 <b>상대</b> 비교이므로, 아래 표의 1주·4주 등락으로 실제로 얼마나 움직였는지 함께 보세요.</p></section>`;
+}
+
+/** EINT-047: KODEX 200(시총가중) 기준 분면 — 접어 두는 참고 보기. */
+export function referenceHtml(data) {
+  const withRef = data.sectors.filter((s) => s.reference);
+  if (!data.reference_benchmark || !withRef.length) return '';
+  const count = (key) => withRef.filter((s) => s.reference.quadrant === key).length;
+  return `<section class="dash-card rrg-reference"><details><summary><i class="fa-solid fa-scale-unbalanced"></i>
+    ${esc(data.reference_benchmark.name)} 기준으로 보기 (참고)</summary>
+    <p class="dash-note">시총가중 ${esc(data.reference_benchmark.name)}는 대형주 두세 종목의 비중이 커서, 대형주가 강하면 대부분 섹터가 부진으로,
+      약하면 대부분 주도로 쏠려 보입니다(최근 1년 두 기준의 분면 일치율 58%). 판단은 위 기본 화면으로 하고, 이 표는 "지수 펀드 대비"가 궁금할 때만 보세요.</p>
+    <p class="rrg-ref-count">${ORDER.map((q) => `<span class="rrg-badge" style="--q:${QUADRANT[q].color}">${QUADRANT[q].label} ${count(q)}</span>`).join(' ')}</p>
+    <div class="efa-table-wrap"><table class="efa-table rrg-table"><thead><tr><th>섹터</th><th>기본(${esc(data.benchmark.name)})</th>
+      <th>${esc(data.reference_benchmark.name)} 기준</th><th class="is-num">4주 ${esc(data.reference_benchmark.name)} 대비</th></tr></thead><tbody>
+      ${withRef.map((s) => `<tr><td><b>${esc(s.name)}</b></td>
+        <td><span class="rrg-badge" style="--q:${QUADRANT[s.quadrant].color}">${QUADRANT[s.quadrant].label}</span></td>
+        <td><span class="rrg-badge is-past" style="--q:${QUADRANT[s.reference.quadrant].color}">${QUADRANT[s.reference.quadrant].label}</span></td>
+        <td class="is-num">${signed(s.reference.relative_4w_pct)}</td></tr>`).join('')}
+    </tbody></table></div></details></section>`;
+}
+
 export function tableHtml(data) {
+  const abs = data.sectors.some((s) => num(s.return_1w_pct));   // EINT-047 실제 등락률 열(미국 자료엔 없음)
   const rows = [...data.sectors].sort((a, b) => ORDER.indexOf(a.quadrant) - ORDER.indexOf(b.quadrant) || b.rs_ratio - a.rs_ratio);
   return `<div class="efa-table-wrap"><table class="efa-table rrg-table"><thead><tr>
     <th>섹터</th><th class="rrg-opt">ETF</th><th>지금</th><th class="rrg-opt">4주 전</th><th class="is-num">상대강도</th><th class="is-num">모멘텀</th>
-    <th class="is-num">4주 시장 대비</th><th class="is-num">12주 시장 대비</th><th class="is-num rrg-opt">12주 수익률</th></tr></thead><tbody>
+    <th class="is-num">4주 기준 대비</th><th class="is-num">12주 기준 대비</th>${abs ? '<th class="is-num rrg-abs">1주 등락</th><th class="is-num rrg-abs rrg-opt">4주 등락</th>' : '<th class="is-num rrg-opt">12주 수익률</th>'}</tr></thead><tbody>
     ${rows.map((s) => `<tr data-rrg-row="${esc(s.key)}">
       <td><b>${esc(s.name)}</b><small class="rrg-sym">${esc(s.symbol)}</small></td><td class="efa-muted rrg-opt">${esc(s.etf_name)}<small>${esc(s.symbol)}</small></td>
       <td><span class="rrg-badge" style="--q:${QUADRANT[s.quadrant].color}">${QUADRANT[s.quadrant].label}</span></td>
@@ -158,14 +190,14 @@ export function tableHtml(data) {
       <td class="is-num">${Number(s.rs_ratio).toFixed(2)}</td><td class="is-num">${Number(s.rs_momentum).toFixed(2)}</td>
       <td class="is-num ${s.relative_4w_pct > 0 ? 'is-up' : s.relative_4w_pct < 0 ? 'is-down' : ''}">${signed(s.relative_4w_pct)}</td>
       <td class="is-num ${s.relative_12w_pct > 0 ? 'is-up' : s.relative_12w_pct < 0 ? 'is-down' : ''}">${signed(s.relative_12w_pct)}</td>
-      <td class="is-num rrg-opt">${signed(s.return_12w_pct)}</td></tr>`).join('')}
+      ${abs ? `<td class="is-num rrg-abs">${signed(s.return_1w_pct)}</td><td class="is-num rrg-abs rrg-opt">${signed(s.return_4w_pct)}</td>` : `<td class="is-num rrg-opt">${signed(s.return_12w_pct)}</td>`}</tr>`).join('')}
   </tbody></table></div>`;
 }
 
 // EINT-035: 한국(KODEX 200 대비)과 미국(SPY 대비) 섹터 순환을 같은 화면에서 전환한다.
 export const MARKETS = {
-  kr: { label: '한국', icon: 'fa-won-sign', sub: 'KODEX 200 대비 · 국내 섹터 ETF', url: '/api/market/sector-rotation',
-    intro: '국내 섹터 ETF를 KODEX 200과 비교해, 지금 어느 섹터가 시장을 이끌고 주도권이 어디로 옮겨 가는지 보여 줍니다.' },
+  kr: { label: '한국', icon: 'fa-won-sign', sub: 'KODEX 200 동일가중 대비 · 국내 섹터 ETF', url: '/api/market/sector-rotation',
+    intro: '국내 섹터 ETF를 KODEX 200 동일가중(보통 종목)과 비교해, 지금 어느 섹터가 강하고 주도권이 어디로 옮겨 가는지 보여 줍니다. 대형주 두세 종목에 끌려가지 않도록 시총가중 대신 동일가중을 기준으로 씁니다.' },
   us: { label: '미국', icon: 'fa-dollar-sign', sub: 'S&P 500(SPY) 대비 · SPDR 섹터 ETF', url: '/api/market/us-sector-rotation',
     intro: '미국 섹터 ETF(SPDR 11개 섹터와 반도체 SMH)를 SPY와 비교해, 지금 어느 섹터가 시장을 이끌고 주도권이 어디로 옮겨 가는지 보여 줍니다.' },
 };
@@ -208,6 +240,7 @@ export function sectorRotationView(container) {
       return;
     }
     body.innerHTML = `
+      ${concentrationHtml(data)}
       <section class="dash-card rrg-summary">
         <header class="dash-head"><h2><span class="rrg-market-pill is-${esc(state.market)}">${esc(MARKETS[state.market].label)}</span> 주도권 이동 요약</h2><span class="dash-sub">기준 ${esc(data.latest_week)} 주간 · 비교 대상 ${esc(data.benchmark.name)} · 최근 4주 변화${data.source ? ` · ${esc(data.source)}` : ''}</span></header>
         ${summaryHtml(data)}
@@ -221,13 +254,15 @@ export function sectorRotationView(container) {
         <div class="rrg-chart" data-rrg-chart></div>
       </section>
       <section class="dash-card">
-        <header class="dash-head"><h2><span class="rrg-market-pill is-${esc(state.market)}">${esc(MARKETS[state.market].label)}</span> 섹터별 현황</h2><span class="dash-sub">상대강도·모멘텀은 100이 시장 평균입니다.</span></header>
+        <header class="dash-head"><h2><span class="rrg-market-pill is-${esc(state.market)}">${esc(MARKETS[state.market].label)}</span> 섹터별 현황</h2><span class="dash-sub">상대강도·모멘텀은 100이 기준(${esc(data.benchmark.name)}) 수준입니다.</span></header>
         ${tableHtml(data)}
+        ${data.sectors.some((s) => num(s.return_1w_pct)) ? `<p class="dash-note">1주·4주 등락은 기준과 상관없는 실제 등락률입니다(기준 ${esc(data.benchmark.name)} 1주 ${signed(data.benchmark_return_1w_pct)} · 4주 ${signed(data.benchmark_return_4w_pct)}). 1주 값은 다음 주에 방향이 바뀌는 일이 잦아(최근 1년 45%) 흐름 판단에는 분면과 4주 값을 쓰세요.</p>` : ''}
       </section>
+      ${referenceHtml(data)}
       <section class="dash-card rrg-guide">
         <details><summary><i class="fa-solid fa-circle-question"></i> 그림 읽는 법</summary>
           <ul>
-            <li><b>가로축 상대강도</b>: 섹터 ETF ÷ ${esc(data.benchmark.name)} 비율의 최근 ${esc(data.smoothing_weeks?.short)}주 흐름이 ${esc(data.smoothing_weeks?.long)}주 흐름보다 높으면 100보다 오른쪽입니다. 요즘 시장보다 강하다는 뜻입니다.</li>
+            <li><b>가로축 상대강도</b>: 섹터 ETF ÷ ${esc(data.benchmark.name)} 비율의 최근 ${esc(data.smoothing_weeks?.short)}주 흐름이 ${esc(data.smoothing_weeks?.long)}주 흐름보다 높으면 100보다 오른쪽입니다. 요즘 기준보다 강하다는 뜻입니다(하락장에서는 &quot;덜 빠졌다&quot;는 뜻일 수 있습니다).</li>
             <li><b>세로축 모멘텀</b>: 그 상대강도가 계속 높아지는 중이면 100보다 위, 꺾이기 시작하면 아래입니다.</li>
             <li><b>네 구역</b>: 개선(왼쪽 위) → 주도(오른쪽 위) → 약화(오른쪽 아래) → 부진(왼쪽 아래). 꼬리가 시계방향으로 도는 것이 보통의 순환입니다.</li>
             <li><b>주도 후보</b>: 개선 구역에서 오른쪽 위로 향하는 섹터, <b>주의</b>: 주도에서 아래로 꺾여 약화로 가는 섹터.</li>

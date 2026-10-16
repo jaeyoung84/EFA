@@ -1,4 +1,4 @@
-"""EINT-021 섹터 순환: 엔진이 만든 파일을 웹이 그대로 읽는다(없으면 사용할 수 없음)."""
+"""EINT-021/047 섹터 순환: 엔진이 만든 파일을 웹이 그대로 읽는다(없으면 사용할 수 없음)."""
 import sqlite3
 import sys
 from pathlib import Path
@@ -15,7 +15,8 @@ def _engine_file(tmp_path):
     import test_sector_rotation as engine
 
     db = tmp_path / "market.sqlite3"
-    engine.market_db(db, {"069500": lambda i: 30000 + i, "091160": lambda i: 50000 + 9 * i, "091170": lambda i: 10000 - i})
+    engine.market_db(db, {"252650": lambda i: 15000 + i, "069500": lambda i: 30000 - i,
+                          "091160": lambda i: 50000 + 9 * i, "091170": lambda i: 10000 - i})
     target = tmp_path / "state" / "sector-rotation.json"
     write_sector_rotation(target, build_sector_rotation(db, engine.AS_OF.isoformat()))
     return target
@@ -23,7 +24,9 @@ def _engine_file(tmp_path):
 
 def test_reader_passes_engine_values_through(tmp_path):
     data = web.read_sector_rotation(_engine_file(tmp_path))
-    assert data["available"] and data["benchmark"]["symbol"] == "069500"
+    assert data["available"] and data["benchmark"]["symbol"] == "252650"            # EINT-047 동일가중 기본
+    assert data["reference_benchmark"]["symbol"] == "069500" and data["concentration"]["direction"] == "mega_caps_weaker"
+    assert "KODEX 200 동일가중" in data["disclaimer"]
     keys = {s["key"]: s for s in data["sectors"]}
     assert set(keys) == {"semis", "banks"} and keys["semis"]["rs_ratio"] > keys["banks"]["rs_ratio"]
     assert data["smoothing_weeks"] == {"short": 4, "long": 13, "momentum": 4}

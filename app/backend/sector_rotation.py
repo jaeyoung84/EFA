@@ -32,9 +32,13 @@ def read_sector_rotation(path: Path | None = None) -> dict:
         return {"available": False, "detail": "섹터 순환 자료를 읽을 수 없습니다."}
     if not isinstance(report, dict) or report.get("schema") != SCHEMA:
         return {"available": False, "detail": "섹터 순환 자료 형식이 다릅니다."}
+    benchmark = (report.get("benchmark") or {}).get("name", "기준 지수")
     return {
         "available": True, **{key: report[key] for key in ("as_of", "latest_week", "benchmark", "smoothing_weeks",
                                                             "tail_weeks", "quadrant_labels", "sectors", "skipped")},
-        "disclaimer": ("국내 섹터 ETF를 KODEX 200과 비교한 주간 상대강도 그림(RRG)입니다. 지금 어느 섹터가 시장보다 강하고 "
+        # EINT-047: 동일가중 기본 기준·KODEX 200 참고 분면·대형주 쏠림(이전 형식 파일이면 없음)
+        **{key: report.get(key) for key in ("reference_benchmark", "concentration", "benchmark_return_1w_pct",
+                                            "benchmark_return_4w_pct")},
+        "disclaimer": (f"국내 섹터 ETF를 {benchmark}와 비교한 주간 상대강도 그림(RRG)입니다. 지금 어느 섹터가 보통 종목보다 강하고 "
                        "그 힘이 커지는지 보여 주는 참고 자료이며, 매수·매도 신호나 미래 수익 예측이 아닙니다."),
     }

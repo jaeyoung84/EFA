@@ -1,4 +1,4 @@
-"""EINT-021 sector rotation (RRG): synthetic weekly data, quadrants, skips, read-only, atomic file."""
+"""EINT-021/047 sector rotation (RRG): synthetic weekly data, quadrants, skips, equal-weight benchmark, reference view, read-only, atomic file."""
 
 import hashlib
 import json
@@ -65,7 +65,8 @@ class SectorRotationTests(unittest.TestCase):
 
     def test_build_reads_db_only_and_skips_sectors_without_data(self):
         daily = lambda base, drift: (lambda i: base * (1 + drift * i))
-        market_db(self.db, {"069500": daily(30000, 0.0005), "091160": daily(50000, 0.002), "091170": daily(10000, -0.001),
+        market_db(self.db, {"252650": daily(15000, 0.0005), "069500": daily(30000, -0.0015),       # 대형주 기준이 더 약함
+                            "091160": daily(50000, 0.002), "091170": daily(10000, -0.001),
                             "305720": lambda i: 20000 if i > 200 else None})  # 2차전지: only ~20 weeks of history
         before = hashlib.sha256(self.db.read_bytes()).hexdigest()
         report = build_sector_rotation(self.db, AS_OF.isoformat())
@@ -80,16 +81,31 @@ class SectorRotationTests(unittest.TestCase):
         self.assertEqual(reasons["battery"], "주간 시세 이력 부족")
         self.assertEqual(reasons["auto"], "기준일 시세 없음")
         self.assertEqual(report["schema"], "kqs-sector-rotation/v1")
+        # EINT-047: 동일가중이 기본 기준, KODEX 200은 참고 분면, 1주 절대 등락률, 대형주 쏠림 안내
+        self.assertEqual((report["benchmark"]["symbol"], report["reference_benchmark"]["symbol"]), ("252650", "069500"))
+        self.assertIsNotNone(names["semis"]["return_1w_pct"])
+        self.assertIn(names["banks"]["reference"]["quadrant"], {"leading", "weakening", "lagging", "improving"})
+        self.assertGreater(names["banks"]["reference"]["relative_4w_pct"], names["banks"]["relative_4w_pct"])  # 약한 기준 대비 더 좋아 보임
+        conc = report["concentration"]
+        self.assertLess(conc["gap_pctp"], 0)
+        self.assertEqual(conc["direction"], "mega_caps_weaker")
+        self.assertEqual(conc["notice"], abs(conc["gap_pctp"]) >= 5)
+
+    def test_without_reference_benchmark_the_view_is_simply_absent(self):
+        market_db(self.db, {"252650": lambda i: 15000 + i, "091160": lambda i: 50000 + 3 * i})
+        report = build_sector_rotation(self.db, AS_OF.isoformat())
+        self.assertIsNone(report["sectors"][0]["reference"])
+        self.assertEqual((report["concentration"]["gap_pctp"], report["concentration"]["notice"]), (None, False))
 
     def test_missing_benchmark_bar_on_session_fails_closed(self):
-        market_db(self.db, {"069500": lambda i: 30000, "091160": lambda i: 50000})
+        market_db(self.db, {"252650": lambda i: 30000, "091160": lambda i: 50000})
         with self.assertRaises(SectorRotationError):
             build_sector_rotation(self.db, (AS_OF + timedelta(days=1)).isoformat())
         with self.assertRaises(SectorRotationError):
             build_sector_rotation(Path(self.directory.name) / "absent.sqlite3", AS_OF.isoformat())
 
     def test_write_is_atomic_and_world_readable(self):
-        market_db(self.db, {"069500": lambda i: 30000 + i, "091160": lambda i: 50000 + 3 * i})
+        market_db(self.db, {"252650": lambda i: 30000 + i, "091160": lambda i: 50000 + 3 * i})
         target = Path(self.directory.name) / "state" / "sector-rotation.json"
         write_sector_rotation(target, build_sector_rotation(self.db, AS_OF.isoformat()))
         self.assertEqual(json.loads(target.read_text())["schema"], "kqs-sector-rotation/v1")

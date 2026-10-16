@@ -1,6 +1,9 @@
 """Sector rotation (RRG) for the website's reference chart (EINT-021).
 
-Domestic sector ETFs against KODEX 200, on weekly closes from the collected KRX daily bars:
+Domestic sector ETFs against KODEX 200 Equal Weight (EINT-047; KODEX 200 is kept as a reference view), on weekly
+closes from the collected KRX daily bars. The cap-weighted KODEX 200 is dominated by two mega caps, so against it the
+whole board tilted one way (2025-10..2026-10: 42% of sector-weeks "lagging" in the mega-cap rally, every sector
+"leading" in the October 2026 mega-cap crash); the two benchmarks agreed on only 58% of sector-weeks.
 
 - relative strength  RS  = 100 * sector / benchmark
 - RS-Ratio    = 100 * EMA(RS, SHORT) / EMA(RS, LONG)   (above 100: the sector has been beating the market lately)
@@ -27,7 +30,9 @@ from datetime import date
 from pathlib import Path
 
 SCHEMA = "kqs-sector-rotation/v1"
-BENCHMARK = ("069500", "KODEX 200")
+BENCHMARK = ("252650", "KODEX 200 동일가중")       # EINT-047: default comparison
+REFERENCE_BENCHMARK = ("069500", "KODEX 200")     # reference view only
+CONCENTRATION_GAP_PCT = 5.0                       # |4w return KODEX 200 - equal weight| at or above this -> notice
 SHORT, LONG, MOMENTUM = 4, 13, 4   # EMA spans in weeks
 WARMUP = LONG * 2                   # weeks before the first published point (EMA settles)
 TAIL_WEEKS = 12                     # trail points published per sector
@@ -112,7 +117,7 @@ def build_sector_rotation(market_db: Path, as_of: str) -> dict:
     except OSError as exc:
         raise SectorRotationError("Market DB does not exist.") from exc
     start = date.fromordinal(date.fromisoformat(as_of).toordinal() - HISTORY_WEEKS * 7 - 7).isoformat()
-    symbols = [BENCHMARK[0]] + [symbol for _, _, symbol in SECTORS]
+    symbols = [BENCHMARK[0], REFERENCE_BENCHMARK[0]] + [symbol for _, _, symbol in SECTORS]
     connection = sqlite3.connect(resolved.as_uri() + "?mode=ro", uri=True, timeout=30)
     try:
         connection.execute("PRAGMA query_only = ON")
@@ -133,6 +138,7 @@ def build_sector_rotation(market_db: Path, as_of: str) -> dict:
     if len(bench) < WARMUP + 2 or max(bench) != as_of:
         raise SectorRotationError("Benchmark history is too short or has no bar on the session.")
     weeks = sorted(bench)
+    reference = weekly_closes(by_symbol.get(REFERENCE_BENCHMARK[0], []))
 
     sectors, skipped = [], []
     for key, label, symbol in SECTORS:
@@ -154,20 +160,39 @@ def build_sector_rotation(market_db: Path, as_of: str) -> dict:
             continue
         now, before = trail[-1], trail[-5] if len(trail) >= 5 else trail[0]
         relative = [100.0 * s / b for s, b in zip(sector_series, bench_series)]
+        ref_common = [day for day in common if day in reference]
+        ref_view = None
+        if len(ref_common) >= WARMUP + 2 and ref_common[-1] == common[-1]:
+            ref_point = rrg_series([closes[d] for d in ref_common], [reference[d] for d in ref_common])[-1]
+            ref_rel = [100.0 * closes[d] / reference[d] for d in ref_common]
+            ref_view = {"quadrant": quadrant(*ref_point), "rs_ratio": ref_point[0], "rs_momentum": ref_point[1],
+                        "relative_4w_pct": _pct(ref_rel, 4)}
         sectors.append({
             "key": key, "name": label, "symbol": symbol, "etf_name": names.get(symbol, ""),
             "quadrant": quadrant(now["rs_ratio"], now["rs_momentum"]),
             "quadrant_4w_ago": quadrant(before["rs_ratio"], before["rs_momentum"]),
             "rs_ratio": now["rs_ratio"], "rs_momentum": now["rs_momentum"],
+            "return_1w_pct": _pct(sector_series, 1),
             "return_4w_pct": _pct(sector_series, 4), "return_12w_pct": _pct(sector_series, 12),
             "relative_4w_pct": _pct(relative, 4), "relative_12w_pct": _pct(relative, 12),
-            "trail": trail,
+            "trail": trail, "reference": ref_view,
         })
     if not sectors:
         raise SectorRotationError("No sector ETF has enough history.")
     digest = hashlib.sha256(json.dumps(sectors, ensure_ascii=False, sort_keys=True,
                                        separators=(",", ":")).encode()).hexdigest()
+    bench_series_all = [bench[d] for d in weeks]
+    ref_weeks = [d for d in weeks if d in reference]
+    ref_4w = _pct([reference[d] for d in ref_weeks], 4) if ref_weeks and ref_weeks[-1] == weeks[-1] else None
+    ew_4w = _pct(bench_series_all, 4)
+    gap = round(ref_4w - ew_4w, 2) if ref_4w is not None and ew_4w is not None else None
+    concentration = {"cap_weighted_4w_pct": ref_4w, "equal_weight_4w_pct": ew_4w, "gap_pctp": gap,
+                     "threshold_pctp": CONCENTRATION_GAP_PCT, "notice": gap is not None and abs(gap) >= CONCENTRATION_GAP_PCT,
+                     "direction": None if gap is None else ("mega_caps_weaker" if gap < 0 else "mega_caps_stronger")}
     return {"schema": SCHEMA, "as_of": as_of, "latest_week": weeks[-1], "benchmark": {"symbol": BENCHMARK[0], "name": BENCHMARK[1]},
+            "reference_benchmark": {"symbol": REFERENCE_BENCHMARK[0], "name": REFERENCE_BENCHMARK[1]},
+            "benchmark_return_1w_pct": _pct(bench_series_all, 1), "benchmark_return_4w_pct": ew_4w,
+            "concentration": concentration,
             "smoothing_weeks": {"short": SHORT, "long": LONG, "momentum": MOMENTUM}, "tail_weeks": TAIL_WEEKS, "quadrant_labels": QUADRANTS,
             "sectors": sectors, "skipped": skipped, "items_sha256": digest}
 

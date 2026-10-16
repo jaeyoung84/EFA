@@ -45,4 +45,19 @@ assert.equal(m.MARKETS.us.url, '/api/market/us-sector-rotation');
 assert.ok(m.MARKETS.us.intro.includes('SPY') && m.MARKETS.kr.intro.includes('KODEX 200'));
 const us = m.summaryHtml({ ...data, benchmark: { name: 'S&P 500 (SPY)' } });
 assert.ok(us.includes('지금 시장을 이끄는 섹터는'));
+
+// EINT-047: 대형주 쏠림 안내·참고 보기·실제 등락 열(한국 자료에만), 미국 자료(새 항목 없음)는 예전 그대로
+const kr = { ...data, benchmark: { name: 'KODEX 200 동일가중' }, reference_benchmark: { name: 'KODEX 200' }, benchmark_return_1w_pct: -12.1, benchmark_return_4w_pct: -5.6,
+  concentration: { notice: true, direction: 'mega_caps_weaker', cap_weighted_4w_pct: -18.1, equal_weight_4w_pct: -10.2, gap_pctp: -7.9 },
+  sectors: data.sectors.map((s, i) => ({ ...s, return_1w_pct: -3 - i, return_4w_pct: -8 - i, reference: { quadrant: 'leading', relative_4w_pct: 9.5 } })) };
+const notice = m.concentrationHtml(kr);
+assert.ok(notice.includes('대형주 쏠림 주의') && notice.includes('-18.1%') && notice.includes('-7.9%p') && notice.includes('많이 빠져'));
+assert.equal(m.concentrationHtml({ ...kr, concentration: { ...kr.concentration, notice: false } }), '');
+assert.equal(m.concentrationHtml(data), '');
+const ref = m.referenceHtml(kr);
+assert.ok(ref.includes('KODEX 200 기준으로 보기') && ref.includes('주도 3') && ref.includes('+9.5%') && !ref.includes('<img src=x>'));
+assert.equal(m.referenceHtml(data), '');
+const krTable = m.tableHtml(kr);
+assert.ok(krTable.includes('1주 등락') && krTable.includes('-3.0%') && krTable.includes('4주 기준 대비') && !krTable.includes('12주 수익률'));
+assert.ok(m.tableHtml(data).includes('12주 수익률') && !m.tableHtml(data).includes('1주 등락'));
 console.log('Sector rotation: domain, label nudging, summary, svg, table, escaping, KR/US markets passed');
