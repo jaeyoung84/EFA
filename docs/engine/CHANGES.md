@@ -1241,3 +1241,12 @@
   engine/kqs/tests/test_pipeline.py -q`; 이어서 `python3 scripts/check_engine_evidence.py --topic
   "RSI-OBV SMA60 상승 기울기 전향 관측"`와 `git diff --check`. 배포 후 첫 신규 게시 신호부터 표본이
   시작되며 배포 전에는 관측이 시작되지 않는다.
+
+## EINT-042 — 2026-10-16: CODX-MA-002 엔진 코드의 개정 등록과 인계 검증 (Claude Code)
+
+- 배경: Codex가 97765ef(CODX-MA-002, RSI-OBV SMA60 상승 기울기 그림자 관측)에서 엔진 실행 코드(`kqs_runtime/pipeline.py`, `kqs_ops/paths.py`, 새 `kqs_runtime/rsi_obv_sma60_slope_shadow.py`)를 바꿨지만 후속 개정을 등록하지 않아 `check_revision`이 EINT-033 대비 실패했다(`scripts/tests/test_kqs_revision.py` 1건, 배포 CI 차단 원인).
+- 조치: `engine/kqs/tools/new_revision.py --change-id EINT-042`로 현재 엔진 바이트를 등록(`engine/kqs/revisions/EINT-042.json`, `docs/engine/verification/EINT-042.json`, `check_revision.py` 기본값 전환). Codex 표시 파일은 수정하지 않았다.
+- 인계 검증(CODX-MA-002 절의 인계 명령): `engine/kqs/.venv`에는 pytest가 없어 테스트용 환경으로 실행 — `test_rsi_obv_sma60_slope_shadow.py`·`test_pipeline.py` 14 통과. `check_engine_evidence.py --topic "RSI-OBV SMA60 상승 기울기 전향 관측"` 무결성 정상·직접 일치 0. 전체 `tests`·`scripts/tests`·`engine/kqs/tests`는 Codex 커밋 이전에도 실패하던 환경 의존 2건(`test_runtime.py` 저장소 밖 import·미설치 모듈 검사)을 빼고 통과.
+- 줄끝 정리(사용자 승인 "줄바꿈 정리하고", CODX-MA-001 범위): `RESULT.json` CRLF→LF·끝 줄바꿈(JSON 값 동일), `test_run.py` 끝 빈 줄 제거.
+  `PREREGISTRATION.md`·`run.py`는 해시가 RESULT.json과 CODX-MA-001 절에 기록돼 있어 바이트를 바꾸지 않았다(끝 빈 줄 1개 남음).
+- CODX-MA-001 결과 확인: 같은 날 `종가>SMA60`은 원본 진입 1,006건 중 6건만 남김(독립 재계산: 대형주 RSI 30 상향 돌파 6,538회 중 종가>SMA60 8회, 0.12% — 돌파일 종가는 SMA60보다 중앙값 12% 아래).

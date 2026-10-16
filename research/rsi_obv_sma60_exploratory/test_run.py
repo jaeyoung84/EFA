@@ -41,4 +41,3 @@ class Sma60ExploratoryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
