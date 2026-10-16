@@ -27,10 +27,10 @@ assert.ok(tiles.includes('+3,557계약') && tiles.includes('+8,445억') && tiles
 assert.equal(m.tilesHtml(m.summarize([])), '');
 
 const table = m.tableHtml([{ ...rows[0], date: '<b>x</b>' }, rows[1]]);
-assert.ok(table.indexOf('2026-10-14') < table.indexOf('&lt;b&gt;x'));      // 최신 날짜가 위
+assert.ok(table.indexOf('10-14') < table.indexOf('&lt;b&gt;x'));      // 최신 날짜가 위(모바일은 월-일만, 연도는 숨김 칸)
 assert.ok(table.includes('944.20') && table.includes('-9,000억') && table.includes('154,419') && !table.includes('<b>x</b>'));
 const crash = m.crashTableHtml([{ date: '2026-10-15', tier: 'A', kospi: 5554.22, r1: -7.57, r5: -18.37, foreign_futures_qty: 5544, foreign_spot_mn: -3758224 },
   { date: '2026-07-28', tier: 'B', kospi: 6023.66, r1: -4.2, r5: -9, foreign_futures_qty: -10, foreign_spot_mn: 1, bounce5_20: true, f20: 13.02, f60: -2 }]);
-assert.ok(crash.includes('폭락(A)') && crash.includes('-7.57%') && crash.includes('+5,544') && crash.includes('-37,582억') && crash.includes('대기') && crash.includes('+13.02%') && crash.includes('예'));
+assert.ok(crash.includes('폭락<span class="ff-opt-inline">(A)</span>') && crash.includes('-7.57%') && crash.includes('+5,544') && crash.includes('-37,582억') && crash.includes('대기') && crash.includes('+13.02%') && crash.includes('예'));
 assert.ok(m.crashTableHtml([]).includes('아직 급락 사건이 없습니다'));
 console.log('futures_flows_render ok');

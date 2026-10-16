@@ -3508,7 +3508,12 @@ a.dash-news-title:hover { color: var(--primary); text-decoration: underline; }
 .ff-table .is-up, .ff-tiles .is-up { color: var(--up); } .ff-table .is-down, .ff-tiles .is-down { color: var(--down); }
 .ff-table th.ff-group { text-align: center; border-bottom: 1px solid var(--border); }
 .ff-table td, .ff-table th { white-space: nowrap; font-variant-numeric: tabular-nums; }
-@media (max-width: 640px) { .ff-table .ff-opt { display: none; } }
+@media (max-width: 640px) {
+  .ff-table .ff-opt, .ff-table .ff-year, .ff-table .ff-opt-inline { display: none; }
+  .ff-table td, .ff-table th { padding-left: 6px; padding-right: 6px; font-size: .78rem; }
+}
+.ff-table th small { display: block; font-weight: 400; color: var(--text-muted); font-size: .64rem; }
+@media (max-width: 360px) { .ff-table td, .ff-table th { padding-left: 3px; padding-right: 3px; font-size: .7rem; } .ff-table td small { font-size: .6rem; } }
 /* EINT-047 섹터 순환: 대형주 쏠림 안내·참고 보기·실제 등락 열 */
 .rrg-notice { border-color: rgba(245,184,0,.45); background: rgba(245,184,0,.07); }
 .rrg-notice p { margin: 0; font-size: .82rem; line-height: 1.6; }
