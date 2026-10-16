@@ -1274,3 +1274,11 @@
 - 엔진 개정: EINT-045(`engine/kqs/revisions/EINT-045.json`). Codex 표시 구역(CODX-MA-002 import·단계·경로)은 그대로 두고 아래에 별도 단계로 추가.
 - 등록부: `observation_registry.json`의 밀도 항목을 `approved_awaiting_deployment`로(배포 뒤 첫 무결성 점검에서 D0와 함께 활성 목록으로 이동). `docs/CODEX_CHANGES.md`에 CODX-OBS-001 행 등록(사용자 승인).
 - 검증: `engine/kqs/tests/test_signal_density_shadow.py` 7개(사전등록 해시, 밀도 정의, 판정 시점·시한, 판정 문장, 포트폴리오 슬롯·상한·평가, D0·청산·행 구성, 첫 기록 밀도 고정), `test_pipeline.py`에 단계 기록 확인 추가.
+
+## EINT-046 — 2026-10-16: 저장소 공개 전환 후 첫 배포 점검 — 장중 잠정치 기록 수정
+
+- 저장소 공개(사용자 지시) 뒤 GitHub Actions가 다시 돌아 EINT-040~045가 처음 배포됐다. 첫 배포에서 두 가지를 고쳤다.
+  1. CI `recommendation-only (3.12)` 실패: EINT-044가 `tests/conftest.py`에 넣은 `import pytest`를 DB 안전 검사(pytest 없이 conftest를 연다)가 찾지 못함 → `pytest_asyncio.fixture`로 대체(001a05b).
+  2. 서버가 장중(11:1x KST)에 시작되며 선물·수급 수집이 돌아, 한투가 주는 **오늘 장중 잠정치**로 10/16 행을 저장하고 급락 사건(B, 5일 −14.11%)을 기록했다. 사건은 "첫 기록 고정"이라 장중 값이 남을 뻔했다.
+- 수정: 15:45 전 수집에서는 오늘 행을 저장하지 않는다. 사건은 확정(마감 뒤) 값만 기록하고 `final: true`를 붙인다. 확정 표시 없이 사건일 장중에 기록된 문서는 마감 뒤 첫 수집에서 확정 값으로 한 번 고치고, 마감 값으로 조건에 맞지 않으면 지우지 않고 `withdrawn_intraday`로 표시(화면·API에서 제외). 사전등록 판정(`observe.py`)은 한투 자료를 다시 받아 계산하므로 영향 없음.
+- 테스트: `tests/test_futures_flows.py`에 장중 미저장·잠정 사건 수정·취소 표시·확정 뒤 고정 1건 추가.

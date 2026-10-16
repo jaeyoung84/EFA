@@ -133,3 +133,35 @@ async def test_crash_events_recorded_once_and_filled_over_runs():
     await ff.update_crash_events(db, now)
     event = await db[ff.CRASH_COLLECTION].find_one({"_id": "2026-10-15"})
     assert len(event["after"]) == 21 and event["after"][-1] == ["2026-11-25", 6000] and event["f20"] == 2.0
+
+
+@pytest.mark.asyncio
+async def test_intraday_today_is_not_stored_and_provisional_events_are_fixed_after_close():
+    db = get_db()
+    kis = FakeKis(futures=[flow_row("20261016", 341, 72461, 5691.29), flow_row("20261015", 5544, 1210112, 5554.22)],
+                  spot=[flow_row("20261016", 1, 1), flow_row("20261015", 1, 1)])
+    await ff.collect_futures_flows(datetime(2026, 10, 16, 11, 15, tzinfo=KST), service=kis, db=db)
+    assert await db[ff.COLLECTION].find_one({"_id": "2026-10-16"}) is None              # 장중 오늘 행은 저장 안 함
+    # 수정 전 코드가 장중에 남긴 잠정 사건(확정 표시 없음): 마감 뒤 확정 값으로 한 번 고쳐진다
+    base = [_day_doc(f"2026-10-{d:02d}", c, ch) for d, c, ch in
+            ((6, 6941, -0.9), (7, 6804, -2.0), (8, 6626, -2.6), (12, 6384, -3.65), (13, 6035, -5.46), (14, 6009, -0.44), (15, 5554, -7.57))]
+    await db[ff.COLLECTION].delete_many({})
+    for doc in base:
+        await db[ff.COLLECTION].insert_one(doc)
+    await db[ff.CRASH_COLLECTION].insert_one({"_id": "2026-10-16", "date": "2026-10-16", "tier": "B", "kospi": 5691.29, "r1": 2.47,
+                                               "after": [], "recorded_at": datetime(2026, 10, 16, 2, 10, tzinfo=timezone.utc)})
+    await db[ff.CRASH_COLLECTION].insert_one({"_id": "2026-10-09", "date": "2026-10-09", "tier": "B", "kospi": 1.0, "r1": -5.0,
+                                               "after": [], "recorded_at": datetime(2026, 10, 9, 1, 0, tzinfo=timezone.utc)})
+    await db[ff.COLLECTION].insert_one(_day_doc("2026-10-16", 5700, 2.6))
+    await ff.update_crash_events(db, datetime(2026, 10, 16, 16, 20, tzinfo=KST))
+    fixed = await db[ff.CRASH_COLLECTION].find_one({"_id": "2026-10-16"})
+    assert fixed["final"] is True and fixed["kospi"] == 5700 and fixed["r1"] == 2.6 and "corrected_at" in fixed
+    withdrawn = await db[ff.CRASH_COLLECTION].find_one({"_id": "2026-10-09"})
+    assert withdrawn["status"] == "withdrawn_intraday"                                 # 지우지 않고 취소 표시
+    again = await db[ff.CRASH_COLLECTION].find_one({"_id": "2026-10-15"})
+    assert again["final"] is True and again["kospi"] == 5554
+    await db[ff.COLLECTION].update_one({"_id": "2026-10-16"}, {"$set": {"futures_flows.index": 9999}})
+    await ff.update_crash_events(db, datetime(2026, 10, 17, 16, 20, tzinfo=KST))
+    assert (await db[ff.CRASH_COLLECTION].find_one({"_id": "2026-10-16"}))["kospi"] == 5700  # 확정 뒤에는 고정
+    body = await ff.read_futures_flows(db)
+    assert [e["date"] for e in body["crash_events"]] == ["2026-10-16", "2026-10-15"]

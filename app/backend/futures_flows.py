@@ -142,9 +142,11 @@ async def collect_futures_flows(now: datetime | None = None, service=None, db=No
             bars = parse_chart_rows(chart.get("output2") or [])
     except Exception as exc:
         errors.append(f"futures_price: {str(exc)[:120]}")
-    days = {d for d in (*parts["futures"], *parts["spot"], *bars) if d >= cutoff}
-    # 미결제약정은 장 마감 뒤, 그날 수급이 이미 나온 날에만 그날 값으로 기록한다(장중 값·휴장일 기록 방지).
     today_iso = now.date().isoformat()
+    days = {d for d in (*parts["futures"], *parts["spot"], *bars) if d >= cutoff}
+    if now.time() < CLOSE_TIME:          # 장중에는 오늘 행이 잠정치다 — 마감 뒤 수집에서만 오늘을 저장한다
+        days.discard(today_iso)
+    # 미결제약정은 장 마감 뒤, 그날 수급이 이미 나온 날에만 그날 값으로 기록한다(장중 값·휴장일 기록 방지).
     close_snapshot = None
     if snapshot and now.time() >= CLOSE_TIME and today_iso in parts["futures"]:
         close_snapshot = {k: snapshot[k] for k in ("open_interest", "open_interest_change", "basis", "theoretical_basis", "kospi200")}
@@ -206,14 +208,35 @@ def crash_outcome(base: float, after: list) -> dict:
     return out
 
 
+def _recorded_intraday(doc: dict) -> bool:
+    """마감 확정 표시가 없고 사건일 장중(15:45 전)에 기록된 문서 — 장 마감 처리 도입 전의 잠정 기록."""
+    if doc.get("final") is True or not doc.get("recorded_at"):
+        return False
+    at = doc["recorded_at"]
+    at = (at if at.tzinfo else at.replace(tzinfo=timezone.utc)).astimezone(KST)
+    return at.date().isoformat() == doc["date"] and at.time() < CLOSE_TIME
+
+
 async def update_crash_events(db, now: datetime) -> int:
-    rows = [doc async for doc in db[COLLECTION].find({}, {"date": 1, "futures_flows": 1, "spot_flows": 1}).sort("_id", 1)]
+    local = now.astimezone(KST)
+    today = local.date().isoformat()
+    rows = [doc async for doc in db[COLLECTION].find({}, {"date": 1, "futures_flows": 1, "spot_flows": 1}).sort("_id", 1)
+            if not (doc["_id"] == today and local.time() < CLOSE_TIME)]          # 장중 오늘 행은 쓰지 않음
     found, closes = crash_events(rows)
     coll = db[CRASH_COLLECTION]
-    for event in found:      # 처음 기록한 값은 바꾸지 않는다
-        await coll.update_one({"_id": event["date"]}, {"$setOnInsert": {**event, "after": [], "recorded_at": now.astimezone(timezone.utc)}},
-                              upsert=True)
-    async for event in coll.find({"f60": {"$exists": False}}):
+    stamp = now.astimezone(timezone.utc)
+    found_dates = {e["date"] for e in found}
+    for event in found:      # 확정(마감 뒤) 값은 처음 기록 그대로 둔다. 장중 잠정 기록만 마감 값으로 한 번 고친다.
+        existing = await coll.find_one({"_id": event["date"]})
+        if existing is None:
+            await coll.insert_one({"_id": event["date"], **event, "after": [], "recorded_at": stamp, "final": True})
+        elif _recorded_intraday(existing):
+            await coll.update_one({"_id": event["date"]}, {"$set": {**event, "after": [], "final": True, "corrected_at": stamp},
+                                                           "$unset": {k: "" for k in ("f20", "f60", "bounce5_20")}})
+    async for doc in coll.find({"final": {"$ne": True}}):      # 장중에만 조건에 걸렸던 날 — 지우지 않고 취소 표시
+        if doc["_id"] not in found_dates and _recorded_intraday(doc) and (doc["_id"] < today or local.time() >= CLOSE_TIME):
+            await coll.update_one({"_id": doc["_id"]}, {"$set": {"final": True, "status": "withdrawn_intraday", "corrected_at": stamp}})
+    async for event in coll.find({"f60": {"$exists": False}, "status": {"$ne": "withdrawn_intraday"}}):
         after = list(event.get("after") or [])
         last = after[-1][0] if after else event["date"]
         after += [[d, closes[d]] for d in sorted(closes) if d > last][: 60 - len(after)]
@@ -229,6 +252,7 @@ async def read_futures_flows(db=None) -> dict:
     for row in rows:
         row.pop("_id", None)
     last_run = await db["market_futures_runs"].find_one({}, {"_id": 0}, sort=[("created_at", -1)])
-    events = [doc async for doc in db[CRASH_COLLECTION].find({}, {"_id": 0, "recorded_at": 0, "after": 0}).sort("date", -1)]
+    events = [doc async for doc in db[CRASH_COLLECTION].find({"status": {"$ne": "withdrawn_intraday"}},
+                                                             {"_id": 0, "recorded_at": 0, "corrected_at": 0, "after": 0}).sort("date", -1)]
     return {"rows": rows, "retain_days": RETAIN_DAYS, "source": SOURCE, "last_run": last_run, "crash_events": events,
             "units": {"futures_qty": "계약", "amount": "백만 원"}}   # 현물 수량 단위는 미확인이라 표시하지 않음
