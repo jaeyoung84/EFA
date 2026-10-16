@@ -141,6 +141,48 @@ def parse_candidates(text: str, directory: dict[str, str], krx=_krx_lookup) -> d
             "truncated": len(recognized) > MAX_TICKERS}
 
 
+PDF_MAX_BYTES = 8 * 1024 * 1024
+PDF_MAX_PAGES = 120
+PDF_MONTH = re.compile(r"(\d{4})년\s*(\d{1,2})월")
+
+
+def pdf_sections(data: bytes) -> list[dict]:
+    """InvestingPro 명단 PDF를 글자로 바꿔 'YYYY년 M월' 제목별로 나눈다(최신 달 먼저).
+
+    제목 없는 페이지는 앞 달에 붙인다. 제목이 하나도 없으면 전체를 한 구역(month=None)으로 돌려준다.
+    PDF 파일은 저장하지 않는다(유료 원문). 저장 시에는 고른 달의 글자만 raw_text로 남는다.
+    """
+    from pypdf import PdfReader
+    from pypdf.errors import PdfReadError
+
+    if len(data) > PDF_MAX_BYTES:
+        raise ExternalPicksError("PDF는 8MB 이하만 올릴 수 있습니다.")
+    if not data.startswith(b"%PDF"):
+        raise ExternalPicksError("PDF 파일이 아닙니다.")
+    try:
+        reader = PdfReader(io.BytesIO(data))
+        if reader.is_encrypted:
+            raise ExternalPicksError("암호가 걸린 PDF는 읽을 수 없습니다.")
+        if len(reader.pages) > PDF_MAX_PAGES:
+            raise ExternalPicksError(f"PDF는 {PDF_MAX_PAGES}쪽 이하만 읽습니다.")
+        pages = [page.extract_text() or "" for page in reader.pages]
+    except ExternalPicksError:
+        raise
+    except (PdfReadError, ValueError, KeyError, TypeError) as exc:
+        raise ExternalPicksError("PDF를 읽지 못했습니다. 파일이 손상되지 않았는지 확인하세요.") from exc
+    sections: dict[str | None, list[str]] = {}
+    current = None
+    for text in pages:
+        match = PDF_MONTH.search(text)
+        if match and 1 <= int(match.group(2)) <= 12:
+            current = f"{match.group(1)}-{int(match.group(2)):02d}"
+        sections.setdefault(current, []).append(text)
+    if not "".join(pages).strip():
+        raise ExternalPicksError("PDF에서 글자를 찾지 못했습니다(스캔 이미지 PDF는 지원하지 않음).")
+    out = [{"month": month, "pages": len(texts), "text": "\n".join(texts).strip()} for month, texts in sections.items()]
+    return sorted(out, key=lambda s: s["month"] or "", reverse=True)
+
+
 # ── 3. 저장·삭제 ───────────────────────────────────────────────────
 
 async def save_list(user_id, *, source: str, list_name: str, as_of: str, items: list[dict], raw_text: str = "") -> dict:

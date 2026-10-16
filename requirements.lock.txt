@@ -44,6 +44,7 @@ pydantic_core==2.46.5
 pyluach==2.3.0
 pymongo==4.18.2
 pyparsing==3.3.3
+pypdf==6.19.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.4
 pytz==2026.4

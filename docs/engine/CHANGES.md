@@ -1336,3 +1336,11 @@
 - 일정: 매일 19:30·07:30 KST(`collect_dart_pit`). 상태: `GET /api/market/dart-pit-status`(건수·진행·마지막 실행만, 공시 내용 없음).
 - 의미: 앞으로 정기공시마다 "그때 알 수 있었던 재무"가 쌓인다(전향). 과거는 접수일·정정 이력까지만 정확하고 숫자는 정정 후 값이다.
 - 테스트: `tests/test_dart_pit.py` 3개(보고서명 해석, 색인·스냅샷·historical·첨부·비12월·첫 기록 유지·과거 색인 진행, 호출 한도·상태 API).
+
+## EINT-052 — 2026-10-16: 외부 추천 기록 — PDF 명단 올리기
+
+- 사용자 "외부추천에 PDF로 올릴수있게 변경해". InvestingPro 한국 명단은 PDF(한 파일에 여러 달, 페이지마다 'YYYY년 M월' 제목)로 내려받는다.
+- `app/backend/external_picks.py` `pdf_sections()`: pypdf로 글자를 뽑아 'YYYY년 M월' 제목별로 나눈다(제목 없는 쪽은 앞 달에 붙임, 최신 달 먼저). 8MB·120쪽 이하, 암호·스캔 이미지·손상 PDF는 422로 안내. `POST /api/external-picks/parse-pdf`(로그인 필요, 본문 `application/pdf` 그대로라 multipart 의존성 없음)는 달별 글자만 돌려주고 **PDF를 저장하지 않는다**. 종목 인식은 기존 `/parse`, 저장 시 고른 달 글자의 SHA-256만 남는다.
+- 화면 `externalPicks.js`: 파일 선택이 PDF·CSV를 받는다. PDF면 달 선택 상자(여러 달일 때), 고른 달 글자를 입력란에 넣고 명단 이름 'YYYY년 M월', 기록 날짜 = 그달 1일(미래면 오늘). 파일 이름에 '대장주'/'저평가'가 있으면 출처를 `InvestingPro 한국 대장주 가치`/`InvestingPro 한국 저평가 가치`로 맞춘다(KR-PRO-CONSENSUS-v1 출처 이름과 같음). 두 출처를 목록 앞에 추가.
+- 확인: 실제 두 PDF(로컬, 비공개) 25개월 모두 월별 종목 수 20/15, 기존 인식기 결과가 PDF의 'A+6자리' 코드와 25개월 전부 일치. 의존성 `pypdf==6.19.0`(requirements·lock·backend 테스트).
+- 테스트: `tests/test_external_picks.py` +3(실제 PDF 추출·잘못된 파일, 달 구역 분리, 로그인 전용 API), `scripts/tests/external_picks_render.mjs`(출처 추정·달 목록·기록 날짜). 캐시 `styles.css?v=58`, `app.js?v=46`.

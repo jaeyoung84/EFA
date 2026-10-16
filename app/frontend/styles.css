@@ -3484,6 +3484,9 @@ a.dash-news-title:hover { color: var(--primary); text-decoration: underline; }
 .xp-input textarea { resize: vertical; font-family: inherit; }
 .xp-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
 .xp-actions label.dash-btn { cursor: pointer; }
+.xp-month { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--text-muted); font-size: .74rem; font-weight: 700; }
+.xp-month[hidden] { display: none; }
+.xp-month select { padding: 7px 9px; color: var(--text); background: var(--surface-soft); border: 1px solid var(--border); border-radius: 7px; font-size: .8rem; }
 .xp-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
 .xp-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; background: var(--surface-soft); border: 1px solid var(--border-strong); border-radius: 99px; font-size: .76rem; cursor: pointer; }
 .xp-chip small { color: var(--text-muted); }

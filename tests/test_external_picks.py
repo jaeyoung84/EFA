@@ -109,3 +109,56 @@ def test_backfilled_lists_are_marked_and_tracked_separately():
     created = datetime(2026, 10, 14, 3, tzinfo=timezone.utc)
     assert picks.is_backfilled({"as_of": "2024-10-31", "created_at": created})
     assert not picks.is_backfilled({"as_of": "2026-10-10", "created_at": created})     # 7일 이내 = 직접 기록
+
+
+def _ascii_pdf(lines: list[str]) -> bytes:
+    """글꼴 하나(Helvetica)로 한 쪽짜리 PDF를 만든다(실제 pypdf 추출 경로 시험용)."""
+    stream = "BT /F1 12 Tf 72 720 Td " + " ".join(f"({line}) Tj 0 -16 Td" for line in lines) + " ET"
+    objects = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+               "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+               f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream", "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+    out, offsets = b"%PDF-1.4\n", []
+    for i, body in enumerate(objects, 1):
+        offsets.append(len(out))
+        out += f"{i} 0 obj\n{body}\nendobj\n".encode()
+    xref = len(out)
+    out += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode() + "".join(f"{o:010d} 00000 n \n" for o in offsets).encode()
+    return out + f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+
+
+def test_pdf_sections_reads_real_pdf_and_rejects_bad_files():
+    sections = picks.pdf_sections(_ascii_pdf(["Samsung (A005930)KOSE", "SK hynix A000660"]))
+    assert len(sections) == 1 and sections[0]["month"] is None and sections[0]["pages"] == 1
+    result = picks.parse_candidates(sections[0]["text"], {}, lambda c: {"ticker": f"{c}.KS", "name": c})
+    assert [r["ticker"] for r in result["recognized"]] == ["005930.KS", "000660.KS"]
+    for bad in (b"not a pdf", b"%PDF-1.4\ngarbage", b"%PDF" + b"0" * picks.PDF_MAX_BYTES):
+        with pytest.raises(picks.ExternalPicksError):
+            picks.pdf_sections(bad)
+
+
+def test_pdf_sections_split_by_month_heading_latest_first(monkeypatch):
+    import pypdf
+
+    pages = ["한국 대장주 2026년 9월\nA005930", "A000660 (제목 없는 다음 쪽)", "2026년 10월 명단\nA035420", "2026년 13월 표기 아님"]
+
+    class Reader:
+        is_encrypted = False
+
+        def __init__(self, _stream):
+            self.pages = [type("P", (), {"extract_text": lambda self, t=t: t})() for t in pages]
+
+    monkeypatch.setattr(pypdf, "PdfReader", Reader)
+    sections = picks.pdf_sections(b"%PDF-1.7 fake")
+    assert [(s["month"], s["pages"]) for s in sections] == [("2026-10", 2), ("2026-09", 2)]
+    assert "A000660" in sections[1]["text"] and "A035420" in sections[0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_parse_pdf_endpoint_is_private_and_returns_sections(client, make_user):
+    pdf = _ascii_pdf(["A005930"])
+    assert (await client.post("/api/external-picks/parse-pdf", content=pdf, headers={"Content-Type": "application/pdf"})).status_code == 401
+    me = await make_user("picks-pdf@test.com")
+    ok = await client.post("/api/external-picks/parse-pdf", content=pdf, headers={**me, "Content-Type": "application/pdf"})
+    assert ok.status_code == 200 and "A005930" in ok.json()["sections"][0]["text"]
+    bad = await client.post("/api/external-picks/parse-pdf", content=b"hello", headers={**me, "Content-Type": "application/pdf"})
+    assert bad.status_code == 422 and "PDF" in bad.json()["detail"]

@@ -5,8 +5,29 @@ import { authRequest, isAuthenticated, openAuthModal } from '../auth.js';
 const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
 const signed = (value) => (value === null || value === undefined ? '-' : `${value > 0 ? '+' : ''}${Number(value).toFixed(2)}%`);
 const tone = (value) => (value > 0 ? 'is-up' : value < 0 ? 'is-down' : '');
-export const SOURCE_PRESETS = ['InvestingPro ProPicks', 'InvestingPro 저평가(Fair Value)', 'InvestingPro AI 스크리너'];
+export const SOURCE_PRESETS = ['InvestingPro 한국 저평가 가치', 'InvestingPro 한국 대장주 가치', 'InvestingPro ProPicks', 'InvestingPro 저평가(Fair Value)', 'InvestingPro AI 스크리너'];
 const todayKst = () => new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+const isPdf = (file) => file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+
+// PDF 파일 이름으로 InvestingPro 한국 명단 출처를 고른다(KR-PRO-CONSENSUS-v1은 출처 이름이 정확히 같아야 한다).
+export function sourceFromFilename(name) {
+  if (/대장주/.test(name)) return 'InvestingPro 한국 대장주 가치';
+  if (/저평가/.test(name)) return 'InvestingPro 한국 저평가 가치';
+  return null;
+}
+
+const monthLabel = (month) => (month ? `${month.slice(0, 4)}년 ${Number(month.slice(5, 7))}월` : '전체');
+
+// PDF 달별 구역 → 고를 달 목록(최신 달 먼저). 기록 날짜는 그달 1일(오늘 이후면 오늘).
+export function monthOptionsHtml(sections) {
+  return sections.map((section, index) => `<option value="${index}">${esc(monthLabel(section.month))} · ${section.pages}쪽</option>`).join('');
+}
+
+export function sectionDate(section, today = todayKst()) {
+  if (!section?.month) return today;
+  const first = `${section.month}-01`;
+  return first > today ? today : first;
+}
 
 export function previewHtml(parsed) {
   if (!parsed) return '';
@@ -74,15 +95,16 @@ export function externalPicksView(container) {
   }
   let parsed = null;
   body.innerHTML = `<section class="dash-card xp-input">
-      <header class="dash-head"><h2>명단 올리기</h2><span class="dash-sub">CSV 파일 또는 화면 표를 복사해 붙여 넣기</span></header>
+      <header class="dash-head"><h2>명단 올리기</h2><span class="dash-sub">PDF·CSV 파일 또는 화면 표를 복사해 붙여 넣기</span></header>
       <div class="xp-form">
         <label>출처<input data-xp-source list="xp-sources" value="${esc(SOURCE_PRESETS[0])}" maxlength="60"></label>
         <datalist id="xp-sources">${SOURCE_PRESETS.map((s) => `<option value="${esc(s)}">`).join('')}</datalist>
         <label>명단 이름<input data-xp-name placeholder="예: 10월 Tech Titans" maxlength="80"></label>
         <label>기록 날짜 <small>(다음 거래일 시가 진입 · 1일 리밸런싱이면 전월 말일)</small><input type="date" data-xp-date value="${todayKst()}" max="${todayKst()}"></label>
       </div>
-      <textarea data-xp-text rows="6" placeholder="InvestingPro 화면의 표를 복사해 붙여 넣거나 아래에서 CSV 파일을 고르세요."></textarea>
-      <div class="xp-actions"><label class="dash-btn"><i class="fa-solid fa-file-csv"></i> CSV 파일<input type="file" accept=".csv,.txt,.tsv" data-xp-file hidden></label>
+      <textarea data-xp-text rows="6" placeholder="InvestingPro 화면의 표를 복사해 붙여 넣거나 아래에서 PDF·CSV 파일을 고르세요."></textarea>
+      <label class="xp-month" data-xp-month-wrap hidden>PDF 달 선택<select data-xp-month></select></label>
+      <div class="xp-actions"><label class="dash-btn"><i class="fa-solid fa-file-arrow-up"></i> PDF·CSV 파일<input type="file" accept=".pdf,.csv,.txt,.tsv,application/pdf" data-xp-file hidden></label>
         <button type="button" class="dash-btn" data-xp-parse>종목 인식</button>
         <button type="button" class="dash-btn is-primary" data-xp-save disabled>저장</button></div>
       <div data-xp-preview></div><p class="dash-note" data-xp-status aria-live="polite"></p>
@@ -90,9 +112,35 @@ export function externalPicksView(container) {
     <div data-xp-report></div>`;
   const $ = (sel) => body.querySelector(sel);
   const status = (text, error = false) => { $('[data-xp-status]').textContent = text; $('[data-xp-status]').classList.toggle('is-error', error); };
+  let sections = [];
+  const resetPreview = () => { $('[data-xp-preview]').innerHTML = ''; $('[data-xp-save]').disabled = true; parsed = null; };
+  const useSection = (index) => {
+    const section = sections[index];
+    $('[data-xp-text]').value = section.text;
+    $('[data-xp-date]').value = sectionDate(section);
+    if (section.month) $('[data-xp-name]').value = monthLabel(section.month);
+    resetPreview();
+    const late = section.month && `${section.month}-01` > todayKst();
+    status(`${monthLabel(section.month)} 명단을 불러왔습니다.${late ? ' 그달 1일 전이라 기록 날짜를 오늘로 두었습니다.' : ''} "종목 인식"을 누르세요.`);
+  };
+  $('[data-xp-month]').addEventListener('change', (event) => useSection(Number(event.target.value)));
   $('[data-xp-file]').addEventListener('change', async (event) => {
     const file = event.target.files?.[0];
-    if (file) { $('[data-xp-text]').value = await file.text(); status(`${file.name}을(를) 읽었습니다. "종목 인식"을 누르세요.`); }
+    event.target.value = '';
+    if (!file) return;
+    $('[data-xp-month-wrap]').hidden = true; sections = []; resetPreview();
+    if (!isPdf(file)) { $('[data-xp-text]').value = await file.text(); status(`${file.name}을(를) 읽었습니다. "종목 인식"을 누르세요.`); return; }
+    if (file.size > 8 * 1024 * 1024) { status('PDF는 8MB 이하만 올릴 수 있습니다.', true); return; }
+    status(`${file.name}에서 글자를 읽는 중…`);
+    try {
+      ({ sections } = await authRequest('/api/external-picks/parse-pdf', { method: 'POST', headers: { 'Content-Type': 'application/pdf' }, body: file }));
+      const source = sourceFromFilename(file.name);
+      if (source) $('[data-xp-source]').value = source;
+      $('[data-xp-month]').innerHTML = monthOptionsHtml(sections);
+      $('[data-xp-month-wrap]').hidden = sections.length < 2;
+      useSection(0);
+      if (sections.length > 1) status(`${file.name}: ${sections.length}개월이 들어 있습니다. 최신 ${monthLabel(sections[0].month)} 명단을 불러왔습니다. 다른 달은 위에서 고르세요.`);
+    } catch (error) { status(error.message, true); }
   });
   $('[data-xp-parse]').addEventListener('click', async () => {
     const text = $('[data-xp-text]').value.trim();

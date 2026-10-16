@@ -16,3 +16,5 @@ apscheduler
 httpx
 websockets
 beautifulsoup4
+# 외부 추천 기록: InvestingPro 명단 PDF에서 글자 추출
+pypdf

@@ -1,9 +1,11 @@
 """외부 추천 기록 API. 로그인 사용자 본인 명단만 저장·조회·삭제한다(다른 회원에게 보이지 않음)."""
 from __future__ import annotations
 
+import asyncio
+
 from bson import ObjectId
 from bson.errors import InvalidId
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -39,6 +41,20 @@ class SaveInput(BaseModel):
 async def parse(payload: ParseInput, user: dict = Depends(current_user)) -> dict:
     """저장 전 미리보기: 붙여 넣은 글·CSV에서 종목을 인식한다(저장하지 않음)."""
     return picks.parse_candidates(payload.text, await picks.us_directory())
+
+
+@router.post("/parse-pdf")
+async def parse_pdf(request: Request, user: dict = Depends(current_user)) -> dict:
+    """PDF 본문(application/pdf)을 받아 달별 글자로 나눠 돌려준다(저장하지 않음). 종목 인식은 /parse로 한다."""
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > picks.PDF_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="PDF는 8MB 이하만 올릴 수 있습니다.")
+    data = await request.body()
+    try:
+        sections = await asyncio.to_thread(picks.pdf_sections, data)
+    except picks.ExternalPicksError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"sections": sections}
 
 
 @router.post("")
