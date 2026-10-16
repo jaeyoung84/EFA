@@ -15,6 +15,8 @@ def state_paths(state_dir: Path) -> dict:
         "instrument_catalog": state_dir / "instrument-catalog.json",
         "recommendation_outcomes": state_dir / "recommendation-outcomes.json",
         "rebound_shadow": state_dir / "rebound-shadow.json",
+        # Codex 수정: CODX-MA-002 (2026-10-16), RSI-OBV SMA60 상승 가설의 분리 저장소.
+        "rsi_obv_sma60_slope_shadow": state_dir / "rsi-obv-sma60-slope-shadow.json",
         "signal_funnel": state_dir / "signal-funnel.json",
         "sector_rotation": state_dir / "sector-rotation.json",
     }

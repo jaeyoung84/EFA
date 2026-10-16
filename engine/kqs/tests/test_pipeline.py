@@ -76,6 +76,11 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual([row["as_of"] for row in funnel["history"]], [self.as_of])
         self.assertEqual(funnel["today"]["swing"]["selected"], sum(1 for s in payload["signals"] if s["signal_type"] == "swing"))
         self.assertEqual(run["steps"]["rebound_shadow"]["status"], "written")
+        # Codex 수정: CODX-MA-002 (2026-10-16), 새 관측은 추천과 독립적으로 빈 표본부터 시작한다.
+        self.assertEqual(run["steps"]["rsi_obv_sma60_slope_shadow"]["status"], "written")
+        slope = json.loads(self.paths["rsi_obv_sma60_slope_shadow"].read_text())
+        self.assertEqual(slope["schema"], "kqs-rsi-obv-sma60-slope-shadow/v1")
+        self.assertFalse(slope["recommendations_changed"])
         # EINT-021: the fixture market has no sector-ETF history, so the step fails closed and is only recorded
         self.assertIn(run["steps"]["sector_rotation"]["status"], {"written", "failed"})
         self.assertTrue(all(KEY not in path.read_bytes().decode("latin-1") for path in self.state.rglob("*")
