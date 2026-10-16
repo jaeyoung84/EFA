@@ -111,6 +111,11 @@ def pipeline_health(directory: Path | None = None, *, now: datetime | None = Non
                                "message": "추천 게시는 정상이지만 이 정보는 이전 값일 수 있습니다."})
 
     alerts.extend(calendar_alerts(now))
+    try:
+        from .observation_registry import observation_alerts
+    except ImportError:
+        from observation_registry import observation_alerts  # type: ignore
+    alerts.extend(observation_alerts(now))   # EINT-044: 전향 관측 점검·판정 기한(45일 전 주의, 지나면 오류)
     level = "error" if any(a["level"] == "error" for a in alerts) else "warning" if alerts else "ok"
     return {
         "level": level, "alerts": alerts, "checked_at": now.isoformat(),

@@ -1,0 +1,228 @@
+{
+  "schema": "kqs-observation-registry/v1",
+  "updated_on": "2026-10-16",
+  "timezone": "Asia/Seoul",
+  "codex_change_id": "CODX-OBS-001",
+  "policy": {
+    "source_precedence": "If this registry conflicts with a locked preregistration or archived decision source, the locked source controls and this registry must be corrected without changing the hypothesis.",
+    "no_automatic_adoption": "PASS only permits a proposal. Production rules change only after independent review, explicit user approval, a new revision record, and deployment.",
+    "deadline_handling": "A deadline is never silently extended and a sparse result is not converted to PASS. Any extension requires a new preregistration and a fresh sample unless the controlling source explicitly says otherwise.",
+    "review_handling": "After every integrity review, next_required_review_on must be advanced and the review evidence linked. Missing a review does not alter the locked performance deadline."
+  },
+  "active_hypotheses": [
+    {
+      "id": "D-33-EINT-023",
+      "title": "Market-gate-OFF mean-reversion forward stream",
+      "status": "active_collection_audit_required",
+      "started_on": null,
+      "activation_event": "EINT-023 production deployment; the new stream starts from zero and must not be pooled with the earlier gate-ON stream",
+      "maturity": "swing closed 100 AND long_term closed 30, then one combined judgment",
+      "decision_deadline_on": "2028-08-28",
+      "deadline_result_if_immature": "INCONCLUSIVE_INSUFFICIENT_SAMPLE; no threshold relaxation or pooling",
+      "decision_rule": "Use the D-33 amendment and D-44 combined one-time comparison against the locked same-length D-25 baseline.",
+      "next_required_review_on": "2026-10-31",
+      "review_scope": "Confirm actual deployment/start timestamp, zero-based counters, immutable code/config/cost/data hashes, and that the old gate-ON stream is separate.",
+      "source_paths": [
+        "docs/engine/evidence_registry.json",
+        "docs/engine/verification/EINT-023.json",
+        "docs/engine/REVIEW.md"
+      ],
+      "application_policy": "No automatic rule change."
+    },
+    {
+      "id": "D-42-PULLBACK-V2",
+      "title": "Daily Trend Pullback v2 offline forward observation",
+      "status": "active_collection_audit_required",
+      "started_on": "2026-09-09",
+      "maturity": "100 closed trades excluding forced_close",
+      "decision_deadline_on": "2028-09-08",
+      "deadline_result_if_immature": "Apply the locked D-42 deadline rule; do not extend or pool.",
+      "decision_rule": "Independent one-time (a)/(b)/(c) judgment in the locked v2 runner. It is not selected by comparison with v4.",
+      "next_required_review_on": "2026-10-31",
+      "review_scope": "Confirm the offline runner is still accumulating, hashes match, forced_close is excluded, and no website/manual ledger is pooled.",
+      "source_paths": [
+        "docs/engine/evidence_registry.json",
+        "docs/engine/snapshots/2026-09-29-0c6b2e8308cc/repo/research/daily_trend_pullback_v2/run_forward.py.txt"
+      ],
+      "application_policy": "Independent result only; no website execution or automatic adoption."
+    },
+    {
+      "id": "D-43-PULLBACK-V4",
+      "title": "Daily Trend Pullback v4 offline forward observation",
+      "status": "active_collection_audit_required",
+      "started_on": "2026-09-09",
+      "maturity": "100 closed trades excluding forced_close and including market_regime exits",
+      "decision_deadline_on": "2028-09-08",
+      "deadline_result_if_immature": "Apply the locked D-43 deadline rule; do not extend or pool.",
+      "decision_rule": "Independent one-time (a)/(b)/(c) judgment in the locked v4 runner. No v2-versus-v4 winner rule is registered.",
+      "next_required_review_on": "2026-10-31",
+      "review_scope": "Confirm the offline runner is still accumulating, hashes match, exit labels are preserved, and no website/manual ledger is pooled.",
+      "source_paths": [
+        "docs/engine/evidence_registry.json",
+        "docs/engine/snapshots/2026-09-29-0c6b2e8308cc/repo/research/daily_trend_pullback_v4/run_forward.py.txt"
+      ],
+      "application_policy": "Independent result only; no v2/v4 winner selection or automatic adoption."
+    },
+    {
+      "id": "EINT-032-B1",
+      "title": "Bollinger-RSI rebound-confirmation paired shadow",
+      "status": "active",
+      "started_on": "2026-10-07",
+      "maturity": "100 completed A/B pairs",
+      "decision_deadline_on": "2028-10-07",
+      "deadline_result_if_immature": "Run the locked judgment with available completed pairs; otherwise INCONCLUSIVE, never PASS by relaxation.",
+      "decision_rule": "PASS if mean(B-A)>0 and bootstrap 95% lower bound>0; FAIL if upper bound<0; otherwise INCONCLUSIVE.",
+      "next_required_review_on": "2027-01-31",
+      "review_scope": "Check new-signal-only enrollment, pair lifecycle, missing_bar handling, preregistration hash, and separation from recommendation outcomes.",
+      "source_paths": [
+        "docs/engine/PREREGISTRATION_B_rebound_confirmation_v1.md",
+        "docs/engine/verification/EINT-032.json"
+      ],
+      "application_policy": "PASS permits proposal only; explicit user approval and a new engine revision are required."
+    },
+    {
+      "id": "CODX-MA-002",
+      "title": "RSI-OBV plus rising SMA60 paired shadow",
+      "status": "active",
+      "started_on": "2026-10-16",
+      "maturity": "B closed 100 AND B/A completion retention at least 20%",
+      "decision_deadline_on": "2028-10-16",
+      "deadline_result_if_immature": "REJECT_TOO_SPARSE",
+      "decision_rule": "Use the locked paired bootstrap/PF/lower-tail rules; EINT-043 historical results are reference only.",
+      "next_required_review_on": "2027-01-31",
+      "review_scope": "Check production activation date, shadow file continuity, selected long_term signals only, costs, and preregistration hash.",
+      "source_paths": [
+        "docs/engine/PREREGISTRATION_RSI_OBV_SMA60_SLOPE_v1.md",
+        "docs/engine/verification/EINT-042.json"
+      ],
+      "application_policy": "PASS permits proposal only; explicit user approval and a new engine revision are required."
+    },
+    {
+      "id": "KR-CRASH-REBOUND-v1",
+      "title": "KOSPI crash rebound and foreign-futures-flow prospective observation",
+      "status": "active",
+      "started_on": "2026-10-15",
+      "maturity": "10 independent event-B intervals, with every required 60-session outcome completed",
+      "event_cutoff_on": "2028-10-15",
+      "decision_deadline_on": "2029-01-31",
+      "deadline_result_if_immature": "Judge each P1-P5 under its locked minimum-count rule; under five events remains HOLD.",
+      "decision_rule": "Wilson-interval overlap rules P1-P5; P4 requires at least five events in both flow groups.",
+      "next_required_review_on": "2027-01-31",
+      "review_scope": "Check event persistence, 20/60-session fills, 20-session independence grouping, and source re-fetch capability.",
+      "source_paths": [
+        "research/futures_flows_kr/PREREGISTRATION_CRASH_REBOUND_v1.md",
+        "research/futures_flows_kr/LOCK.json"
+      ],
+      "application_policy": "Describes a market hypothesis only; a separate preregistered trading hypothesis is required for use."
+    },
+    {
+      "id": "KR-LV-v2",
+      "title": "Korean large-cap value 24-month prospective portfolio",
+      "status": "active",
+      "started_on": "2026-10-30",
+      "maturity": "24 monthly holding periods, 2026-11 through 2028-10",
+      "interim_report_on": "2027-11-10",
+      "decision_deadline_on": "2028-11-10",
+      "deadline_result_if_immature": "Missing month is a data-integrity exception; do not shorten the 24-month test or backfill with revised information.",
+      "decision_rule": "PASS/FAIL/REJECT and -15pp early-stop rules in the locked preregistration.",
+      "next_required_review_on": "2026-11-10",
+      "review_scope": "Verify the first formation ledger, timestamped commit, source hashes, next-open prices, and monthly evaluation schedule.",
+      "source_paths": [
+        "research/kr_value_v2/PREREGISTRATION_KR_LV_v2.md",
+        "research/kr_value_v2/LOCK.json",
+        "research/kr_value_v2/OPERATIONS.md"
+      ],
+      "application_policy": "PASS means small-live-use review is allowed, not automatic portfolio adoption."
+    }
+  ],
+  "descriptive_observations": [
+    {
+      "id": "EINT-019-OUTCOMES",
+      "title": "Published recommendation outcome horizons",
+      "status": "descriptive_active",
+      "next_required_review_on": "2027-01-31",
+      "review_cadence_months": 3,
+      "review_scope": "Coverage and missing-price audit for 1/5/10/20-session descriptive outcomes.",
+      "research_readiness": "MIN_SAMPLE=20 per item/horizon is display readiness, not a strategy PASS threshold.",
+      "source_paths": ["docs/engine/CHANGES.md"],
+      "application_policy": "Never substitute these proxy horizons for native exit/cost performance."
+    },
+    {
+      "id": "EINT-033-FUNNEL",
+      "title": "Mean-reversion signal-funnel and watch-candidate history",
+      "status": "descriptive_active",
+      "next_required_review_on": "2027-01-31",
+      "review_cadence_months": 3,
+      "review_scope": "Check 250-session continuity and quantify where candidates are lost; do not tune from the review.",
+      "research_readiness": "A new filter-relaxation hypothesis requires a separate preregistration and fresh sample.",
+      "source_paths": ["docs/engine/CHANGES.md"],
+      "application_policy": "Reference only."
+    },
+    {
+      "id": "CODX-SL-001",
+      "title": "Short-selling and stock-lending context accumulation",
+      "status": "descriptive_active",
+      "next_required_review_on": "2027-10-31",
+      "review_cadence_months": 12,
+      "review_scope": "Audit 20-day short and 60-day lending completeness, publication-time availability, normalization, and symbol/date coverage.",
+      "research_readiness": "After at least 12 months, 100 valid recommendation-symbol observations and 30 unique symbols may justify preregistering one mixed-factor hypothesis; they do not prove it.",
+      "source_paths": [
+        "app/backend/short_lending_reference.py",
+        "docs/engine/CHANGES.md"
+      ],
+      "application_policy": "Reference badge only until a separate mixed-factor hypothesis passes and the user approves it."
+    },
+    {
+      "id": "EINT-039-EXTERNAL-PICKS",
+      "title": "External Korean pick-list outcome tracking",
+      "status": "descriptive_active",
+      "next_required_review_on": "2027-10-31",
+      "review_cadence_months": 12,
+      "review_scope": "Publish per-cohort 1/3/6/12-month completeness; never infer a 12-month result from a shorter horizon.",
+      "research_readiness": "First source-level hypothesis review is 2028-10-31 and requires at least 12 cohorts with completed 12-month outcomes.",
+      "source_paths": [
+        "app/backend/external_picks.py",
+        "docs/engine/CHANGES.md"
+      ],
+      "application_policy": "Data comparison only; no KQS rule adoption."
+    },
+    {
+      "id": "EINT-040-FUTURES-FLOWS",
+      "title": "KOSPI futures and cash-flow 92-day reference window",
+      "status": "descriptive_active",
+      "next_required_review_on": "2027-01-31",
+      "review_cadence_months": 3,
+      "review_scope": "Audit daily completeness, source timestamps, session alignment, and rolling retention.",
+      "research_readiness": "KR-CRASH-REBOUND-v1 is the only registered outcome hypothesis using this family of data.",
+      "source_paths": [
+        "app/backend/futures_flows.py",
+        "docs/engine/CHANGES.md"
+      ],
+      "application_policy": "Market context only."
+    }
+  ],
+  "planned_not_started": [
+    {
+      "id": "CODX-DIR-002-DENSITY",
+      "title": "Market-wide mean-reversion signal-density shadow",
+      "status": "planned_not_started",
+      "activation_requirement": "A separate preregistration, code, revision record, validation, explicit user approval, and deployment define D0.",
+      "earliest_decision": "First KRX month-end after both D0+24 months and B closed 100.",
+      "relative_deadline": "First KRX month-end after D0+36 months; sparse result is REJECT_TOO_SPARSE.",
+      "source_paths": ["docs/handoff/codex/2026-10-16-rsi-obv-next-hypothesis.md"],
+      "application_policy": "Not collecting and not part of recommendations."
+    }
+  ],
+  "explicitly_not_active": [
+    {
+      "id": "CODX-EXIT-2DAY",
+      "reason": "The two-consecutive-close exit idea has no locked preregistration or collection implementation; it must not be treated as an active observation.",
+      "source_paths": ["docs/engine/CODX_EXIT_001_HANDOFF.md"]
+    },
+    {
+      "id": "EINT-043-HISTORICAL-SMA60-SLOPE",
+      "reason": "Historical reference is complete and cannot decide CODX-MA-002.",
+      "source_paths": ["docs/engine/CHANGES.md"]
+    }
+  ]
+}
