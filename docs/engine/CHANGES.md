@@ -1328,3 +1328,11 @@
 - 규칙(잠금): S = V∩L 동일 비중, 매월 첫 KRX 거래일 시가 진입(두 명단 모두 그날 09:00 KST 전 서버 수신, 늦으면 다음 거래일), 비용 매수 6.5bp·매도 24.5bp, 비교 V·L·KODEX200·200동일가중, 보유 2026-11~2028-10. 판정: 비용 후 S−V·S−L 단측 Newey–West(3) t·Holm 5% + S 누적 ≥ KODEX200 + 일별 MDD 비악화 → PASS_REVIEW_ONLY, 결측 월은 INVALID. 연속 편입은 기록만.
 - 구현: `research/external_picks_kr/forward.py`(freeze·evaluate·judge, KRX 일봉 분할 보정, 일별 평가), `test_forward.py` 5개, `OPERATIONS.md`, `LOCK.json`. 명단 원문·확정 스냅샷은 비공개(`private/`, Git 제외), 확정 해시만 `ledger_hashes.json`으로 진입 전 커밋. 명단 입력은 기존 사이트 '외부 추천 기록'(서버 수신 시각 기록)을 사용 — Codex 문서의 새 API·화면은 이번에 만들지 않음.
 - 관측 등록부: `KR-PRO-CONSENSUS-v1` 1건 추가(CODX-OBS-001 범위, 사용자 승인 "잠글 거 잠그고"). 기존 항목 불변. 첫 점검 2026-11-10.
+
+## EINT-051 — 2026-10-16: 기반 공사 — DART 정기공시 시점(PIT) 보관
+
+- 사용자 "기반 공사까지 다 하자"(Codex 분석 의견: 공시 접수일·정정 이력·수집 시각을 보존해야 재무 모델을 정직하게 검증 가능). KR-VQM-v1은 DART 재무 API가 정정 뒤 최신 값만 줘서 '분기 말+45일' 법정 기한으로 공개 시점을 대신했다.
+- `app/backend/dart_pit.py`: ① 색인 `dart_filings` — 공시목록 API(정기공시 A, 유가 Y·코스닥 K, 정정 포함 `last_reprt_at=N`), 상장사만, 접수번호를 키로 첫 기록 유지(보고서명→종류·기간·정정 표지·12월 결산 기준 재무 API 코드). 매 실행 최근 7일 + 과거 2015-01부터 6개월씩(약 12일에 완료). ② 스냅샷 `dart_pit_financials` — 원본·[기재정정] 정기공시를 **접수 후 7일 안에** 전체 재무제표(손익·재무상태·현금흐름, 연결 우선)로 받아 접수번호·수집 시각·접수 후 경과일·해시와 함께 저장. 7일이 지난 공시(과거 색인 포함)는 'historical'(접수일만), 첨부 공시는 'attachment', 비12월 결산은 'unmapped'. 실행당 DART 호출 1,500회 상한·0.15초 간격.
+- 일정: 매일 19:30·07:30 KST(`collect_dart_pit`). 상태: `GET /api/market/dart-pit-status`(건수·진행·마지막 실행만, 공시 내용 없음).
+- 의미: 앞으로 정기공시마다 "그때 알 수 있었던 재무"가 쌓인다(전향). 과거는 접수일·정정 이력까지만 정확하고 숫자는 정정 후 값이다.
+- 테스트: `tests/test_dart_pit.py` 3개(보고서명 해석, 색인·스냅샷·historical·첨부·비12월·첫 기록 유지·과거 색인 진행, 호출 한도·상태 API).

@@ -1110,6 +1110,16 @@ async def market_krx_futures() -> dict:
     return await kospi200_futures(kis_service())
 
 
+@app.get("/api/market/dart-pit-status")
+async def market_dart_pit_status() -> dict:
+    """EINT-051: DART 정기공시 시점 보관 현황(건수·과거 색인 진행·마지막 실행). 공시 내용은 돌려주지 않는다."""
+    try:
+        from .dart_pit import status
+    except ImportError:
+        from dart_pit import status  # type: ignore
+    return await status()
+
+
 @app.get("/api/market/futures-flows")
 async def market_futures_flows() -> dict:
     """EINT-040: 저장된 최근 3개월 코스피200 선물·현물 투자자별 일별 수급, 선물 일봉, 장 마감 미결제약정(한투 원자료)."""

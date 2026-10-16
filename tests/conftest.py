@@ -33,6 +33,7 @@ TEST_COLLECTIONS = [
     "us_holding_news_cache", "us_holding_sec_filings_cache",
     "external_pick_lists", "external_pick_prices", "us_asset_directory",
     "market_futures_daily", "market_futures_runs", "market_crash_events",
+    "dart_filings", "dart_pit_financials", "dart_pit_state", "dart_pit_runs",
 ]
 
 

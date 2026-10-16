@@ -26,6 +26,7 @@ try:
     from .us_portfolio_updates import collect_us_portfolio_updates
     from .us_market_data import collect_us_market_data
     from .futures_flows import collect_futures_flows
+    from .dart_pit import run as collect_dart_pit
     from .us_equity_data import collect_us_equity_data
     from .external_picks import collect_prices as collect_external_pick_prices
     from .market_data import MarketDataError, capture_market_data_lineage_snapshot, get_daily_ohlcv, market_factor_snapshot, sync_market_data_alerts
@@ -41,6 +42,7 @@ except ImportError:
     from us_portfolio_updates import collect_us_portfolio_updates  # type: ignore
     from us_market_data import collect_us_market_data  # type: ignore
     from futures_flows import collect_futures_flows  # type: ignore
+    from dart_pit import run as collect_dart_pit  # type: ignore
     from us_equity_data import collect_us_equity_data  # type: ignore
     from external_picks import collect_prices as collect_external_pick_prices  # type: ignore
     from market_data import MarketDataError, capture_market_data_lineage_snapshot, get_daily_ohlcv, market_factor_snapshot, sync_market_data_alerts
@@ -511,6 +513,18 @@ def start_scheduler() -> None:
         max_instances=1,
         misfire_grace_time=7200,
         next_run_time=datetime.now(timezone.utc) + timedelta(seconds=120),
+    )
+    # EINT-051: DART 정기공시 시점(PIT) 보관 — 접수일·정정 색인(2015~ 매 실행 6개월씩)과 접수 7일 안 재무 스냅샷. 19:30·07:30.
+    _scheduler.add_job(
+        collect_dart_pit,
+        "cron",
+        hour="7,19",
+        minute=30,
+        timezone="Asia/Seoul",
+        id="collect_dart_pit",
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=7200,
     )
     _scheduler.start()
     logger.info("백그라운드 시세(%d분)·일봉 수집(평일 장 마감 후)·모의계좌 스냅샷 스케줄러 시작", QUOTE_REFRESH_INTERVAL_MINUTES)
