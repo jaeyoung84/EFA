@@ -1,0 +1,212 @@
+{
+  "change_id": "EINT-043",
+  "status": "exploratory_reference_consumed_historical_window",
+  "rule": "A = CODX-MA-001 baseline; B = A where SMA60[signal] > SMA60[signal-1], else cash",
+  "database": "/home/gram/IV-TEST/research/kr_value_quality_v1/data/krx_daily.sqlite3",
+  "measured_start": "2017-09-05",
+  "measured_end": "2026-10-13",
+  "hashes": {
+    "database_sha256": "1037737ef17104d0faed0ad5cba8e32bf44f6dfa5801b20227936444fc341b98",
+    "preregistration_sha256": "18219b411d8322b51766dc971e985b0b08f2d3c5975144e9a974b444901a49c4",
+    "runner_sha256": "e2fd672030c600c3da778fbc113f16b9dd5e18c3336ae8c0db50edf8cde75cac",
+    "base_runner_sha256": "6541200198ed093cea873f3fe3094f034ff7c7c3ecfe46186f248200cd59c7f5"
+  },
+  "results": {
+    "A": {
+      "all": {
+        "closed_trades": 1002,
+        "open_trades": 4,
+        "win_rate": 0.688622754491018,
+        "mean_net_return": 0.019733234458514357,
+        "median_net_return": 0.03686951367995461,
+        "profit_factor": 1.569745259890549,
+        "payoff_ratio": 0.7097978566461612,
+        "q05_net_return": -0.22016192196396053,
+        "q95_net_return": 0.18659929627675817,
+        "average_holding_sessions": 17.823353293413174,
+        "profitable_window_share": 0.75,
+        "window_count": 36
+      },
+      "KOSPI": {
+        "closed_trades": 642,
+        "open_trades": 3,
+        "win_rate": 0.719626168224299,
+        "mean_net_return": 0.020224217969908375,
+        "median_net_return": 0.03544489460084854,
+        "profit_factor": 1.709110142955151,
+        "payoff_ratio": 0.6658870686838251,
+        "q05_net_return": -0.19282181936478388,
+        "q95_net_return": 0.1628107372615981,
+        "average_holding_sessions": 16.702492211838006,
+        "profitable_window_share": 0.8285714285714286,
+        "window_count": 35
+      },
+      "KOSDAQ": {
+        "closed_trades": 360,
+        "open_trades": 1,
+        "win_rate": 0.6333333333333333,
+        "mean_net_return": 0.01885764719652836,
+        "median_net_return": 0.040205732919698534,
+        "profit_factor": 1.4140932932924617,
+        "payoff_ratio": 0.8186855908535304,
+        "q05_net_return": -0.26657969818545496,
+        "q95_net_return": 0.21471818636655174,
+        "average_holding_sessions": 19.822222222222223,
+        "profitable_window_share": 0.6388888888888888,
+        "window_count": 36
+      },
+      "deployment": {
+        "cagr": 0.029519140811741895,
+        "realized_event_mdd": -0.28194137161058574,
+        "ending_equity_multiple": 1.303220813377596,
+        "deployed_trades": 680,
+        "skipped_daily_cap": 80,
+        "skipped_no_slot": 246,
+        "skipped_duplicate": 0,
+        "calendar_exposure_share": 0.9290438965724594,
+        "note": "MDD is measured at entry/exit cash events and understates intrahold drawdown."
+      }
+    },
+    "B": {
+      "all": {
+        "closed_trades": 56,
+        "open_trades": 1,
+        "win_rate": 0.6785714285714286,
+        "mean_net_return": 0.014000030722244932,
+        "median_net_return": 0.024502601355934628,
+        "profit_factor": 1.329897618289159,
+        "payoff_ratio": 0.6299515034001281,
+        "q05_net_return": -0.2411401518393223,
+        "q95_net_return": 0.2326369956556164,
+        "average_holding_sessions": 18.571428571428573,
+        "profitable_window_share": 0.6206896551724138,
+        "window_count": 29
+      },
+      "KOSPI": {
+        "closed_trades": 29,
+        "open_trades": 1,
+        "win_rate": 0.6206896551724138,
+        "mean_net_return": -0.0008144512684349577,
+        "median_net_return": 0.009451341618398112,
+        "profit_factor": 0.9786809116784859,
+        "payoff_ratio": 0.5980827793590747,
+        "q05_net_return": -0.1907362487459126,
+        "q95_net_return": 0.14623996454429597,
+        "average_holding_sessions": 17.862068965517242,
+        "profitable_window_share": 0.6111111111111112,
+        "window_count": 18
+      },
+      "KOSDAQ": {
+        "closed_trades": 27,
+        "open_trades": 0,
+        "win_rate": 0.7407407407407407,
+        "mean_net_return": 0.029911881749271483,
+        "median_net_return": 0.038218408410131355,
+        "profit_factor": 1.6366158435619829,
+        "payoff_ratio": 0.572815545246694,
+        "q05_net_return": -0.2739451384588652,
+        "q95_net_return": 0.28210148896821,
+        "average_holding_sessions": 19.333333333333332,
+        "profitable_window_share": 0.6666666666666666,
+        "window_count": 21
+      },
+      "deployment": {
+        "cagr": 0.0025915754312322292,
+        "realized_event_mdd": -0.06282694575880854,
+        "ending_equity_multiple": 1.0238417713350483,
+        "deployed_trades": 57,
+        "skipped_daily_cap": 0,
+        "skipped_no_slot": 0,
+        "skipped_duplicate": 0,
+        "calendar_exposure_share": 0.3893565844858689,
+        "note": "MDD is measured at entry/exit cash events and understates intrahold drawdown."
+      }
+    },
+    "retention_closed": 0.05588822355289421,
+    "slope_unknown_signals": 0,
+    "paired_diff": {
+      "signals": 1002,
+      "mean": -0.018950797611762146,
+      "bootstrap95": [
+        -0.02637271338417678,
+        -0.011727082166351314
+      ],
+      "seed": 20261016,
+      "draws": 10000
+    },
+    "yearly": {
+      "2017": {
+        "A_mean": 0.0373,
+        "A_n": 19,
+        "B_mean": 0.146,
+        "B_n": 2
+      },
+      "2018": {
+        "A_mean": 0.0053,
+        "A_n": 119,
+        "B_mean": -0.0706,
+        "B_n": 5
+      },
+      "2019": {
+        "A_mean": -0.0162,
+        "A_n": 115,
+        "B_mean": -0.0447,
+        "B_n": 5
+      },
+      "2020": {
+        "A_mean": 0.0528,
+        "A_n": 129,
+        "B_mean": -0.0469,
+        "B_n": 5
+      },
+      "2021": {
+        "A_mean": 0.0152,
+        "A_n": 102,
+        "B_mean": -0.0076,
+        "B_n": 8
+      },
+      "2022": {
+        "A_mean": 0.0328,
+        "A_n": 157,
+        "B_mean": 0.0029,
+        "B_n": 5
+      },
+      "2023": {
+        "A_mean": 0.0337,
+        "A_n": 129,
+        "B_mean": -0.0073,
+        "B_n": 7
+      },
+      "2024": {
+        "A_mean": 0.0155,
+        "A_n": 129,
+        "B_mean": 0.0511,
+        "B_n": 12
+      },
+      "2025": {
+        "A_mean": 0.01,
+        "A_n": 54,
+        "B_mean": 0.108,
+        "B_n": 4
+      },
+      "2026": {
+        "A_mean": -0.0018,
+        "A_n": 49,
+        "B_mean": 0.1183,
+        "B_n": 3
+      }
+    },
+    "codx_ma_002_rule_applied_to_history": {
+      "label": "REJECT_TOO_SPARSE",
+      "conditions": {
+        "B_closed_ge_100": false,
+        "retention_ge_20pct": false,
+        "diff_ci_low_gt_0": false,
+        "B_pf_gt_A_pf": false,
+        "B_q05_ge_A_q05": false
+      },
+      "note": "참고 표시. CODX-MA-002 판정은 2026-10-16 이후 실제 게시 신호로만 한다."
+    }
+  },
+  "executed_at": "2026-10-16T00:37:26.740292+00:00"
+}
