@@ -1,0 +1,101 @@
+name: Pull KIS NXT pre-market minute bars
+# 조회 전용: 운영 백엔드 컨테이너의 한투 키로 research/nxt_premarket/pull.py를 실행하고
+# 결과(gzip JSON)를 아티팩트로 받는다. 주문·배포·DB 쓰기 없음. 수동 실행 전용.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "pilot (1일 2종목) 또는 full (selection.json 전체)"
+        required: true
+        default: pilot
+        type: choice
+        options: [pilot, full]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: investment-analysis-main
+  cancel-in-progress: false
+
+env:
+  INSTANCE_ID: i-0dc146c28dca4089b
+
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::125022369601:role/github-actions-investing-deploy
+          aws-region: ap-northeast-2
+      - name: Run the collector on the production backend
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          ssm() {   # $1 = parameters json file, $2 = timeout seconds; prints stdout
+            local id status
+            id=$(aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript \
+              --comment "kis nxt minute pull" --timeout-seconds 600 \
+              --parameters "file://$1" --query Command.CommandId --output text)
+            status=Pending
+            for _ in $(seq 1 $(( $2 / 5 ))); do
+              status=$(aws ssm get-command-invocation --command-id "$id" --instance-id "$INSTANCE_ID" \
+                --query Status --output text 2>/dev/null || echo Pending)
+              case "$status" in Success|Failed|Cancelled|TimedOut|Cancelling) break ;; esac
+              sleep 5
+            done
+            aws ssm get-command-invocation --command-id "$id" --instance-id "$INSTANCE_ID" \
+              --query StandardOutputContent --output text
+            if [ "$status" != Success ]; then
+              aws ssm get-command-invocation --command-id "$id" --instance-id "$INSTANCE_ID" \
+                --query '[Status,StandardErrorContent]' --output text >&2
+              return 1
+            fi
+          }
+          bundle=$(tar czf - -C research/nxt_premarket pull.py selection.json | base64 -w0)
+          python3 - "$RUNNER_TEMP/run.json" "$bundle" "$MODE" <<'PY'
+          import json, shlex, sys
+          path, bundle, mode = sys.argv[1:4]
+          runner = ("import runpy,sys; sys.argv=['pull.py', %r, '/tmp/kisnxt/out.json.gz']; "
+                    "runpy.run_path('/tmp/kisnxt/pull.py', run_name='__main__')") % mode
+          commands = [
+              "set -eu",
+              "rm -rf /tmp/kisnxt && mkdir -p /tmp/kisnxt",
+              f"echo {bundle} | base64 -d | tar xzf - -C /tmp/kisnxt",
+              "docker exec investment_backend rm -rf /tmp/kisnxt",
+              "docker cp /tmp/kisnxt investment_backend:/tmp/kisnxt",
+              "docker exec investment_backend python -c " + shlex.quote(runner),
+              "docker cp investment_backend:/tmp/kisnxt/out.json.gz /tmp/kisnxt/out.json.gz",
+              "docker exec investment_backend rm -rf /tmp/kisnxt",
+              "base64 -w0 /tmp/kisnxt/out.json.gz > /tmp/kisnxt/out.b64",
+              "echo B64SIZE=$(wc -c < /tmp/kisnxt/out.b64)",
+          ]
+          json.dump({"commands": commands, "executionTimeout": ["3600"]}, open(path, "w"))
+          PY
+          ssm "$RUNNER_TEMP/run.json" 3900 | tee "$RUNNER_TEMP/run.out"
+          size=$(grep -o 'B64SIZE=[0-9]*' "$RUNNER_TEMP/run.out" | cut -d= -f2)
+          chunk=20000
+          : > "$RUNNER_TEMP/out.b64"
+          for i in $(seq 0 $(( (size - 1) / chunk ))); do
+            printf '{"commands":["dd if=/tmp/kisnxt/out.b64 bs=%s skip=%s count=1 status=none"]}' "$chunk" "$i" > "$RUNNER_TEMP/c.json"
+            ssm "$RUNNER_TEMP/c.json" 120 | tr -d '\n\r\t ' >> "$RUNNER_TEMP/out.b64"
+          done
+          echo '{"commands":["rm -rf /tmp/kisnxt"]}' > "$RUNNER_TEMP/clean.json"
+          ssm "$RUNNER_TEMP/clean.json" 60
+          mkdir -p out
+          base64 -d "$RUNNER_TEMP/out.b64" > "out/kis_nxt_${MODE}.json.gz"
+          gzip -t "out/kis_nxt_${MODE}.json.gz"
+          ls -l out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kis-nxt-${{ inputs.mode }}
+          path: out/
+          retention-days: 7
