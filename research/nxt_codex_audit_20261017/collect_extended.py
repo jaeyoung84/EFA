@@ -22,8 +22,17 @@ async def main():
     svc=kis_service()
     if not svc.enabled:raise RuntimeError('KIS unavailable')
     token=await svc._load_stored_token()
-    if not token or svc._token[1]-svc._clock()<1800:
-        raise RuntimeError('Existing token unavailable or expires too soon; no token issuance allowed')
+    auth_mode='stored_token'
+    if not token or svc._token[1]-svc._clock()<900:
+        # User explicitly approved one quote-access-token renewal after first run failed.
+        original_load=svc._load_stored_token
+        async def no_short_lived_token():return None
+        svc._load_stored_token=no_short_lived_token
+        svc._token=None
+        token=await svc._access_token()
+        svc._load_stored_token=original_load
+        auth_mode='renewed_once'
+    print(json.dumps({'authentication':auth_mode}),flush=True)
     async def stored_token_only():
         if svc._clock()>=svc._token[1]:raise RuntimeError('Stored token expired')
         return token
