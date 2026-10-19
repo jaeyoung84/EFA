@@ -79,7 +79,7 @@ export function supertrendChartView(container) {
       <div class="st-sub-label">거래량 <small>(막대 색: 전일 대비 상승 빨강 · 하락 파랑)</small></div>
       <div data-st-volume></div>
       <details class="st-adx" open>
-        <summary>추세 강도 ADX14 <small>(20·25는 관행적 눈금 · 방향은 슈퍼트렌드로 따로 확인)</small></summary>
+        <summary>추세 강도 ADX14 <small>(점선 20·25는 관행적 눈금 · 방향은 슈퍼트렌드로 따로 확인)</small></summary>
         <label class="st-toggle"><input type="checkbox" data-st-di> +DI / -DI 표시</label>
         <div data-st-adx></div>
       </details>
@@ -176,14 +176,15 @@ export function supertrendChartView(container) {
       state.data = data;
       state.selected = null;
       persist();
-      renderAll();
     } catch (error) {
       if (!alive || current !== requestId) return;
       state.data = null;
       destroyCharts();
       $('[data-st-status]').innerHTML = `<p class="efa-error">차트 데이터 없음: ${esc(error.message)}</p>`;
       $('[data-st-selected]').innerHTML = ''; $('[data-st-flips]').innerHTML = '';
+      return;
     }
+    renderAll();
   }
 
   function bars() { return state.data?.bars || []; }
@@ -227,6 +228,14 @@ export function supertrendChartView(container) {
   }
 
   function renderCharts() {
+    try { drawCharts(); } catch (error) {
+      // 그리기 오류는 시세 없음과 다르다. 상태표·전환 기록은 그대로 둔다.
+      destroyCharts();
+      $('[data-st-price]').innerHTML = `<p class="efa-error">차트 그리기 오류: ${esc(error.message)}</p>`;
+    }
+  }
+
+  function drawCharts() {
     container.querySelectorAll('[data-st-range]').forEach((button) => button.classList.toggle('is-active', button.dataset.stRange === state.range));
     if (!state.data || typeof ApexCharts === 'undefined') return;
     destroyCharts();
@@ -296,7 +305,7 @@ export function supertrendChartView(container) {
         } },
       grid: { borderColor: '#1e2a3f', strokeDashArray: 3 },
       xaxis: { type: 'datetime', labels: { datetimeUTC: false, format: 'yy-MM-dd', style: { fontSize: '10px' } }, tooltip: { enabled: false } },
-      tooltip: { shared: true, x: { format: 'yyyy-MM-dd' } },
+      tooltip: { shared: true, intersect: false, x: { format: 'yyyy-MM-dd' } },
       dataLabels: { enabled: false }, legend: { show: false },
       annotations: { xaxis: selectionLine },
     };
@@ -306,13 +315,14 @@ export function supertrendChartView(container) {
         toolbar: { show: true, tools: { download: false, selection: false, zoom: true, zoomin: true, zoomout: true, pan: true, reset: true } },
         zoom: { enabled: true, type: 'x' } },
       series, colors,
-      stroke: { width: widths, dashArray: dashes, curve: 'straight' },
+      // 캔들 테두리 외의 선 색을 명시하지 않으면 ApexCharts가 회색으로 그린다.
+      stroke: { width: widths, dashArray: dashes, curve: 'straight', colors: [COLORS.muted, ...colors.slice(1)] },
       plotOptions: { candlestick: { colors: { upward: COLORS.candleUp, downward: COLORS.candleDown }, wick: { useFillColor: true } } },
       xaxis: { ...common.xaxis, labels: { ...common.xaxis.labels, show: false } },
       yaxis: { opposite: true, min: Math.min(...lows) * 0.97, max: Math.max(...highs) * 1.03, tickAmount: 6,
         labels: { ...yLabels, formatter: (value) => fmt(value, value >= 1000 ? 0 : 2) } },
       annotations: { xaxis: selectionLine, points },
-      tooltip: { shared: true, x: { format: 'yyyy-MM-dd' }, y: { formatter: (value) => (num(value) ? fmt(value) : '') } },
+      tooltip: { shared: true, intersect: false, x: { format: 'yyyy-MM-dd' }, y: { formatter: (value) => (num(value) ? fmt(value) : '') } },
     });
     const hasVolume = shown.some((row) => num(row.v) && row.v > 0);
     const volume = new ApexCharts($('[data-st-volume]'), { ...common,
@@ -334,10 +344,10 @@ export function supertrendChartView(container) {
     }
     const adx = new ApexCharts($('[data-st-adx]'), { ...common,
       chart: { ...common.chart, id: 'st-adx', type: 'line', height: narrow ? 120 : 150 },
-      series: adxSeries, colors: adxColors, stroke: { width: 1.6, curve: 'straight' },
+      series: adxSeries, colors: adxColors, stroke: { width: 1.6, curve: 'straight', colors: adxColors },
       yaxis: { opposite: true, min: 0, max: Math.max(50, ...shown.map((row) => row.adx || 0), ...(state.showDi ? shown.map((row) => Math.max(row.plus_di || 0, row.minus_di || 0)) : [])),
         tickAmount: 4, labels: { ...yLabels, formatter: (value) => fmt(value, 0) } },
-      annotations: { xaxis: selectionLine, yaxis: [20, 25].map((y) => ({ y, borderColor: '#565f74', strokeDashArray: 4, label: { text: String(y), position: 'left', style: { background: 'transparent', color: '#8590a6' } } })) },
+      annotations: { xaxis: selectionLine, yaxis: [20, 25].map((y) => ({ y, borderColor: '#565f74', strokeDashArray: 4 })) },
     });
     charts = hasVolume ? [price, volume, adx] : [price, adx];
     if (!hasVolume) $('[data-st-volume]').innerHTML = '<p class="dash-note">거래량 제공 안 됨</p>';
