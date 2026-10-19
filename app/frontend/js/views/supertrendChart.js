@@ -271,7 +271,9 @@ export function supertrendChartView(container) {
         colors.push(color); widths.push(1); dashes.push(3);
       });
     }
-    const compact = state.range === '3y';
+    const narrow = window.matchMedia?.('(max-width: 640px)').matches;
+    // 3년 보기와 휴대폰 폭에서는 글자 라벨이 서로·가격축과 겹치므로 점만 찍는다.
+    const compact = state.range === '3y' || narrow;
     const points = (state.data.flips || []).filter((flip) => flip.date >= shown[0].date).map((flip) => {
       const row = all.find((item) => item.date === flip.date);
       const up = flip.type === 'up';
@@ -291,7 +293,6 @@ export function supertrendChartView(container) {
     const selectionLine = sel && sel.date >= shown[0].date ? [{ x: x(sel), borderColor: COLORS.select, strokeDashArray: 3, opacity: 0.8 }] : [];
     const lows = shown.map((row) => row.l);
     const highs = shown.map((row) => row.h);
-    const narrow = window.matchMedia?.('(max-width: 640px)').matches;
     const common = {
       chart: { group: 'st-sync', background: 'transparent', foreColor: '#8a97ad', animations: { enabled: false },
         toolbar: { show: false }, zoom: { enabled: false },
@@ -354,7 +355,7 @@ export function supertrendChartView(container) {
     charts.forEach((chart) => chart.render());
     $('[data-st-title]').textContent = `${state.name} (${state.data.ticker}) · 일봉 · ATR ${state.data.settings.atr} × ${state.data.settings.factor}`;
     $('[data-st-legend]').innerHTML = `<span style="color:${COLORS.up}">━ 상승 ST</span> · <span style="color:${COLORS.down}">━ 하락 ST</span>${state.data.last_confirmed ? '' : ' · ┅ 미확정'}
-      · 라벨: 채움 = 직전 확정 주봉과 같은 방향 / 테두리만 = 반대·계산 전${compact ? ' · 3년 보기에서는 점만 표시' : ''} · 캔들 상승 빨강·하락 파랑`;
+      · 라벨: 채움 = 직전 확정 주봉과 같은 방향 / 테두리만 = 반대·계산 전${compact ? ' · 3년 보기·휴대폰에서는 점만 표시(상태표·전환 기록에서 확인)' : ''} · 캔들 상승 빨강·하락 파랑`;
   }
 
   function metric(label, value, hint = '') {

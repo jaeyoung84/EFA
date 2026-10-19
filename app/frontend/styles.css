@@ -3595,3 +3595,8 @@ a.dash-news-title:hover { color: var(--primary); text-decoration: underline; }
   /* 뉴스 탭 안내 문구가 숨겨져도 자리는 유지한다. */
   .dash-brief [data-brief-note][hidden] { display: block; visibility: hidden; }
 }
+/* EINT-057 모바일 점검: 브리핑 탭 5개가 잘리지 않게 줄이고 넘치면 줄바꿈 */
+@media (max-width: 640px) {
+  .dash-brief .dash-tabs { flex-wrap: wrap; overflow-x: visible; row-gap: 2px; }
+  .dash-brief .dash-tabs button { padding: 6px 7px; font-size: .76rem; }
+}
