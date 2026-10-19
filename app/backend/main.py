@@ -662,6 +662,102 @@ async def market_pick_context(user: dict = Depends(current_user)) -> dict:
     return result
 
 
+def _dart_disclosures_between(stock_code: str, start, end) -> list[dict]:
+    """start~end(포함) DART 공시 목록. 공시가 없으면 빈 목록, 조회 실패는 예외."""
+    corp_code = _dart_corp_by_stock().get(stock_code)
+    if not corp_code:
+        raise RuntimeError("DART 기업 코드를 찾지 못했습니다.")
+    query = urllib.parse.urlencode({"crtfc_key": _dart_api_key(), "corp_code": corp_code, "page_count": 100,
+                                    "bgn_de": start.strftime("%Y%m%d"), "end_de": end.strftime("%Y%m%d")})
+    with urllib.request.urlopen("https://opendart.fss.or.kr/api/list.json?" + query, timeout=8) as response:
+        data = json.loads(response.read())
+    if data.get("status") == "013":
+        return []
+    if data.get("status") != "000":
+        raise RuntimeError(f"DART 응답 {data.get('status')}: {data.get('message', '')}")
+    return data.get("list") or []
+
+
+_PICK_DECLINE_CACHE: dict[str, tuple[float, dict]] = {}
+PICK_DECLINE_CACHE_SECONDS = 30 * 60
+KIS_NEWS_ROWS = 40   # 한투 뉴스 제목 TR이 한 번에 주는 최신 건수
+
+
+@app.get("/api/market/pick-decline-context")
+async def market_pick_decline_context(user: dict = Depends(current_user)) -> dict:
+    """EINT-058: 오늘 추천 종목의 하락 구간(기준일 포함 최근 5거래일)에 공시·뉴스가 있었는지. 참고 표시용."""
+    try:
+        from .kqs_recommendations import read_local_recommendations
+        from .pick_context import DECLINE_WINDOW_DAYS, decline_context, decline_window
+        from .holdings_news import relevant_news
+        from .stock_risk import classify_disclosure
+    except ImportError:
+        from kqs_recommendations import read_local_recommendations  # type: ignore
+        from pick_context import DECLINE_WINDOW_DAYS, decline_context, decline_window  # type: ignore
+        from holdings_news import relevant_news  # type: ignore
+        from stock_risk import classify_disclosure  # type: ignore
+    try:
+        payload = await asyncio.to_thread(read_local_recommendations)
+    except RuntimeError as exc:
+        return {"available": False, "detail": str(exc), "items": {}}
+    snapshot_id = str(payload.get("snapshot_id") or payload.get("generated_at"))
+    hit = _PICK_DECLINE_CACHE.get(snapshot_id)
+    if hit and monotonic() - hit[0] < PICK_DECLINE_CACHE_SECONDS:
+        return hit[1]
+    as_of = str(payload["engine"]["data_as_of"])[:10]
+    as_of_day = datetime.fromisoformat(as_of).date()
+    picks: dict[str, tuple[str, str]] = {}
+    for signal in payload.get("signals", []):
+        if signal.get("action") == "entry" and signal.get("selection_outcome") == "selected":
+            picks.setdefault(signal["symbol"], (signal.get("market", ""), signal.get("name") or signal["symbol"]))
+    service = kis_service()
+    gate = asyncio.Semaphore(3)
+
+    async def one(symbol: str, market: str, name: str) -> dict:
+        ticker = f"{symbol}.{'KQ' if market == 'KOSDAQ' else 'KS'}"
+        async with gate:
+            try:
+                stored = await get_daily_ohlcv(ticker, as_of_day - timedelta(days=21), as_of_day + timedelta(days=1),
+                                               adjusted=False, prefer_cached=True)
+                window = decline_window(stored["bars"], as_of, DECLINE_WINDOW_DAYS)
+            except Exception:
+                window = None
+            if not window:
+                return decline_context(None, disclosures=None, news=None)
+            disclosures = disclosure_error = None
+            try:
+                disclosures = await asyncio.to_thread(_dart_disclosures_between, symbol,
+                                                        datetime.fromisoformat(window["start"]).date(), as_of_day)
+            except Exception as exc:
+                disclosure_error = f"DART 조회 실패: {exc}"[:200]
+            news = news_error = None
+            partial = False
+            if service.enabled:
+                try:
+                    rows = await service.news_titles(symbol)
+                    news = relevant_news(rows, symbol, name)
+                    dates = sorted(d for d in ((f"{r.get('data_dt', '')}")[:8] for r in rows) if len(d) == 8)
+                    # 최신 N건이 꽉 찼는데 가장 오래된 기사가 구간 시작보다 늦으면 앞부분을 못 본 것이다.
+                    oldest = f"{dates[0][:4]}-{dates[0][4:6]}-{dates[0][6:]}" if dates else None
+                    partial = len(rows) >= KIS_NEWS_ROWS and bool(oldest) and oldest > window["start"]
+                except Exception as exc:
+                    news_error = f"한투 뉴스 조회 실패: {exc}"[:200]
+            else:
+                news_error = "한투 키 없음"
+            return decline_context(window, disclosures=disclosures, news=news, news_partial=partial,
+                                   disclosure_error=disclosure_error, news_error=news_error, classify=classify_disclosure)
+
+    symbols = list(picks)
+    results = await asyncio.gather(*(one(symbol, *picks[symbol]) for symbol in symbols))
+    result = {"available": True, "as_of": as_of, "snapshot_id": snapshot_id, "items": dict(zip(symbols, results)),
+              "note": "하락 구간(기준일 포함 최근 5거래일)의 DART 공시와 한투 뉴스 제목을 날짜로 걸렀습니다. 뉴스를 동반한 급락은 "
+                      "이어지고 동반하지 않은 급락은 되돌아오는 경향이 연구에서 보고됐지만(Chan 2003, Savor 2012) 이 시스템에서 "
+                      "검증한 규칙은 아닙니다. 추천을 막거나 순서를 바꾸지 않습니다."}
+    _PICK_DECLINE_CACHE.clear()
+    _PICK_DECLINE_CACHE[snapshot_id] = (monotonic(), result)
+    return result
+
+
 # Codex 수정: CODX-SL-001 (2026-10-08), 저장된 공매도·대차 참고자료만 읽는 인증 API.
 @app.get("/api/market/short-lending-reference")
 async def market_short_lending_reference(user: dict = Depends(current_user)) -> dict:

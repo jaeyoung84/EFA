@@ -8,6 +8,8 @@
 """
 from __future__ import annotations
 
+import re
+
 GAP_WARNING_PCT = -5.0
 KIND_LABELS = {"treasury": "자사주", "insider": "임원·주요주주", "major": "5% 이상 보유"}
 
@@ -48,3 +50,67 @@ def recent_activity(items: list[dict], symbol: str) -> dict | None:
             kinds[KIND_LABELS[group]] = kinds.get(KIND_LABELS[group], 0) + 1
     latest = max(str(item.get("rcept_date") or "") for item in mine)
     return {"count": len(mine), "kinds": kinds, "latest_date": f"{latest[:4]}-{latest[4:6]}-{latest[6:8]}" if len(latest) == 8 else None}
+
+
+# ── EINT-058 하락 구간의 공시·뉴스 동반 여부 ─────────────────────────────
+# 뉴스·공시를 동반한 급락은 이어지고 동반하지 않은 급락은 되돌아오는 경향이 보고됐다(Chan 2003 JFE,
+# Savor 2012 JFE). 이 시스템에서 검증한 규칙이 아니므로 표시만 하고 추천·순서에는 쓰지 않는다.
+DECLINE_WINDOW_DAYS = 5
+EARNINGS_TITLE = re.compile(r"영업\(잠정\)실적|잠정실적|매출액또는손익구조|결산실적|영업실적")
+
+
+def decline_window(bars: list[dict], as_of: str, days: int = DECLINE_WINDOW_DAYS) -> dict | None:
+    """기준일까지 최근 days거래일(기준일 포함)의 구간 수익률과 가장 크게 떨어진 날. 봉이 모자라면 None."""
+    ordered = sorted(bars, key=lambda bar: str(bar["timestamp"])[:10])
+    index = next((i for i, bar in enumerate(ordered) if str(bar["timestamp"])[:10] == as_of), None)
+    if index is None or index < days:
+        return None
+    window = ordered[index - days + 1:index + 1]
+    base = float(ordered[index - days]["close"])
+    changes = []
+    for i, bar in enumerate(window):
+        prev = float(ordered[index - days + i]["close"])
+        changes.append((str(bar["timestamp"])[:10], (float(bar["close"]) / prev - 1) * 100 if prev > 0 else 0.0))
+    worst = min(changes, key=lambda item: item[1])
+    return {"start": str(window[0]["timestamp"])[:10], "end": as_of,
+            "return_pct": round((float(window[-1]["close"]) / base - 1) * 100, 2) if base > 0 else None,
+            "worst_day": {"date": worst[0], "pct": round(worst[1], 2)}}
+
+
+def _day(value: str | None) -> str:
+    text = re.sub(r"\D", "", str(value or ""))[:8]
+    return f"{text[:4]}-{text[4:6]}-{text[6:8]}" if len(text) == 8 else ""
+
+
+def decline_context(window: dict | None, *, disclosures: list[dict] | None, news: list[dict] | None,
+                    news_partial: bool = False, disclosure_error: str | None = None, news_error: str | None = None,
+                    classify=None) -> dict:
+    """구간 안의 공시(DART list 행)·뉴스(relevant_news 행)를 날짜로 걸러 요약한다.
+
+    조회 실패는 '없음'과 구별한다. 뉴스가 최근 N건 제한으로 구간 시작까지 닿지 않으면 partial로 둔다.
+    """
+    if not window:
+        return {"status": "unavailable", "reason": "기준일 주변 일봉 부족"}
+    start, end = window["start"], window["end"]
+    in_window = lambda day: bool(day) and start <= day <= end  # noqa: E731
+    result = {"status": "ok", **window, "disclosures": None, "news": None, "news_partial": bool(news_partial),
+              "disclosure_error": disclosure_error, "news_error": news_error}
+    if disclosures is not None:
+        rows = []
+        for row in disclosures:
+            day = _day(row.get("rcept_dt"))
+            if not in_window(day):
+                continue
+            title = str(row.get("report_nm") or "").strip()
+            risk = classify(title) if classify else None
+            tag = risk[1] if risk else ("실적" if EARNINGS_TITLE.search(re.sub(r"\s+", "", title)) else None)
+            rows.append({"date": day, "title": title, "tag": tag, "severity": risk[0] if risk else None})
+        result["disclosures"] = sorted(rows, key=lambda row: row["date"], reverse=True)
+    if news is not None:
+        rows = [{"date": (item.get("published_at") or "")[:10], "title": item.get("title"), "source": item.get("source")}
+                for item in news if in_window((item.get("published_at") or "")[:10])]
+        result["news"] = sorted(rows, key=lambda row: row["date"], reverse=True)
+    if result["disclosures"] is None and result["news"] is None:
+        result["status"] = "unavailable"
+        result["reason"] = "공시·뉴스 조회 실패"
+    return result

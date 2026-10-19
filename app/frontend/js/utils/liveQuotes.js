@@ -64,6 +64,8 @@ export function startLiveQuotes(root) {
         const data = await fetchLiveQuotes(tickers);
         const byTicker = Object.fromEntries((data.items || []).map((item) => [item.ticker, item]));
         slots.forEach((slot) => { slot.classList.remove('is-loading'); slot.innerHTML = liveQuoteHtml(byTicker[slot.dataset.liveTicker]); });
+        // EINT-058: 같은 시세로 '현재가 기준' 표시(entryDrift.js)를 갱신하도록 알린다.
+        root.dispatchEvent(new CustomEvent('livequotes', { detail: byTicker }));
         wait = Number(data.refresh_seconds) || 30;
       } catch {
         slots.forEach((slot) => { slot.classList.remove('is-loading'); slot.innerHTML = liveQuoteHtml(null); });

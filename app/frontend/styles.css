@@ -3600,3 +3600,8 @@ a.dash-news-title:hover { color: var(--primary); text-decoration: underline; }
   .dash-brief .dash-tabs { flex-wrap: wrap; overflow-x: visible; row-gap: 2px; }
   .dash-brief .dash-tabs button { padding: 6px 7px; font-size: .76rem; }
 }
+/* EINT-058 추천 이후 '현재가 기준' 한 줄과 하락 구간 공시·뉴스 칩 */
+.entry-drift { margin: 4px 0 6px; padding: 6px 10px; border-left: 2px solid var(--primary); background: var(--surface-soft); border-radius: 0 6px 6px 0; color: var(--text); font-size: .74rem; line-height: 1.6; }
+.entry-drift b { color: var(--primary); margin-right: 4px; }
+.entry-drift small { display: block; color: var(--text-muted); font-size: .66rem; }
+.pick-decline .pick-ctx-chip { white-space: normal; }

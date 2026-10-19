@@ -10,6 +10,8 @@ import { fillRiskBadges, riskSlot } from '../utils/riskBadges.js';
 import { exitPlanHtml } from '../utils/exitPlan.js';
 import { contextSlot, fillPickContext } from '../utils/pickContext.js';
 import { supertrendSlot, fillSupertrendRef, holdingFlips, holdingFlipsHtml, holdingFlipsBannerHtml, bindSupertrendLinks } from '../utils/supertrendRef.js';
+import { declineSlot, fillPickDecline } from '../utils/pickDecline.js';
+import { driftSlot, bindEntryDrift } from '../utils/entryDrift.js';
 
 const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
@@ -205,7 +207,9 @@ export function queueHtml({ board, loggedIn, filter = 'all' }, now = Date.now())
     <div class="dash-queue-risk">${riskSlot(pick.symbol, { full: true })}</div>
     ${contextSlot(pick.symbol)}
     ${supertrendSlot(pick.symbol, pick.market, pick.name)}
+    ${declineSlot(pick.symbol)}
     ${exitPlanHtml(pick.exit_plan)}
+    ${driftSlot(pick)}
     <div class="dash-chips"><span>추천 근거</span>${(pick.reason_labels || []).filter(Boolean).slice(0, 3).map((label) => `<i>${esc(label)}</i>`).join('')}</div>
     ${decisionForm(pick)}
   </article>`).join('');
@@ -371,6 +375,8 @@ export function dashboardView(container) {
     fillRiskBadges(el);
     fillPickContext(el);
     fillSupertrendRef(el);
+    fillPickDecline(el);
+    bindEntryDrift(el);
     startLiveQuotes(el);
     $('[data-queue-count]').textContent = String(picksOf(state.board).length);
   };

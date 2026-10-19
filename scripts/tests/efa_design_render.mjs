@@ -14,6 +14,7 @@ const STUBS = {
   riskSlot: "(s, o) => `<span data-risk-symbol=\"${s}\"${o && o.full ? ' data-risk-full' : ''}></span>`", fillRiskBadges: '() => {}',
   contextSlot: '(s) => `<span data-ctx-symbol="${s}"></span>`', fillPickContext: '() => {}',
   supertrendSlot: '(s) => `<span data-st-ref="${s}"></span>`', fillSupertrendRef: '() => {}',
+  declineSlot: '(s) => `<span data-decline-symbol="${s}"></span>`', fillPickDecline: '() => {}', driftSlot: "() => ''", bindEntryDrift: '() => {}',
   TIME_FORMAT: "{ timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }",
 };
 async function load(file) {
