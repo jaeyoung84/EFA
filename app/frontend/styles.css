@@ -3577,3 +3577,13 @@ a.dash-news-title:hover { color: var(--primary); text-decoration: underline; }
 .st-ref-chip.is-st-down { color: var(--red); border-color: rgba(255,59,92,.45); }
 .st-ref-chip:hover { background: var(--surface-hover); }
 @media (max-width: 640px) { .st-ref-chip { white-space: normal; text-align: left; } }
+/* EINT-055 보유종목 슈퍼트렌드 전환 알림(전환일에만) */
+.st-flip-tag { display: inline-block; padding: 1px 7px; border-radius: 6px; border: 1px solid currentColor; font-size: .72rem; font-weight: 700; white-space: nowrap; }
+.st-flip-tag.is-st-up, .st-tile-flag.is-st-up { color: #22c55e; }
+.st-flip-tag.is-st-down, .st-tile-flag.is-st-down { color: var(--red); }
+.st-flip-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0 0 10px; padding: 9px 12px; border: 1px solid rgba(240,185,11,.45); background: rgba(240,185,11,.07); border-radius: 8px; font-size: .8rem; }
+.st-flip-banner > i { color: var(--yellow); }
+.st-flip-banner small { color: var(--text-muted); margin-left: auto; }
+.st-flip-item { display: inline-flex; align-items: center; gap: 5px; padding: 2px 6px; color: var(--text); background: none; border: 1px solid var(--border); border-radius: 6px; font: inherit; cursor: pointer; }
+.st-flip-item:hover { background: var(--surface-hover); }
+.st-tile-flag { font-style: normal; font-size: .64rem; font-weight: 800; padding: 0 4px; border-radius: 4px; background: rgba(10,14,23,.75); }

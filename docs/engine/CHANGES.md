@@ -1364,3 +1364,11 @@
 - 화면: `app/frontend/js/utils/supertrendRef.js`(새 파일) — 전략 추천(`strategyBoard.js` 펼친 카드)과 대시보드 추천 대기열(`dashboard.js`)의 기존 판단 근거 칩 줄 아래에 'ST 일봉 ▲상승 · 주봉 ▼하락 · 상승 전환 3일째 · 선까지 4.2% (10/16)' 칩. 툴팁에 기준일·세부값·"추천 규칙·순서에 반영되지 않습니다", 누르면 해당 종목·기본 설정으로 슈퍼트렌드 차트 이동. 기존 Codex 구역(pickContext.js 수급 칩 CODX-SL-001, strategyBoard·dashboard의 CODX-EXIT-001 경고 표시)은 수정하지 않음.
 - 시점: 칩은 조회 시점의 최신 확정 일봉 기준(추천 기준일과 다를 수 있어 날짜를 함께 표시)이며 저장하지 않는다. 추천 시점 특징으로 기록·학습하지 않는다.
 - 테스트: `tests/test_supertrend_chart.py` +2(확정 봉 기준 요약·이력 부족, 일괄 API·잘못된 티커 제외·실패 종목·캐시), `scripts/tests/supertrend_ref_render.mjs`(티커 변환·문구·escape·실패 표시). 기존 `strategy_board_render.mjs`·`efa_design_render.mjs`의 import 가짜 구현 줄에 새 함수 2개 추가(Codex 표시 테스트 블록은 미변경). 캐시 `styles.css?v=60`, `app.js?v=48`.
+
+## EINT-055 — 2026-10-19: 대시보드 — 보유종목 슈퍼트렌드 추세 전환 알림(전환일에만)
+
+- 사용자 "메인화면 오늘의 투자 브리핑 및 내 자산에 내 보유종목이 슈퍼트렌드 추세 전환하면 추세 전환하는 날만 알려줘".
+- 정의: 보유종목(현금 제외, 최대 30)의 마지막 **확정** 일봉에서 ATR 10×3 슈퍼트렌드 방향이 바뀌었으면(`flip_today`) 그 종목만 알림. 확정 = 정규장 마감+30분(KR 15:30 KST, 미국 16:00 ET) 이후이므로, 전환일 장 마감 후부터 다음 거래일 종가 확정 전까지 보인다. 전환이 없는 날은 배너·배지가 나타나지 않는다. 기존 `GET /api/chart/supertrend-reference` 재사용(백엔드 변경 없음), 국내·미국 보유종목 모두.
+- `dashboard.js`: 브리핑에 '추세 전환' 탭(전환한 종목만, 전환일에만 탭 숫자), 내 자산 트리맵 위 '오늘 슈퍼트렌드 전환' 알림 줄과 해당 타일 `ST▲/▼` 표시. 누르면 슈퍼트렌드 차트로 이동. 기존 Codex 구역(CODX-EXIT-001 매도 신호 탭·배지, CODX-USPORT-001 뉴스 표기)은 미변경. `supertrendRef.js`에 `holdingFlips`·`holdingFlipsHtml`·`holdingFlipsBannerHtml`·`bindSupertrendLinks`·`openSupertrendChart` 추가.
+- 참고 정보이며 매매 지시·추천 규칙·원장·자동매매와 연결하지 않음. 알림은 화면 표시만(푸시·메일 없음), 저장하지 않음.
+- 테스트: `scripts/tests/supertrend_ref_render.mjs` 확장(전환 종목만 추림, 현금·형식 오류 제외, 조회 실패 수, 전환 없는 날 배너 없음, escape). 대시보드 `assetsHtml`·`briefingHtml` 렌더는 임시 스크립트로 확인(배너·타일 표시, 무전환 시 배너 없음). 기존 `efa_design_render.mjs`·`strategy_board_render.mjs` 통과. 캐시 `styles.css?v=61`, `app.js?v=49`.

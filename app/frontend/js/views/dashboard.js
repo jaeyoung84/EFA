@@ -9,7 +9,7 @@ import { liveSlot, startLiveQuotes } from '../utils/liveQuotes.js';
 import { fillRiskBadges, riskSlot } from '../utils/riskBadges.js';
 import { exitPlanHtml } from '../utils/exitPlan.js';
 import { contextSlot, fillPickContext } from '../utils/pickContext.js';
-import { supertrendSlot, fillSupertrendRef } from '../utils/supertrendRef.js';
+import { supertrendSlot, fillSupertrendRef, holdingFlips, holdingFlipsHtml, holdingFlipsBannerHtml, bindSupertrendLinks } from '../utils/supertrendRef.js';
 
 const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
@@ -97,12 +97,13 @@ export function newsHtml(news, now = Date.now()) {
     <p class="dash-note">종목당 최근 3건 · ${fetched}. ${esc(news.note || '한국·미국 보유종목 뉴스 참고자료입니다.')}</p>`;
 }
 
-export function briefingHtml(tab, { board, outcomes, news, loggedIn }) {
+export function briefingHtml(tab, { board, outcomes, news, loggedIn, flips }) {
   if (!loggedIn) {
     return `<div class="dash-empty"><p>로그인하면 오늘의 KQS 추천과 내 판단 기록을 볼 수 있습니다.</p>
       <button type="button" class="dash-btn is-primary" data-dash-login>로그인</button></div>`;
   }
   if (tab === 'news') return newsHtml(news);
+  if (tab === 'flips') return holdingFlipsHtml(flips);
   if (!board) return '<div class="dash-empty"><p>추천을 불러오는 중…</p></div>';
   if (tab === 'sells') {
     const sells = (board.sell_signals || []).filter((row) => row.state === 'exit_signal');
@@ -166,13 +167,14 @@ export function assetsHtml(state) {
     return '<div class="dash-empty"><p>등록된 보유자산이 없습니다.</p><button type="button" class="dash-btn is-primary" data-dash-go="portfolio-holdings">보유자산 등록</button></div>';
   }
   const tiles = treemapLayout(positions.map((item) => ({ ...item, value: item.value_krw })));
-  return `<div class="dash-treemap" role="img" aria-label="보유자산 비중 지도">${tiles.map((tile) => {
+  const flipped = Object.fromEntries((state.flips?.items || []).map((item) => [item.ticker, item.flip_today]));
+  return `${holdingFlipsBannerHtml(state.flips)}<div class="dash-treemap" role="img" aria-label="보유자산 비중 지도">${tiles.map((tile) => {
     const cash = tile.ticker === 'CASH';
     const cls = cash ? 'is-cash' : tile.change_pct > 0 ? 'is-up' : tile.change_pct < 0 ? 'is-down' : 'is-flat';
     const size = tile.h < 14 || tile.w < 14 ? ' is-tiny' : tile.h < 26 || tile.w < 24 ? ' is-small' : '';
     return `<div class="dash-tile ${cls}${size}" style="left:${tile.x}%;top:${tile.y}%;width:${tile.w}%;height:${tile.h}%"
       title="${esc(tile.name)} 비중 ${tile.weight_pct.toFixed(1)}%">
-      <strong>${esc(tile.name)}</strong><span>${tile.weight_pct.toFixed(1)}%</span>${cash ? '' : `<em>${signed(tile.change_pct)}</em>`}</div>`;
+      <strong>${esc(tile.name)}</strong>${flipped[tile.ticker] ? `<i class="st-tile-flag ${flipped[tile.ticker] === 'up' ? 'is-st-up' : 'is-st-down'}" title="오늘 슈퍼트렌드 ${flipped[tile.ticker] === 'up' ? '상승' : '하락'} 전환">ST${flipped[tile.ticker] === 'up' ? '▲' : '▼'}</i>` : ''}<span>${tile.weight_pct.toFixed(1)}%</span>${cash ? '' : `<em>${signed(tile.change_pct)}</em>`}</div>`;
   }).join('')}</div>
   <div class="dash-legend"><span><i class="is-up"></i>상승</span><span><i class="is-down"></i>하락</span><span><i class="is-cash"></i>보합·현금</span><small>면적 = 포트폴리오 비중 · 등락 = 전일 대비(지연 시세)</small></div>`;
 }
@@ -272,7 +274,7 @@ const STATUS_TEXT = { ok: '정상', warn: '주의', error: '오류', unknown: '�
 export function dashboardView(container) {
   const loggedIn = isAuthenticated();
   const state = { loggedIn, board: null, outcomes: null, insight: null, error: null, quotes: {}, quotesAt: null,
-    refresh: null, flowPeriod: '1mo', chartMarket: 'kospi', chartFrame: 'day', briefTab: 'news', news: null, queueFilter: 'all' };
+    refresh: null, flowPeriod: '1mo', chartMarket: 'kospi', chartFrame: 'day', briefTab: 'news', news: null, queueFilter: 'all', flips: null };
   const charts = [];
   let alive = true;
   window._viewCleanup = () => { alive = false; charts.splice(0).forEach((chart) => { try { chart.destroy(); } catch { /* 이미 해제 */ } }); };
@@ -284,6 +286,7 @@ export function dashboardView(container) {
         <div class="dash-tabs" role="tablist">
           <button type="button" role="tab" data-brief-tab="news">보유종목 뉴스 <b data-brief-count></b></button>
           <button type="button" role="tab" data-brief-tab="sells">매도 신호 <b data-sell-count></b></button>
+          <button type="button" role="tab" data-brief-tab="flips">추세 전환 <b data-flip-count></b></button>
           <button type="button" role="tab" data-brief-tab="outcomes">추천 성과</button>
           <button type="button" role="tab" data-brief-tab="health">엔진 상태</button>
         </div></header>
@@ -333,13 +336,15 @@ export function dashboardView(container) {
   const renderGreeting = () => { $('[data-dash-greet]').innerHTML = greetingHtml(new Date(), currentUserInfo()?.username || ''); };
   const renderBrief = () => {
     container.querySelectorAll('[data-brief-tab]').forEach((tab) => tab.setAttribute('aria-selected', String(tab.dataset.briefTab === state.briefTab)));
-    const titles = { news: '내 보유종목 주요 뉴스', sells: '내 보유 종목 매도 신호', outcomes: '추천 성과(전향 관측)', health: '엔진 상태' };
+    const titles = { news: '내 보유종목 주요 뉴스', sells: '내 보유 종목 매도 신호', flips: '오늘 슈퍼트렌드 추세가 바뀐 보유종목', outcomes: '추천 성과(전향 관측)', health: '엔진 상태' };
     $('.dash-brief-sub h3').textContent = titles[state.briefTab];
     $('[data-brief-note]').hidden = state.briefTab !== 'news';
     $('[data-brief-badge]').hidden = state.briefTab !== 'news';
     const el = $('[data-dash-brief]');
     el.innerHTML = briefingHtml(state.briefTab, state);
     bindCommon(el);
+    bindSupertrendLinks(el);
+    renderFlipCount();
     fillSectorBadges(el);
     fillRiskBadges(el);
     startLiveQuotes(el);
@@ -348,10 +353,13 @@ export function dashboardView(container) {
     const sells = (state.board?.sell_signals || []).filter((row) => row.state === 'exit_signal' && row.signal_basis !== 'close_warning').length;
     $('[data-sell-count]').textContent = sells ? `(${sells})` : '';
   };
+  // 전환이 있는 날에만 탭에 숫자를 붙인다.
+  const renderFlipCount = () => { $('[data-flip-count]').textContent = state.flips?.items?.length ? `(${state.flips.items.length})` : ''; };
   const renderAssets = () => {
     const el = $('[data-dash-assets]');
     el.innerHTML = assetsHtml(state);
     bindCommon(el);
+    bindSupertrendLinks(el);
     $('[data-dash-total]').innerHTML = state.insight ? `총 자산 <b>${fmt(state.insight.total)}원</b>${state.partialNote ? ` <small>(${esc(state.partialNote)})</small>` : ''}` : '';
   };
   const renderQueue = () => {
@@ -407,6 +415,13 @@ export function dashboardView(container) {
       state.partialNote = basis.partial ? `시세 확인된 ${basis.priced}개 기준 · ${basis.excluded}개 제외` : '';
     } catch (error) { state.error = error.message; }
     if (alive) renderAssets();
+    if (alive && state.insight) loadFlips();
+  }
+  async function loadFlips() {
+    state.flips = await holdingFlips(state.insight.positions).catch(() => ({ checked: 0, items: [], failed: 0 }));
+    if (!alive) return;
+    renderAssets(); renderFlipCount();
+    if (state.briefTab === 'flips') renderBrief();
   }
   async function loadQuotes() {
     try {

@@ -79,3 +79,64 @@ export async function fillSupertrendRef(root) {
     });
   });
 }
+
+// ── 보유종목 추세 전환 알림(EINT-055): 마지막 확정 일봉에서 방향이 바뀐 종목만 돌려준다 ──
+const HOLDING_TICKER = /^[0-9A-Z.^=-]{1,24}$/;
+
+/** positions: [{ticker, name}] → 오늘(마지막 확정 일봉) 전환한 종목 목록. 전환 없는 날은 빈 목록. */
+export async function holdingFlips(positions) {
+  const holdings = (positions || []).filter((item) => item.ticker && item.ticker !== 'CASH' && HOLDING_TICKER.test(item.ticker)).slice(0, 30);
+  if (!holdings.length) return { checked: 0, items: [], failed: 0 };
+  const tickers = [...new Set(holdings.map((item) => item.ticker))];
+  const results = await lookup(tickers);
+  const items = [];
+  let failed = 0;
+  tickers.forEach((ticker, i) => {
+    const item = results[i];
+    if (!item || item.status !== 'ok') { failed += 1; return; }
+    if (item.flip_today) items.push({ ...item, name: holdings.find((row) => row.ticker === ticker)?.name || ticker });
+  });
+  return { checked: tickers.length, items, failed };
+}
+
+export function openSupertrendChart(ticker, name) {
+  try {
+    const prefs = JSON.parse(localStorage.getItem(CHART_PREF_KEY) || '{}');
+    localStorage.setItem(CHART_PREF_KEY, JSON.stringify({ ...prefs, ticker, name: name || ticker, atr: 10, factor: 3 }));
+  } catch { /* 저장 불가 브라우저: 차트는 마지막 종목으로 열린다 */ }
+  window.navigate('supertrend-chart');
+}
+
+export function flipLabelHtml(item) {
+  const up = item.flip_today === 'up';
+  return `<span class="st-flip-tag ${up ? 'is-st-up' : 'is-st-down'}">${up ? '▲ 상승 전환' : '▼ 하락 전환'}</span>`;
+}
+
+/** 브리핑 '추세 전환' 탭 본문. 전환이 없으면 조용한 한 줄만. */
+export function holdingFlipsHtml(flips) {
+  if (!flips) return '<div class="dash-empty"><p>보유종목 슈퍼트렌드를 확인하는 중…</p></div>';
+  if (!flips.checked) return '<div class="dash-empty"><p>슈퍼트렌드를 확인할 보유 종목이 없습니다.</p></div>';
+  if (!flips.items.length) {
+    return `<div class="dash-empty"><p>오늘 추세가 바뀐 보유종목이 없습니다. (${flips.checked}종목 확인${flips.failed ? ` · ${flips.failed}종목 조회 불가` : ''})</p></div>`;
+  }
+  return `<ol class="dash-brief-list">${flips.items.map((item, index) => `<li>
+      <span class="dash-rank ${item.flip_today === 'down' ? 'is-sell' : ''}">${index + 1}</span>
+      <span class="dash-brief-name"><strong>${esc(item.name)}</strong><small>${esc(item.ticker)}</small></span>
+      ${flipLabelHtml(item)}
+      <span class="dash-brief-price"><button type="button" class="dash-link" data-st-chart="${esc(item.ticker)}" data-st-name="${esc(item.name)}">차트 <i class="fa-solid fa-arrow-right"></i></button></span>
+      <ul class="dash-brief-reasons"><li>${esc(item.as_of)} 종가 확정 기준 · 직전 확정 주봉 ${dirText(item.weekly_dir)}${item.distance_pct !== null ? ` · 새 추세선까지 ${Number(item.distance_pct).toFixed(1)}%` : ''}</li></ul>
+    </li>`).join('')}</ol>
+    <p class="dash-note">일봉 슈퍼트렌드(ATR 10 × 3) 방향이 바뀐 날에만 표시합니다. 참고 정보이며 매매 지시·추천 규칙이 아닙니다.${flips.failed ? ` ${flips.failed}종목은 시세 조회 불가.` : ''}</p>`;
+}
+
+/** 내 자산 위 알림 줄. 전환이 없으면 빈 문자열. */
+export function holdingFlipsBannerHtml(flips) {
+  if (!flips?.items?.length) return '';
+  return `<div class="st-flip-banner" role="status"><i class="fa-solid fa-bolt" aria-hidden="true"></i><b>오늘 슈퍼트렌드 전환</b>
+    ${flips.items.map((item) => `<button type="button" class="st-flip-item" data-st-chart="${esc(item.ticker)}" data-st-name="${esc(item.name)}">${esc(item.name)} ${flipLabelHtml(item)}</button>`).join('')}
+    <small>${esc(flips.items[0].as_of)} 종가 확정 · 참고용</small></div>`;
+}
+
+export function bindSupertrendLinks(root) {
+  root.querySelectorAll('[data-st-chart]').forEach((button) => button.addEventListener('click', () => openSupertrendChart(button.dataset.stChart, button.dataset.stName)));
+}

@@ -22,4 +22,29 @@ assert.ok(today.includes('하락 전환 오늘') && !today.includes('· 주봉')
 
 assert.ok(m.supertrendRefHtml(undefined).includes('조회 불가'));
 assert.ok(m.supertrendRefHtml({ status: 'insufficient' }).includes('이력 부족'));
+
+// EINT-055 보유종목 전환 알림: 전환한 종목만, 현금·형식 오류 제외, 조회 실패 수, 전환 없는 날은 배너 없음.
+const calls = [];
+globalThis.fetch = async (url) => {
+  calls.push(url);
+  return { ok: true, json: async () => ({ items: {
+    '005930.KS': { ticker: '005930.KS', status: 'ok', as_of: '2026-10-16', dir: 1, weekly_dir: -1, flip_today: 'down', distance_pct: 3.1 },
+    'AAPL': { ticker: 'AAPL', status: 'ok', as_of: '2026-10-16', dir: -1, weekly_dir: -1, flip_today: null, distance_pct: 5 },
+    '000660.KS': { ticker: '000660.KS', status: 'unavailable' },
+  } }) };
+};
+const flips = await m.holdingFlips([{ ticker: 'CASH', name: '현금' }, { ticker: '005930.KS', name: '삼성<전자>' }, { ticker: 'AAPL', name: 'Apple' },
+  { ticker: '000660.KS', name: 'SK하이닉스' }, { ticker: 'bad ticker', name: 'x' }]);
+assert.equal(calls.length, 1);
+assert.ok(!decodeURIComponent(calls[0]).includes('CASH') && !decodeURIComponent(calls[0]).includes('bad'));
+assert.equal(flips.checked, 3); assert.equal(flips.failed, 1);
+assert.deepEqual(flips.items.map((item) => item.ticker), ['005930.KS']);
+const tab = m.holdingFlipsHtml(flips);
+assert.ok(tab.includes('삼성&lt;전자&gt;') && tab.includes('▼ 하락 전환') && tab.includes('2026-10-16 종가 확정') && tab.includes('1종목은 시세 조회 불가'));
+assert.ok(m.holdingFlipsBannerHtml(flips).includes('오늘 슈퍼트렌드 전환') && m.holdingFlipsBannerHtml(flips).includes('data-st-chart="005930.KS"'));
+const quiet = { checked: 3, items: [], failed: 0 };
+assert.equal(m.holdingFlipsBannerHtml(quiet), '');
+assert.ok(m.holdingFlipsHtml(quiet).includes('오늘 추세가 바뀐 보유종목이 없습니다'));
+assert.ok(m.holdingFlipsHtml(null).includes('확인하는 중'));
+assert.ok(m.holdingFlipsHtml({ checked: 0, items: [], failed: 0 }).includes('보유 종목이 없습니다'));
 console.log('supertrend_ref_render ok');
