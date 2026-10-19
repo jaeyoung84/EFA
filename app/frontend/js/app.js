@@ -19,6 +19,7 @@ import { portfolioCombinationView } from './views/portfolioCombination.js';
 import { macroRealtimeView }    from './views/macroRealtime.js';
 import { futuresFlowsView }    from './views/futuresFlows.js';
 import { industryAnalysisView } from './views/industryAnalysis.js';
+import { supertrendChartView } from './views/supertrendChart.js';
 import { dartCompanySearchView } from './views/dartCompanySearch.js';
 import { companyFinancialView } from './views/companyFinancial.js';
 import { dartFinancialAnalysisView } from './views/dartFinancialAnalysis.js';
@@ -64,12 +65,13 @@ const routes = {
   'dart-company-search':     { label: 'DART 기업 검색',             render: () => dartCompanySearchView(app) },
   'dart-financial-analysis': { label: 'DART 재무 분석',             render: () => dartFinancialAnalysisView(app) },
   'industry-analysis':       { label: '산업 비교',                  render: () => industryAnalysisView(app) },
+  'supertrend-chart':        { label: '슈퍼트렌드 차트',            render: () => supertrendChartView(app) },
   'dart-market-activity':  { label: '자사주·내부자 공시',          render: () => dartMarketActivityView(app) },
   'server-resources':        { label: '시스템 상태',                render: () => serverResourcesView(app) },
 };
 
 const NAV_SECTIONS = {
-  analysis: ['company-financial', 'dart-company-search', 'dart-financial-analysis', 'dart-market-activity', 'industry-analysis'],
+  analysis: ['company-financial', 'dart-company-search', 'dart-financial-analysis', 'dart-market-activity', 'industry-analysis', 'supertrend-chart'],
   portfolio: ['portfolio-holdings', 'portfolio-risk', 'portfolio-combination'],
   kqs: ['strategy-board', 'my-strategies', 'strategy-backtest', 'leverage-dca', 'external-picks'],
   market: ['world-markets', 'sector-rotation', 'asset-classes', 'today-gainers', 'today-sobujang', 'macro-realtime', 'futures-flows'],

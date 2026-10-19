@@ -3527,3 +3527,46 @@ a.dash-news-title:hover { color: var(--primary); text-decoration: underline; }
 /* EINT-049 소부장 전체: 상승·하락 요약 */
 .gainers-summary { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0 0 10px; padding: 10px 12px; background: var(--surface-soft); border-radius: 8px; font-size: .8rem; color: var(--text-muted); }
 .gainers-summary b.is-up { color: var(--up); } .gainers-summary b.is-down { color: var(--down); }
+/* 슈퍼트렌드 독립 차트 (docs/handoff/codex/2026-10-19-supertrend-chart-design.md 구현) */
+.st-form, .st-calc-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.st-field { display: grid; gap: 4px; font-size: .74rem; color: var(--text-muted); }
+.st-field input { width: 110px; padding: 8px 10px; color: var(--text); background: var(--surface-soft); border: 1px solid var(--border-strong); border-radius: 8px; font-size: .85rem; }
+.st-search input { width: 260px; }
+.st-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-top: 12px; }
+.st-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: .8rem; color: var(--text-muted); cursor: pointer; }
+.st-status-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.st-status-grid > div { display: grid; gap: 3px; padding: 10px 12px; background: var(--surface-soft); border-radius: 8px; min-width: 0; }
+.st-status-grid small { color: var(--text-muted); font-size: .72rem; }
+.st-status-grid em { font-style: normal; color: var(--text-muted); font-size: .72rem; overflow-wrap: anywhere; }
+.st-dir { font-weight: 800; color: var(--text-muted); }
+.st-dir.is-up, .st-up { color: #22c55e; font-weight: 700; }
+.st-dir.is-down, .st-down { color: var(--red); font-weight: 700; }
+.st-warn { color: var(--yellow); font-weight: 700; }
+.st-combo { margin: 12px 0 0; font-size: .84rem; line-height: 1.6; }
+.st-combo small { color: var(--text-muted); }
+.st-chart-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; align-items: baseline; }
+.st-chart-head .dash-note { margin: 0; }
+.st-sub-label, .st-adx summary { margin-top: 6px; font-size: .78rem; font-weight: 700; color: var(--text-muted); }
+.st-sub-label small, .st-adx summary small { font-weight: 400; }
+.st-adx summary { cursor: pointer; }
+.st-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; }
+.st-h2 { margin: 0 0 10px; font-size: 1rem; color: #fff; }
+.st-h2 small { font-size: .72rem; font-weight: 400; color: var(--text-muted); }
+.st-sel-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.st-sel-nav { display: flex; gap: 6px; }
+.st-sel-nav .dash-btn { padding: 6px 12px; }
+.st-metrics th { width: 34%; text-align: left; font-weight: 600; color: var(--text-muted); }
+.st-metrics td { font-variant-numeric: tabular-nums; }
+.st-metrics td.efa-muted { font-size: .74rem; }
+.st-flip-table tbody tr { cursor: pointer; }
+.st-flip-table tbody tr:hover, .st-flip-table tbody tr:focus { background: var(--surface-hover); outline: none; }
+.st-calc-out ul { margin: 12px 0 0; padding-left: 18px; line-height: 1.8; font-size: .86rem; }
+.st-help ol { margin: 0 0 8px; padding-left: 18px; line-height: 1.8; font-size: .84rem; }
+@media (max-width: 1100px) { .st-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .st-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 640px) {
+  .st-search, .st-search input, .st-search .stock-search { width: 100%; }
+  .st-field input { width: 96px; }
+  .st-status-grid { grid-template-columns: minmax(0, 1fr); }
+  .st-adx:not([open]) + * { margin-top: 0; }
+  .st-metrics td.efa-muted { display: none; }
+}

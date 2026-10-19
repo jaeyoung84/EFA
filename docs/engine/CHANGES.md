@@ -1344,3 +1344,14 @@
 - 화면 `externalPicks.js`: 파일 선택이 PDF·CSV를 받는다. PDF면 달 선택 상자(여러 달일 때), 고른 달 글자를 입력란에 넣고 명단 이름 'YYYY년 M월', 기록 날짜 = 그달 1일(미래면 오늘). 파일 이름에 '대장주'/'저평가'가 있으면 출처를 `InvestingPro 한국 대장주 가치`/`InvestingPro 한국 저평가 가치`로 맞춘다(KR-PRO-CONSENSUS-v1 출처 이름과 같음). 두 출처를 목록 앞에 추가.
 - 확인: 실제 두 PDF(로컬, 비공개) 25개월 모두 월별 종목 수 20/15, 기존 인식기 결과가 PDF의 'A+6자리' 코드와 25개월 전부 일치. 의존성 `pypdf==6.19.0`(requirements·lock·backend 테스트).
 - 테스트: `tests/test_external_picks.py` +3(실제 PDF 추출·잘못된 파일, 달 구역 분리, 로그인 전용 API), `scripts/tests/external_picks_render.mjs`(출처 추정·달 목록·기록 날짜). 캐시 `styles.css?v=58`, `app.js?v=46`.
+
+## EINT-053 — 2026-10-19: 슈퍼트렌드 독립 차트(종목 분석 메뉴)
+
+- 사용자 "PC 코덱스에서 슈퍼트렌드 관련 채팅 읽어와서 코드로 만들어". 근거: PC Codex 대화 'Pine Script 슈퍼트렌드 지표 작성'(일봉 ST ATR10×3, `[1]+lookahead_on` 확정 주봉, 확정 전환 BUY/SELL)과 Codex 설계 `docs/handoff/codex/2026-10-19-supertrend-chart-design.md`(CODX-ST-DESIGN-001, 읽기만 하고 수정하지 않음).
+- 재사용 결정: 엔진·추천·청산·원장·주문·관측 등록부와 연결하지 않는 별도 화면. 시세는 기존 `market_data.get_daily_ohlcv`(검증 저장본, 수정주가) 그대로. 새 전략·백테스트·성과 주장 없음.
+- `app/backend/supertrend_chart.py`: TradingView `ta.supertrend` 재현(hl2, 첫 봉 TR=고가−저가, RMA ATR, nz 밴드 재귀, `na(atr[1])`이면 하락 시작, `prevST==prevUpper` 분기·엄격 부등호). 주봉은 일봉 원 OHLC를 ISO 주로 묶어 독립 계산하고 각 일봉엔 **직전 완료 주** 값만. 확정 = 거래소 정규장 마감(KR 15:30 KST, 미국 16:00 ET)+30분 이후. 전환은 확정 봉에서만, 주봉 필터 없이 BUY·SELL 모두 보존(주봉 일치 여부는 별도 필드). ADX14(Wilder), 거래량 배율(직전 20일 평균, 당일 제외, 결측·0평균·미확정 봉은 None), 최근 20거래일 전환 수, 직전 20/60일 고저(당일 제외), 추세선 거리 %·ATR 단위, ATR%, 시가 갭(전일 ATR 기준), 전환 후 가격 변화, 장중 이탈(미확정 봉이 전일 확정 상승선 아래), SMA20/60/200, 비교 지수(KS→^KS11, KQ→^KQ11, 그 외 ^GSPC) 일봉 ST 방향.
+- `app/backend/routers/charts.py`: `GET /api/chart/supertrend?ticker&atr(1–100)&factor(0.1–20)` 공개 읽기 API. 5년+30일 이력으로 계산해 전 봉 반환(표시 구간은 화면에서 자름 → 6개월/1년/3년 전환에도 값 불변). 시세 없으면 503+원인(가짜 캔들 없음). `main.py`에 라우터 등록 3줄.
+- 화면 `app/frontend/js/views/supertrendChart.js`(메뉴: 종목 분석 › 슈퍼트렌드 차트, `supertrend-chart`): 상태 줄(확정 일봉·직전 확정 주봉과 기준 주·최근 전환·비교 지수·마지막 봉 확정 여부), 주봉×일봉 4조합 설명, 캔들+초록/빨강 ST선+미확정 점선+모든 전환 라벨(주봉 일치=채움, 반대=테두리), 확대·이동, 선택 MA·직전 20일 고저, 거래량·ADX(+DI/−DI 선택, 20·25 눈금) 패널, 날짜 선택 상태표(◀ ▶·최신), 전환 기록 30개, 가격 거리 계산(P·S·Q·T → (P−S)×Q, S<P<T일 때만 R배수; 저장 안 함, `data-local-state="off"`). 종목·설정·구간만 브라우저에 기억.
+- 설계와 다르게/미구현: 금요일 마감 직후 '이번 주 마감값' 별도 표시 없음(직전 주 참조만). 휴장·조기마감 달력은 쓰지 않고 마감 시각+여유로만 확정 판정(조기마감일은 보수적으로 늦게 확정). 주 묶음은 ISO 주(월~일)로, 미국·한국 정규장 일봉만 가정. 알림·스캐너·성과표는 후속.
+- 확인: 실제 005930.KS 5년 일봉(yfinance)으로 계산 실행 — 1220봉, 장중 당일 봉 미확정 처리, 최근 전환 2026-10-12 SELL(직전 주봉 하락과 일치). TradingView 화면과의 날짜 대조는 하지 않음.
+- 테스트: `tests/test_supertrend_chart.py` 13개(Pine 원문 그대로 옮긴 대조 구현과 무작위 401봉 일치, 초기값, 전환 조건, 직전 완료 주 매핑·월/금 동일·휴장 주, 주봉 상승 중 SELL 보존, 이력 추가 불변, 미확정 봉 무전환·장중 이탈·거래량 배율 제외, 거래소 마감 판정, 거래량 결측, 고저·거리·ADX 준비 기간, API 200/503/422). `tests/test_site_scope.py`·`test_web_security.py` 통과. 캐시 `styles.css?v=59`, `app.js?v=47`.
