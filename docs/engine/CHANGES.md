@@ -1372,3 +1372,9 @@
 - `dashboard.js`: 브리핑에 '추세 전환' 탭(전환한 종목만, 전환일에만 탭 숫자), 내 자산 트리맵 위 '오늘 슈퍼트렌드 전환' 알림 줄과 해당 타일 `ST▲/▼` 표시. 누르면 슈퍼트렌드 차트로 이동. 기존 Codex 구역(CODX-EXIT-001 매도 신호 탭·배지, CODX-USPORT-001 뉴스 표기)은 미변경. `supertrendRef.js`에 `holdingFlips`·`holdingFlipsHtml`·`holdingFlipsBannerHtml`·`bindSupertrendLinks`·`openSupertrendChart` 추가.
 - 참고 정보이며 매매 지시·추천 규칙·원장·자동매매와 연결하지 않음. 알림은 화면 표시만(푸시·메일 없음), 저장하지 않음.
 - 테스트: `scripts/tests/supertrend_ref_render.mjs` 확장(전환 종목만 추림, 현금·형식 오류 제외, 조회 실패 수, 전환 없는 날 배너 없음, escape). 대시보드 `assetsHtml`·`briefingHtml` 렌더는 임시 스크립트로 확인(배너·타일 표시, 무전환 시 배너 없음). 기존 `efa_design_render.mjs`·`strategy_board_render.mjs` 통과. 캐시 `styles.css?v=61`, `app.js?v=49`.
+
+## EINT-056 — 2026-10-19: PC 대시보드 브리핑·내 자산 카드 크기 고정
+
+- 사용자 "오늘의 투자 브리핑 크기에 따른 내 자산 크기도 같이 변해, 둘 다 PC는 보유종목 뉴스 기준으로 고정해". 내 자산 카드가 인사+브리핑 줄 높이에 맞춰 늘어나므로, 브리핑 탭(뉴스·매도 신호·추세 전환·추천 성과·엔진 상태)마다 내용 높이가 달라 두 카드가 함께 커졌다 줄었다.
+- `styles.css` 끝에 1025px 이상 전용 규칙: 브리핑 본문(`[data-dash-brief]`)을 보유종목 뉴스 탭 최대 높이(목록 330px + 수집 안내)인 372px로 고정하고 안에서 스크롤, 안쪽 목록의 개별 max-height 해제, 뉴스 안내 문구가 다른 탭에서 숨겨져도 자리 유지. 모바일·태블릿(1024px 이하)은 기존 그대로. 기존 Codex CSS 구역(CODX-USPORT-001 뉴스 목록)은 수정하지 않고 뒤에서 덮어씀. 캐시 `styles.css?v=62`.
+- 확인: 로컬 정적 서버(운영 API 연결) + 헤드리스 Chrome 1600px 스크린샷으로 브리핑 본문 고정 높이 확인(로그인 전 화면).
