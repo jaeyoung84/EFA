@@ -224,3 +224,37 @@ async def test_api_returns_rows_and_503_without_data(client, monkeypatch):
     response = await client.get("/api/chart/supertrend?ticker=AAA")
     assert response.status_code == 503 and "provider down" in response.json()["detail"]
     assert (await client.get("/api/chart/supertrend?ticker=AAA&atr=0")).status_code == 422
+
+
+def test_reference_summary_uses_last_confirmed_bar():
+    closes = [100 + i for i in range(40)] + [100]
+    days = _weekdays(date(2024, 1, 1), 41)
+    last = date.fromisoformat(days[-1])
+    during_session = datetime(last.year, last.month, last.day, 11, 0, tzinfo=ZoneInfo("Asia/Seoul"))
+    summary = charts_router.reference_summary("005930.KS", _bars(closes, days), now=during_session)
+    assert summary["status"] == "ok" and summary["as_of"] == days[-2] and summary["dir"] == -1
+    assert summary["flip_today"] is None and summary["intraday_break"] is True
+    short = charts_router.reference_summary("005930.KS", _bars([100.0] * 5, days[:5]), now=FAR_FUTURE)
+    assert short["status"] == "insufficient"
+
+
+@pytest.mark.asyncio
+async def test_reference_api_batches_and_reports_unavailable(client, monkeypatch):
+    bars = _bars([100 + i * 0.3 for i in range(120)])
+    calls = []
+
+    async def fake_load(ticker):
+        calls.append(ticker)
+        if ticker == "000000.KS":
+            raise RuntimeError("no data")
+        return {"bars": bars}
+
+    monkeypatch.setattr(charts_router, "_load", fake_load)
+    monkeypatch.setattr(charts_router, "_ref_cache", {})
+    response = await client.get("/api/chart/supertrend-reference?tickers=005930.KS,000000.KS,bad ticker!,005930.KS")
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert set(items) == {"005930.KS", "000000.KS"}
+    assert items["005930.KS"]["status"] == "ok" and items["000000.KS"]["status"] == "unavailable"
+    await client.get("/api/chart/supertrend-reference?tickers=005930.KS")
+    assert calls.count("005930.KS") == 1  # 캐시 재사용

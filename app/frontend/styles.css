@@ -3570,3 +3570,10 @@ a.dash-news-title:hover { color: var(--primary); text-decoration: underline; }
   .st-adx:not([open]) + * { margin-top: 0; }
   .st-metrics td.efa-muted { display: none; }
 }
+/* EINT-054 추천 종목 슈퍼트렌드 참고 칩(조건 아님) */
+.st-ref-chip { cursor: pointer; background: transparent; font-family: inherit; }
+.st-ref-chip small { opacity: .7; margin-left: 2px; }
+.st-ref-chip.is-st-up { color: #22c55e; border-color: rgba(34,197,94,.45); }
+.st-ref-chip.is-st-down { color: var(--red); border-color: rgba(255,59,92,.45); }
+.st-ref-chip:hover { background: var(--surface-hover); }
+@media (max-width: 640px) { .st-ref-chip { white-space: normal; text-align: left; } }

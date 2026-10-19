@@ -1356,3 +1356,11 @@
 - 확인: 실제 005930.KS 5년 일봉(yfinance)으로 계산 실행 — 1220봉, 장중 당일 봉 미확정 처리, 최근 전환 2026-10-12 SELL(직전 주봉 하락과 일치). TradingView 화면과의 날짜 대조는 하지 않음.
 - 테스트: `tests/test_supertrend_chart.py` 13개(Pine 원문 그대로 옮긴 대조 구현과 무작위 401봉 일치, 초기값, 전환 조건, 직전 완료 주 매핑·월/금 동일·휴장 주, 주봉 상승 중 SELL 보존, 이력 추가 불변, 미확정 봉 무전환·장중 이탈·거래량 배율 제외, 거래소 마감 판정, 거래량 결측, 고저·거리·ADX 준비 기간, API 200/503/422). `tests/test_site_scope.py`·`test_web_security.py` 통과. 캐시 `styles.css?v=59`, `app.js?v=47`.
 - 2026-10-19 수정(배포 후 사용자 "차트 데이터없음 알람뜸"): ApexCharts가 `tooltip.shared`+기본 `intersect`를 막대 차트에서 예외로 던져 load()의 catch가 '차트 데이터 없음'으로 표시함. `intersect: false` 명시, 그리기 오류는 '차트 그리기 오류'로 분리(상태표·전환 기록 유지), 추세선 색 명시(회색으로 그려지던 문제), ADX 20·25 라벨 겹침 제거. 운영 API에 붙인 로컬 정적 서버 + 헤드리스 Chrome으로 렌더링 확인.
+
+## EINT-054 — 2026-10-19: 추천 종목에 슈퍼트렌드 참고 칩(조건 아님)
+
+- 사용자 "이걸 우리 추천종목에 추가사항으로 넣어줘 조건은 아니고 참조사항으로". Codex 설계(CODX-ST-DESIGN-001)는 독립 화면을 '엔진 추천에 연결하지 않는다'로 범위를 정했으나, 사용자가 표시 전용 참고로 명시 요청 → 추천 선정·순서·청산·원장·학습 데이터에는 여전히 연결하지 않고 카드에 칩만 표시.
+- API `GET /api/chart/supertrend-reference?tickers=`(최대 30, 공개 읽기, ATR 10×3 고정, 10분 메모리 캐시, 동시 4): 종목별 마지막 **확정** 일봉의 방향·직전 확정 주봉·오늘/최근 전환·지속일·추세선 거리·20일 전환 수·ADX·장중 이탈. 실패는 `unavailable`, 이력 부족은 `insufficient`.
+- 화면: `app/frontend/js/utils/supertrendRef.js`(새 파일) — 전략 추천(`strategyBoard.js` 펼친 카드)과 대시보드 추천 대기열(`dashboard.js`)의 기존 판단 근거 칩 줄 아래에 'ST 일봉 ▲상승 · 주봉 ▼하락 · 상승 전환 3일째 · 선까지 4.2% (10/16)' 칩. 툴팁에 기준일·세부값·"추천 규칙·순서에 반영되지 않습니다", 누르면 해당 종목·기본 설정으로 슈퍼트렌드 차트 이동. 기존 Codex 구역(pickContext.js 수급 칩 CODX-SL-001, strategyBoard·dashboard의 CODX-EXIT-001 경고 표시)은 수정하지 않음.
+- 시점: 칩은 조회 시점의 최신 확정 일봉 기준(추천 기준일과 다를 수 있어 날짜를 함께 표시)이며 저장하지 않는다. 추천 시점 특징으로 기록·학습하지 않는다.
+- 테스트: `tests/test_supertrend_chart.py` +2(확정 봉 기준 요약·이력 부족, 일괄 API·잘못된 티커 제외·실패 종목·캐시), `scripts/tests/supertrend_ref_render.mjs`(티커 변환·문구·escape·실패 표시). 기존 `strategy_board_render.mjs`·`efa_design_render.mjs`의 import 가짜 구현 줄에 새 함수 2개 추가(Codex 표시 테스트 블록은 미변경). 캐시 `styles.css?v=60`, `app.js?v=48`.

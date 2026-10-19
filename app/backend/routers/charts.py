@@ -5,8 +5,10 @@
 """
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import date, timedelta
+from time import monotonic
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -27,6 +29,52 @@ HISTORY_DAYS = 365 * 5 + 30
 async def _load(ticker: str) -> dict:
     end = date.today() + timedelta(days=1)
     return await get_daily_ohlcv(ticker, end - timedelta(days=HISTORY_DAYS), end, adjusted=True, prefer_cached=True)
+
+
+REF_MAX_TICKERS = 30
+REF_CACHE_SECONDS = 600
+_ref_cache: dict[str, tuple[float, dict]] = {}
+_ref_gate = asyncio.Semaphore(4)
+
+
+def reference_summary(ticker: str, bars: list[dict], now=None) -> dict:
+    """추천 카드용 요약: 마지막 확정 일봉 기준 방향·주봉·최근 전환·거리. 점수·신호가 아니다."""
+    result = stc.compute_chart(bars, ticker=ticker, now=now, benchmark_bars=None)
+    rows = result["bars"]
+    confirmed = rows if result["last_confirmed"] else rows[:-1]
+    if not confirmed or confirmed[-1]["dir"] is None:
+        return {"ticker": ticker, "status": "insufficient", "bar_count": len(rows)}
+    row = confirmed[-1]
+    return {"ticker": ticker, "status": "ok", "as_of": row["date"], "dir": row["dir"], "weekly_dir": row["weekly_dir"],
+            "weekly_ref_end": row["weekly_ref_end"], "flip_today": row["flip"], "last_flip_type": row["last_flip_type"],
+            "last_flip_date": row["last_flip_date"], "days_since_flip": row["days_since_flip"],
+            "distance_pct": row["distance_pct"], "atr_distance": row["atr_distance"], "st": row["st"],
+            "flip_count": row["flip_count"], "adx": row["adx"],
+            "intraday_break": rows[-1]["intraday_break"] if not result["last_confirmed"] else False}
+
+
+@router.get("/supertrend-reference")
+async def supertrend_reference(tickers: str = Query(..., description="쉼표로 구분, 최대 30개 (예: 005930.KS,035720.KQ)")) -> dict:
+    """추천 종목 참고 칩용 일괄 요약(ATR 10 × 3 고정). 추천 규칙·순서·원장에 쓰지 않는다."""
+    wanted = list(dict.fromkeys(t.strip().upper() for t in tickers.split(",") if TICKER_RE.fullmatch(t.strip())))[:REF_MAX_TICKERS]
+
+    async def one(ticker: str) -> dict:
+        hit = _ref_cache.get(ticker)
+        if hit and monotonic() - hit[0] < REF_CACHE_SECONDS:
+            return hit[1]
+        async with _ref_gate:
+            try:
+                stored = await _load(ticker)
+                summary = reference_summary(ticker, stored.get("bars") or []) if stored.get("bars") else {"ticker": ticker, "status": "unavailable"}
+            except Exception as exc:
+                return {"ticker": ticker, "status": "unavailable", "error": f"{type(exc).__name__}: {exc}"[:200]}
+        _ref_cache[ticker] = (monotonic(), summary)
+        return summary
+
+    items = await asyncio.gather(*(one(ticker) for ticker in wanted))
+    return {"settings": {"atr": stc.DEFAULT_ATR_LENGTH, "factor": stc.DEFAULT_FACTOR},
+            "items": {item["ticker"]: item for item in items},
+            "note": "슈퍼트렌드 참고 정보이며 추천 규칙·순서에 반영되지 않습니다. 확정 일봉 기준."}
 
 
 @router.get("/supertrend")

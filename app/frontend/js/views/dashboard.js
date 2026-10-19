@@ -9,6 +9,7 @@ import { liveSlot, startLiveQuotes } from '../utils/liveQuotes.js';
 import { fillRiskBadges, riskSlot } from '../utils/riskBadges.js';
 import { exitPlanHtml } from '../utils/exitPlan.js';
 import { contextSlot, fillPickContext } from '../utils/pickContext.js';
+import { supertrendSlot, fillSupertrendRef } from '../utils/supertrendRef.js';
 
 const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
@@ -201,6 +202,7 @@ export function queueHtml({ board, loggedIn, filter = 'all' }, now = Date.now())
     <p class="dash-queue-live">${liveSlot(pick.symbol, pick.market)}</p>
     <div class="dash-queue-risk">${riskSlot(pick.symbol, { full: true })}</div>
     ${contextSlot(pick.symbol)}
+    ${supertrendSlot(pick.symbol, pick.market, pick.name)}
     ${exitPlanHtml(pick.exit_plan)}
     <div class="dash-chips"><span>추천 근거</span>${(pick.reason_labels || []).filter(Boolean).slice(0, 3).map((label) => `<i>${esc(label)}</i>`).join('')}</div>
     ${decisionForm(pick)}
@@ -360,6 +362,7 @@ export function dashboardView(container) {
     fillSectorBadges(el);
     fillRiskBadges(el);
     fillPickContext(el);
+    fillSupertrendRef(el);
     startLiveQuotes(el);
     $('[data-queue-count]').textContent = String(picksOf(state.board).length);
   };

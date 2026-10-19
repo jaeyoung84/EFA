@@ -8,6 +8,7 @@ import { liveSlot, startLiveQuotes } from '../utils/liveQuotes.js';
 import { fillRiskBadges, riskSlot } from '../utils/riskBadges.js';
 import { exitPlanHtml } from '../utils/exitPlan.js';
 import { contextSlot, fillPickContext } from '../utils/pickContext.js';
+import { supertrendSlot, fillSupertrendRef } from '../utils/supertrendRef.js';
 import { funnelHtml } from '../utils/signalFunnel.js';
 
 const esc = (value) => String(value ?? '-').replace(/[&<>'"]/g, (char) => ({
@@ -73,6 +74,7 @@ function pickRow(pick, decisions) {
       <ul class="sb-reasons">${(pick.reasons || []).map((reason) => `<li>${esc(reason)}</li>`).join('')}</ul>
       ${riskSlot(pick.symbol, { full: true, hideClean: true })}
       ${contextSlot(pick.symbol)}
+      ${supertrendSlot(pick.symbol, pick.market, pick.name)}
       ${pick.exit_plan ? exitPlanHtml(pick.exit_plan) : pick.exit_reference ? `<p class="sb-note"><b>청산 참고 기준</b> ${esc(pick.exit_reference)}</p>` : ''}
       ${decisionBadges(decisions[pick.signal_id])}
       ${pick.signal_id ? decisionForm(pick) : ''}
@@ -201,6 +203,7 @@ export function strategyBoardView(container) {
     fillSectorBadges(container);
     fillRiskBadges(container);
     fillPickContext(container);
+    fillSupertrendRef(container);
     const funnel = container.querySelector('[data-sb-funnel]');
     if (funnel) authRequest('/api/kqs/signal-funnel').then((data) => { funnel.innerHTML = funnelHtml(data); })
       .catch((error) => { funnel.innerHTML = funnelHtml({ available: false, detail: error.message }); });
