@@ -606,3 +606,52 @@ async def test_status_shows_alpaca_account_summary_from_real_positions(client, m
     assert upro["market_value_krw"] == 150.0 * 48 * 1400.0
     assert upro["return_pct"] == pytest.approx((150 - 148) / 148 * 100, abs=1e-3)
     assert summary["after_tax"]["net_profit_after_tax_krw"] is not None
+
+
+@pytest.mark.asyncio
+async def test_holding_summary_return_includes_fx_change_and_splits_price_and_fx(client, make_user, monkeypatch):
+    """2026-10-27 사용자 승인 표시 보정: 달러 평단이 같아도 환율이 오르면 원화 손익·수익률에 반영되고 가격/환율로 나뉜다."""
+    monkeypatch.setattr(strategy, "fetch_market_signals", _async_signals())
+    monkeypatch.setattr(strategy, "alpaca_paper_configured", lambda: False)
+    email = "leverage-dca-fx-summary@example.com"
+    headers = await make_user(email)
+    await client.put("/api/strategy/leverage-dca/config", json={
+        "enabled": True, "daily_buy_krw": 5_000_000, "max_position_krw": 100_000_000, "sell_net_profit_target_krw": 50_000_000,
+    }, headers=headers)
+    _mock_quotes(monkeypatch, upro_price=100.0, soxl_price=20.0, fx_rate=1000.0)
+    await client.post("/api/strategy/leverage-dca/run-now", headers=headers)
+
+    user = await get_db().users.find_one({"email": email})
+    fills = await get_db().paper_fills.find({"user_id": user["_id"], "ticker": "UPRO"}).to_list(10)
+    avg_usd = sum(f["notional"] for f in fills) / sum(f["quantity"] for f in fills)
+    _mock_quotes(monkeypatch, upro_price=avg_usd, soxl_price=20.0, fx_rate=1300.0)   # 달러 가격 그대로, 환율만 +30%
+    upro = next(row for row in (await client.get("/api/strategy/leverage-dca/status", headers=headers)).json()["holding_summary"]["tickers"]
+                if row["ticker"] == "UPRO")
+    assert upro["return_usd_pct"] == pytest.approx(0.0, abs=1e-3)
+    assert upro["return_pct"] == pytest.approx(30.0, abs=1e-2)
+    assert upro["average_fx_rate"] == pytest.approx(1000.0, abs=0.5)
+    assert upro["price_pnl_krw"] == pytest.approx(0.0, abs=1.0)
+    assert upro["fx_pnl_krw"] == pytest.approx(upro["unrealized_pnl_krw"], abs=1.0)
+
+
+@pytest.mark.asyncio
+async def test_alpaca_quantity_mismatch_uses_recorded_buy_fx_not_current(client, make_user, monkeypatch):
+    monkeypatch.setattr(strategy, "fetch_market_signals", _async_signals())
+    monkeypatch.setattr(strategy, "alpaca_paper_configured", lambda: True)
+    monkeypatch.setattr(strategy, "alpaca_list_positions", lambda: [{"symbol": "UPRO", "qty": "12", "avg_entry_price": "100.0"}])
+    _mock_quotes(monkeypatch, upro_price=100.0, fx_rate=1400.0)
+    email = "leverage-dca-alpaca-fx@example.com"
+    headers = await make_user(email)
+    await client.put("/api/strategy/leverage-dca/config", json={
+        "enabled": True, "daily_buy_krw": 5_000_000, "max_position_krw": 100_000_000, "sell_net_profit_target_krw": 5_000_000,
+    }, headers=headers)
+    user = await get_db().users.find_one({"email": email})
+    await get_db().leverage_dca_alpaca_fills.insert_one({
+        "user_id": user["_id"], "ticker": "UPRO", "direction": "buy", "fill_quantity": 10.0, "fill_price": 100.0,
+        "notional_usd": 1000.0, "notional_krw": 1_200_000.0, "filled_at": strategy._now()})   # 매수 환율 1,200
+    summary = (await client.get("/api/strategy/leverage-dca/status", headers=headers)).json()["alpaca_holding_summary"]
+    upro = summary["tickers"][0]
+    assert upro["cost_basis_krw"] == pytest.approx(100.0 * 12 * 1200.0)          # 현재 환율 1,400이 아니라 기록 환율 1,200
+    assert upro["return_pct"] == pytest.approx((1400 / 1200 - 1) * 100, abs=1e-3)
+    assert upro["fx_pnl_krw"] == pytest.approx(1200.0 * 200.0, abs=1.0)
+    assert any("평균 매수 환율" in note for note in summary["notes"])

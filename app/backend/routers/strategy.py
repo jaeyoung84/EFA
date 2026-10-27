@@ -2949,13 +2949,23 @@ def _quote_row(ticker: str, quantity: float, average_cost_usd: float, cost_basis
     if price is None:
         errors.append(f"{ticker} 시세 조회 실패")
     market_value_krw = price * quantity * fx_rate if price is not None and fx_rate else None
+    # 사용자 승인(2026-10-27) 표시 보정: 수익률은 평가손익과 같은 원화(환율 포함) 기준으로 맞추고, 달러 기준 수익률과
+    # 평가손익을 '가격 손익(현재 환율)'과 '환율 손익(매수 환율 → 현재 환율)'으로 나눠 함께 보낸다. 매매 판단에는 쓰지 않는다.
+    cost_usd = average_cost_usd * quantity
+    avg_fx = cost_basis_krw / cost_usd if cost_usd > 0 else None
+    priced = market_value_krw is not None
     return {"ticker": ticker, "quantity": round(quantity, 6), "average_cost_usd": round(average_cost_usd, 4),
             "average_cost_krw": round(cost_basis_krw / quantity, 2) if quantity else 0.0,
+            "average_fx_rate": round(avg_fx, 2) if avg_fx else None,
             "current_price_usd": price, "cost_basis_krw": round(cost_basis_krw, 2),
-            "market_value_krw": round(market_value_krw, 2) if market_value_krw is not None else None,
-            "unrealized_pnl_krw": round(market_value_krw - cost_basis_krw, 2) if market_value_krw is not None else None,
-            "return_pct": (round((price - average_cost_usd) / average_cost_usd * 100, 4)
-                           if price is not None and average_cost_usd > 0 else None)}
+            "market_value_krw": round(market_value_krw, 2) if priced else None,
+            "unrealized_pnl_krw": round(market_value_krw - cost_basis_krw, 2) if priced else None,
+            "price_pnl_krw": round(quantity * (price - average_cost_usd) * fx_rate, 2) if priced else None,
+            "fx_pnl_krw": round(cost_usd * fx_rate - cost_basis_krw, 2) if priced else None,
+            "return_pct": (round((market_value_krw - cost_basis_krw) / cost_basis_krw * 100, 4)
+                           if priced and cost_basis_krw > 0 else None),
+            "return_usd_pct": (round((price - average_cost_usd) / average_cost_usd * 100, 4)
+                               if price is not None and average_cost_usd > 0 else None)}
 
 
 def _leverage_dca_fx_rate(errors: list[str]) -> float | None:
@@ -3004,17 +3014,20 @@ async def _leverage_dca_alpaca_holding_summary(user_id, policy: dict) -> dict | 
     realized = 0.0
     this_year = _now().astimezone(PAPER_SNAPSHOT_TIMEZONE).year
     for fill in fills:
-        item = book.setdefault(fill["ticker"], {"quantity": 0.0, "cost_krw": 0.0})
+        item = book.setdefault(fill["ticker"], {"quantity": 0.0, "cost_krw": 0.0, "cost_usd": 0.0})
         quantity, notional_krw = float(fill["fill_quantity"]), float(fill.get("notional_krw") or 0.0)
+        notional_usd = float(fill.get("notional_usd") or 0.0)
         if fill["direction"] == "buy":
             item["quantity"] += quantity
             item["cost_krw"] += notional_krw
+            item["cost_usd"] += notional_usd
         elif item["quantity"] > 1e-8:
             sold = min(quantity, item["quantity"])
             average = item["cost_krw"] / item["quantity"]
             filled_at = fill["filled_at"].replace(tzinfo=fill["filled_at"].tzinfo or timezone.utc)
             if filled_at.astimezone(PAPER_SNAPSHOT_TIMEZONE).year == this_year:
                 realized += notional_krw * (sold / quantity) - average * sold
+            item["cost_usd"] -= item["cost_usd"] / item["quantity"] * sold
             item["quantity"] -= sold
             item["cost_krw"] -= average * sold
     fx_rate = _leverage_dca_fx_rate(errors)
@@ -3029,9 +3042,13 @@ async def _leverage_dca_alpaca_holding_summary(user_id, policy: dict) -> dict | 
         if recorded and abs(recorded["quantity"] - quantity) < 1e-6 and recorded["quantity"] > 0:
             cost_krw = recorded["cost_krw"]
         else:
-            # 체결 기록과 계좌 수량이 다르면(체결 대기 주문 등) 현재 환율로 원가를 환산하고 표시한다.
-            cost_krw = average_usd * quantity * (fx_rate or 0.0)
-            notes.append(f"{ticker}: 체결 기록과 계좌 수량이 달라 원화 원가를 현재 환율로 환산했습니다.")
+            # 체결 기록과 계좌 수량이 다르면(체결 대기 주문 등) 기록된 매수의 평균 환율로 원가를 환산한다(2026-10-27 사용자 승인).
+            # 현재 환율을 쓰면 매수 이후 환율 변화가 원가에 섞여 환율 손익이 0으로 사라진다. 기록이 없을 때만 현재 환율.
+            recorded_fx = recorded["cost_krw"] / recorded["cost_usd"] if recorded and recorded["cost_usd"] > 1e-8 else None
+            cost_krw = average_usd * quantity * (recorded_fx or fx_rate or 0.0)
+            notes.append(f"{ticker}: 체결 기록과 계좌 수량이 달라 원화 원가를 "
+                         + (f"기록된 평균 매수 환율({recorded_fx:,.2f}원/$)로 환산했습니다." if recorded_fx
+                            else "현재 환율로 환산했습니다(체결 기록 없음). 환율 손익은 0으로 보입니다."))
         rows.append(_quote_row(ticker, quantity, average_usd, cost_krw, fx_rate, errors))
     return {"source": "alpaca_paper_account", "notes": notes,
             **_holding_summary(rows, realized_gain_ytd_krw=realized, policy=policy, fx_rate=fx_rate, errors=errors)}

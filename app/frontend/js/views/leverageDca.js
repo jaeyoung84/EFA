@@ -104,7 +104,8 @@ function holdingSummaryHtml(summary, emptyText) {
   const notes = summary.notes?.length ? `<p class="lvdca-config-note">${escapeHtml(summary.notes.join('; '))}</p>` : '';
   if (!rows.length) return `${errors}<p class="lvdca-empty">${emptyText}</p>`;
   const totals = summary.totals || {}; const tax = summary.after_tax;
-  const tableRows = rows.map((row) => `<tr><td>${escapeHtml(row.ticker)}</td><td>${num(row.quantity, 4)}주</td><td>${usd(row.average_cost_usd)}<br><small>${money(row.average_cost_krw)}</small></td><td>${usd(row.current_price_usd)}</td><td>${row.market_value_krw == null ? '-' : money(row.market_value_krw)}</td><td class="${tone(row.unrealized_pnl_krw)}">${signedMoney(row.unrealized_pnl_krw)}</td><td class="${tone(row.return_pct)}">${signedPct(row.return_pct)}</td></tr>`).join('');
+  // 사용자 승인(2026-10-27): 수익률은 평가손익과 같은 원화(환율 포함) 기준. 평균 매수 환율과 가격·환율 손익을 나눠 보여 준다.
+  const tableRows = rows.map((row) => `<tr><td>${escapeHtml(row.ticker)}</td><td>${num(row.quantity, 4)}주</td><td>${usd(row.average_cost_usd)}<br><small>${money(row.average_cost_krw)}${row.average_fx_rate ? ` · 매수 환율 ${Number(row.average_fx_rate).toLocaleString('ko-KR', { maximumFractionDigits: 2 })}원/$` : ''}</small></td><td>${usd(row.current_price_usd)}</td><td>${row.market_value_krw == null ? '-' : money(row.market_value_krw)}</td><td class="${tone(row.unrealized_pnl_krw)}">${signedMoney(row.unrealized_pnl_krw)}${row.fx_pnl_krw == null ? '' : `<br><small>가격 ${signedMoney(row.price_pnl_krw)} · 환율 ${signedMoney(row.fx_pnl_krw)}</small>`}</td><td class="${tone(row.return_pct)}">${signedPct(row.return_pct)}${row.return_usd_pct == null ? '' : `<br><small>달러 기준 ${signedPct(row.return_usd_pct)}</small>`}</td></tr>`).join('');
   return `
     <div class="lvdca-metric-grid">
       <article class="lvdca-metric"><span>누적 매수 원가</span><strong>${money(totals.cost_basis_krw)}</strong></article>
@@ -112,7 +113,7 @@ function holdingSummaryHtml(summary, emptyText) {
       <article class="lvdca-metric ${tone(totals.return_pct)}"><span>현재 수익률 (평가손익)</span><strong>${signedPct(totals.return_pct)}</strong><small>${signedMoney(totals.unrealized_pnl_krw)}</small></article>
       <article class="lvdca-metric ${tone(tax?.net_profit_after_tax_krw)}"><span>세후 실순수익 (지금 전량 매도 가정)</span><strong>${tax ? signedMoney(tax.net_profit_after_tax_krw) : '-'}</strong><small>${tax ? `세후 ${signedPct(tax.net_return_pct)}` : ''}</small></article>
     </div>
-    <div class="lvdca-table-wrap"><table><thead><tr><th>종목</th><th>수량</th><th>누적 평단</th><th>현재가</th><th>평가금액</th><th>평가손익</th><th>수익률</th></tr></thead><tbody>${tableRows}</tbody></table></div>
+    <div class="lvdca-table-wrap"><table><thead><tr><th>종목</th><th>수량</th><th>누적 평단</th><th>현재가</th><th>평가금액</th><th>평가손익(원)</th><th>수익률(원화, 환율 포함)</th></tr></thead><tbody>${tableRows}</tbody></table></div>
     ${tax ? `<p class="lvdca-config-note">세후 실순수익 = 평가손익 ${signedMoney(tax.gross_profit_krw)} − 매도수수료 ${money(tax.sell_fee_krw)} − 예상 양도세 ${money(tax.estimated_tax_krw)}. 과세 기준: ${escapeHtml(tax.tax_rule)}. 올해 실현손익 ${signedMoney(tax.realized_gain_ytd_krw)}, 남은 기본공제 ${money(tax.deduction_remaining_krw)}. 환율 ${summary.fx_rate ? Number(summary.fx_rate).toFixed(2) : '-'}원/$. 다른 해외주식 손익과 합산되는 실제 신고 세액과는 다를 수 있습니다.</p>` : ''}
     ${notes}${errors}`;
 }
