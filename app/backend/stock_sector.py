@@ -34,6 +34,16 @@ KSIC_SECTORS: tuple[tuple[str, str], ...] = (
     ("641", "banks"), ("65", "insurance"), ("661", "brokers"), ("6612", "brokers"),  # 은행·보험·증권
 )
 
+# 금융지주회사는 KSIC가 '기타 금융업(64992 지주회사)'이라 LG·SK 같은 일반 지주회사와 업종코드로 구별되지 않는다.
+# 코드 접두어로 묶으면 일반 지주회사가 은행으로 잘못 붙으므로, 섹터 순환 ETF가 실제로 담는 금융지주만 종목코드로 지정한다.
+# (KODEX 은행 091170: 은행지주 7곳, KODEX 보험 140700: 메리츠금융지주, KODEX 증권 102970: 한국금융지주)
+STOCK_SECTOR_OVERRIDES: dict[str, str] = {
+    "105560": "banks", "055550": "banks", "086790": "banks", "316140": "banks",   # KB·신한·하나·우리
+    "138930": "banks", "175330": "banks", "139130": "banks",                       # BNK·JB·iM
+    "138040": "insurance",                                                          # 메리츠금융지주
+    "071050": "brokers",                                                            # 한국금융지주
+}
+
 SECTOR_NAMES = {
     "semis": "반도체", "it_hw": "IT하드웨어", "battery": "2차전지", "it_sw": "소프트웨어", "internet": "인터넷",
     "auto": "자동차", "shipbuilding": "조선", "defense": "방산", "machinery": "기계장비", "construction": "건설",
@@ -56,7 +66,7 @@ def sector_for_ksic(code: str | None) -> str | None:
 
 def sector_status(symbol: str, ksic: str | None, rotation: dict) -> dict:
     """종목 하나의 섹터와 섹터 순환 현재 구역. rotation은 read_sector_rotation() 결과."""
-    key = sector_for_ksic(ksic)
+    key = STOCK_SECTOR_OVERRIDES.get(str(symbol or "").strip()) or sector_for_ksic(ksic)
     item = {"symbol": symbol, "ksic": ksic or None, "sector_key": key, "sector_name": SECTOR_NAMES.get(key) if key else None,
             "quadrant": None, "quadrant_label": None, "quadrant_4w_ago": None, "rotation_as_of": rotation.get("latest_week")}
     if not key:

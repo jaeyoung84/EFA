@@ -23,7 +23,7 @@ def test_longest_prefix_mapping(ksic, key):
 def test_status_joins_rotation_quadrant():
     semis = sector_status("000660", "2612", ROTATION)
     assert (semis["sector_name"], semis["quadrant"], semis["quadrant_label"], semis["quadrant_4w_ago"]) == ("반도체", "leading", "주도", "improving")
-    assert sector_status("105560", "64992", ROTATION)["note"] == "업종 분류 없음"
+    assert sector_status("003550", "64992", ROTATION)["note"] == "업종 분류 없음"   # 일반 지주회사(LG)는 추측하지 않음
     assert sector_status("000000", None, ROTATION)["note"] == "업종 정보 없음"
     assert sector_status("086520", "282", ROTATION)["note"] == "섹터 순환 자료 없음"   # 2차전지 not in this rotation
     assert sector_status("000660", "2612", {"available": False})["quadrant"] is None
@@ -37,3 +37,17 @@ async def test_endpoint_requires_login_and_limits_symbols(client, make_user, mon
     headers = await make_user("sector-badge@example.com")
     data = (await client.get("/api/market/stock-sectors", headers=headers, params={"symbols": "000660,005160,bad!,000660"})).json()
     assert [(i["symbol"], i["sector_name"], i["quadrant_label"]) for i in data["items"]] == [("000660", "반도체", "주도"), ("005160", "철강", "부진")]
+
+
+@pytest.mark.parametrize("symbol,name", [
+    ("105560", "은행"), ("055550", "은행"), ("086790", "은행"), ("316140", "은행"), ("138930", "은행"),
+    ("175330", "은행"), ("139130", "은행"), ("138040", "보험"), ("071050", "증권"),
+])
+def test_financial_holdings_use_code_override(symbol, name):
+    # 금융지주는 KSIC 64992(지주회사)라 업종코드로는 분류되지 않는다 → 섹터 순환 ETF 구성 기준으로 지정.
+    assert sector_status(symbol, "64992", ROTATION)["sector_name"] == name
+
+
+def test_general_holding_companies_stay_unclassified():
+    for symbol in ("003550", "034730"):   # LG, SK
+        assert sector_status(symbol, "64992", ROTATION)["sector_key"] is None
