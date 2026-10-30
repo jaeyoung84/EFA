@@ -110,6 +110,17 @@ AWS에 코드를 올리거나 서비스를 재시작하지 않았다.
 - 타이머: `systemctl list-timers 'kqs-*'`. 로그: `journalctl -u kqs-daily-pipeline.service`.
 - SNS 경보 미설정: `ops.env`에 `KQS_ALERT_SNS_TOPIC_ARN`을 넣고 역할에 `sns:Publish`를 추가하면 외부 알림.
 
+## 비용(2026-10-30 점검)
+
+- 2026-10 청구 약 $33(세금 포함): EC2 t3.small $17.8, 공인 IPv4 $3.4, EBS gp3 30GB $2.5, EBS 스냅샷 $2.3,
+  KMS $1.8(IAM Identity Center 다중 리전 고객 키 — Identity Center가 쓰므로 유지), S3 $0.6, 세금 $2.9.
+- 사용량: CPU 일평균 약 2%(최대 약 60%), 크레딧 잔고 최대치 유지. 메모리는 1.9GB 중 여유 약 0.9GB, swap 약 1GB 사용 →
+  t3.micro 등 축소 불가. 공인 IPv4는 KRX·한투 API 아웃바운드에 필요해 유지.
+- **EC2 Instance Savings Plan** `328af3f7-2137-4cc1-b18d-d1d06d45a257`: 서울 t3 계열, 1년 선결제 없음, 시간당 $0.0157 약정
+  (2026-10-30~2027-10-30, 1년 약 $137.5). t3.small 요금 월 약 $19.0 → 약 $11.5. 예약 인스턴스는 계정 한도
+  (`ReservedInstancesLimitExceeded`)로 구매 불가였다. t3 이외(t3a·t4g)로 바꾸면 약정이 적용되지 않으니 만료 전 타입 변경 금지.
+- S3 `backups/`는 매일 시장 DB 전체 사본(약 1.5GB)을 30일 보관(약 45GB). 비용이 더 필요하면 보관일 단축을 검토.
+
 ## 배포 절차
 
 1. **EC2 t3.micro → t3.small** 증설(중지·타입 변경·시작, 공인 IP 변경 가능). 메모리 2GB.
